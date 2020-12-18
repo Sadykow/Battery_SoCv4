@@ -122,3 +122,10 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Symbolic links
+Data
+
+tf-docs
+
+tf-papers

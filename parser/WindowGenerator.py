@@ -1,0 +1,389 @@
+# %% [markdown]
+# # Window Generator
+# Using data from Data Generator - creates Windows to use.
+# Used to separate huge code ammounts to separate files.
+# %%
+import os, time
+from numpy.core.fromnumeric import ndim
+import pandas as pd             # Tabled data storage
+import tensorflow as tf
+from tensorflow.python.lib.io.file_io import copy
+import tensorflow.experimental.numpy as tnp
+
+# Used for making annotations
+from dataclasses import dataclass
+
+from parser.DataGenerator import DataGenerator
+from parser.soc_calc import diffSoC, applyMinMax
+
+class WindowGenerator():
+  Data : DataGenerator          # Data object containing Parsed data
+
+  input_width   : int           # Width of the input window
+  label_width   : int           # Width of the output
+  shift         : int           # Step or skip
+  label_columns : list[str]     # List of targets
+  input_columns : list[str]     # List of Input features
+  batch         : int           # Bathes size. Samples simeltaniosly.
+  includeTarget : bool          # Use Target as part of dataset.
+  normaliseInput: bool          #
+  normaliseLabal: bool          #
+
+  float_dtype   : type          # Float variable Type
+  int_dtype     : type          # Int variable Type
+
+  #label_columns_indices : list[int]
+  #column_indices: list[int]
+  total_window_size : int       # Size (input+shift)
+  input_slice   : slice         # Input Slice (0:input_width)
+  #input_indices : list[int]
+  labels_slice  : slice
+  #label_indices : list[int]
+
+  def __init__(self, Data : DataGenerator,
+               input_width : int, label_width : int, shift : int,
+               input_columns : list[str], label_columns : list[str],
+               batch : int = 1, includeTarget : bool = False,
+               normaliseInput : bool = True, normaliseLabal : bool = True,
+               float_dtype : type = None,
+               int_dtype : type = None) -> None:
+    """ Window Constructor used to store data sets and properties of the 
+        window, which will be used for processing.
+
+    Args:
+        Data (DataGenerator): Data Object containig prepared Train/Valid data
+        input_width (int): Size of the input
+        label_width (int): Size of the output
+        shift (int): Step or shift in data window
+        label_columns (list[str]): Label column names
+        batch (int, optional): Size of the batches define how many samples
+    gets dead together. Defaults to 1.
+        includeTarget (bool, optional): Apply target to main dataset. Target has
+    to be the last column, for now. Defaults to False.
+        float_dtype (type, optional): Standard float type for all objects. If
+    None then gets type from DataGenerator object. Defaults to None.
+        int_dtype (type, optional): Standard float type for all objects. If
+    None then gets type from DataGenerator object. Defaults to None.
+    """
+    # Object containing Data from Excel
+    self.Data = Data
+
+    # Store raw data information
+    self.input_width = input_width
+    self.label_width = label_width
+    self.shift = shift
+    #self.label_names = label_names
+    self.batch = batch
+    self.includeTarget = includeTarget
+    self.normaliseInput = normaliseInput
+    self.normaliseLabal = normaliseLabal
+
+    # Variable types to use
+    if float_dtype:
+      #Get from Data generator
+      self.float_dtype = self.Data.float_dtype
+    else:
+      self.float_dtype = float_dtype
+    if int_dtype:
+      self.int_dtype = self.Data.int_dtype
+    else:
+      self.int_dtype = int_dtype
+    
+    # Work out the label column indices.
+    self.input_columns = input_columns
+    self.label_columns = label_columns
+    # if self.label_columns is not None:
+    #     self.label_columns_indices = {name: i for i, name in
+    #                             enumerate(label_columns)}
+    # overall_columns = self.Data.train[input_columns].columns
+    # overall_columns = overall_columns.append(
+    #                           self.Data.train_SoC[label_columns].columns)
+    # self.column_indices = {name: i for i, name in
+    #                     enumerate(overall_columns)}
+    
+    # Work out other parameters
+    self.total_window_size = self.input_width + self.shift
+    # Creating Slices
+    #* Expected return similar to:
+    #*input = 6, shift=1, label=1
+    #*[0 1 2 3 4 5] & [6]
+    self.input_slice = slice(0, self.input_width)    # [0:input_width]
+    # self.input_indices = tnp.arange(start=0,
+    #                     stop=self.total_window_size,
+    #                     dtype=int_dtype)[self.input_slice]
+
+    label_start : int = self.total_window_size - self.label_width
+    self.labels_slice = slice(label_start, None) #[label_Start:]
+    # self.label_indices = tnp.arange(start=0,
+    #                     stop=self.total_window_size,
+    #                     dtype=int_dtype)[self.labels_slice]
+
+  def __repr__(self) -> str:
+    """ A return from the constructor. Information of the storage like:
+    Total windows size, input and label indices, Label/output column names.
+
+    Returns:
+        str: New line string with object information
+    """
+    return '\n'.join([
+        f'\n\nTotal window size:        {self.total_window_size}',
+        f'Input indices:\n{self.input_indices}',
+        f'Label indices:        {self.label_indices}',
+        f'Label column name(s): {self.label_columns}',
+        #f'Label Column indices: {self.label_columns_indices}',
+        #f'Column indices:       {self.column_indices}',
+        f'Input Slice:          {self.input_slice}',
+        #f'Input indices:        {self.input_indices}',
+        f'Labels slice:         {self.labels_slice}',
+        #f'Labels indices:       {self.label_indices}',
+        '\n\n'])
+  
+  @tf.autograph.experimental.do_not_convert
+  def make_dataset(self, inputs : pd.DataFrame,
+                         labels : pd.DataFrame
+              ) -> tf.raw_ops.MapDataset:
+
+    tic : float = time.perf_counter()
+    if self.normaliseInput: # Normalise Inputs
+      data : pd.DataFrame = (inputs.copy(deep=True)-self.Data.get_Mean[0][self.input_columns])/self.Data.get_STD[0][self.input_columns]
+    else:
+      data : pd.DataFrame = (inputs.copy(deep=True))
+    
+    if self.normaliseLabal: # Normalise Labels
+      data[self.label_columns] = (labels.copy(deep=True)-self.Data.get_Mean[1][self.label_columns])/self.Data.get_STD[1][self.label_columns]
+    else:
+      data[self.label_columns] = (labels.copy(deep=True))
+
+    data = data[self.input_columns + self.label_columns] # Ensure order
+    data = tnp.array(val=data.values,
+            dtype=self.float_dtype, copy=True, ndmin=0)
+
+    ds : tf.raw_ops.BatchDataset = \
+          tf.keras.preprocessing.timeseries_dataset_from_array(
+            data=data, targets=None,
+            sequence_length=self.total_window_size, sequence_stride=1,
+            sampling_rate=1,
+            batch_size=self.batch, shuffle=False,
+            seed=None, start_index=None, end_index=None
+        )
+
+    ds : tf.raw_ops.MapDataset = ds.map(self.split_window)
+    x : tnp.ndarray = tnp.asarray(list(ds.map(
+                                lambda x, _: x[0,:,:]
+                              ).as_numpy_iterator()
+                          ))
+    y : tnp.ndarray = tnp.asarray(list(ds.map(
+                                lambda _, y: y[0]
+                              ).as_numpy_iterator()
+                          ))
+    print(f"\n\nData windowing took: {(time.perf_counter() - tic):.2f} seconds")
+    return ds, x, y
+  
+  @tf.autograph.experimental.do_not_convert
+  def split_window(self, features : tf.Tensor) -> tuple[tf.Tensor, tf.Tensor]:
+    if self.includeTarget:
+      inputs : tf.Tensor=features[:,self.input_slice,:]
+    else:
+      #! Fix exlude similarly to tf.stack()
+      inputs : tf.Tensor=features[:,self.input_slice,:-len(self.label_columns)]
+    
+    labels : tf.Tensor = features[:, self.labels_slice, :]
+    #labels = tf.stack([labels[:, :, -2], labels[:, :, -1]], axis=-1)
+    #labels = tf.stack([labels[:, :, -1]], axis=-1)
+    labels = tf.stack(
+                [labels[:, :, -i]
+                    for i in range(len(self.label_columns),0,-1)], axis=-1)
+    
+    # Slicing doesn't preserve static shape information, so set the shapes
+    # manually. This way the `tf.data.Datasets` are easier to inspect.
+    inputs.set_shape([None, self.input_width, None])
+    labels.set_shape([None, self.label_width, None])
+    return inputs, labels
+  
+  @tf.autograph.experimental.do_not_convert
+  def make_quickData(self, inputs : pd.DataFrame,
+                           labels : pd.DataFrame
+                ) -> tuple[tf.raw_ops.BatchDataset, tnp.ndarray, tnp.ndarray]:
+    tic : float = time.perf_counter()
+    if self.normaliseInput: # Normalise Inputs
+      data : pd.DataFrame = (inputs[:-self.input_width]-self.Data.get_Mean[0][self.input_columns])/self.Data.get_STD[0][self.input_columns]
+    else:
+      data : pd.DataFrame = (inputs[:-self.input_width])
+    
+    if self.normaliseLabal: # Normalise Labels
+      targets : pd.DataFrame = (labels[self.input_width:]-self.Data.get_Mean[1][self.label_columns])/self.Data.get_STD[1][self.label_columns]
+    else:
+      targets : pd.DataFrame = (labels[self.input_width:])
+    
+    ds : tf.raw_ops.BatchDataset = \
+            tf.keras.preprocessing.timeseries_dataset_from_array(
+                  data=data,
+                  targets=targets,
+                  sequence_length=self.input_width,
+                  sequence_stride=1, sampling_rate=1,batch_size=1,
+                  shuffle=False, seed=None, start_index=None, end_index=None
+            )
+    x : tnp.ndarray = tnp.asarray(list(ds.map(
+                                lambda x, _: x[0,:,:]
+                              ).as_numpy_iterator()
+                          ))
+    y : tnp.ndarray = tnp.asarray(list(ds.map(
+                                lambda _, y: y[0]
+                              ).as_numpy_iterator()
+                          ))
+    print(f"\n\nData windowing took: {(time.perf_counter() - tic):.2f} seconds")
+    return ds, x, y
+  
+  @tf.autograph.experimental.do_not_convert
+  def ParseFullData(self, dir : str
+      ) -> tuple[pd.DataFrame, tf.raw_ops.MapDataset, tnp.ndarray, tnp.ndarray]:
+    tic : float = time.perf_counter()
+    # Parsing file by file
+    if self.includeTarget:
+      data_x = tnp.empty(shape=(1,
+                            self.input_width,
+                            len(self.input_columns)+len(self.label_columns)
+                          ),
+                      dtype=self.float_dtype
+                      )
+    else:
+      data_x = tnp.empty(shape=(1,
+                            self.input_width,
+                            len(self.input_columns)
+                          ),
+                      dtype=self.float_dtype
+                      )    
+    data_y = tnp.empty(shape=(1,
+                          self.input_width,
+                          len(self.label_columns)
+                        ),
+                    dtype=self.float_dtype
+                    )
+    for _, _, files in os.walk(dir):
+      files.sort(key=lambda f: int(f[-13:-5])) # Sort by last dates
+      # Initialize empty structures
+      data_df : pd.DataFrame = self.Data.Read_Excel_File(dir + '/' + files[0])
+      data_SoC: pd.DataFrame = pd.DataFrame(
+               data={'SoC' : diffSoC(
+                          chargeData=(data_df.loc[:,'Charge_Capacity(Ah)']),
+                          discargeData=(data_df.loc[:,'Discharge_Capacity(Ah)'])
+                          )},
+               dtype=self.float_dtype
+            )
+      data_SoC['SoC(%)'] = applyMinMax(data_SoC['SoC'])
+      #* Converting to Tensor unit
+      if self.normaliseInput: # Normalise Inputs
+        data : pd.DataFrame = (data_df.copy(deep=True)-self.Data.get_Mean[0][self.input_columns])/self.Data.get_STD[0][self.input_columns]
+      else:
+        data : pd.DataFrame = (data_df.copy(deep=True))
+      
+      if self.normaliseLabal: # Normalise Labels
+        data[self.label_columns] = (data_SoC[self.label_columns].copy(deep=True)-self.Data.get_Mean[1][self.label_columns])/self.Data.get_STD[1][self.label_columns]
+      else:
+        data[self.label_columns] = (data_SoC[self.label_columns].copy(deep=True))
+
+      data = data[self.input_columns + self.label_columns] # Ensure order
+      data = tnp.array(val=data.values,
+              dtype=self.float_dtype, copy=True, ndmin=0)
+
+      data_ds : tf.raw_ops.BatchDataset = \
+            tf.keras.preprocessing.timeseries_dataset_from_array(
+              data=data, targets=None,
+              sequence_length=self.total_window_size, sequence_stride=1,
+              sampling_rate=1,
+              batch_size=self.batch, shuffle=False,
+              seed=None, start_index=None, end_index=None
+          )
+
+      data_ds : tf.raw_ops.MapDataset = data_ds.map(self.split_window)
+      
+      data_x : tnp.ndarray = tnp.asarray(list(data_ds.map(
+                                  lambda x, _: x[0,:,:]
+                                ).as_numpy_iterator()
+                            ))
+      data_y : tnp.ndarray = tnp.asarray(list(data_ds.map(
+                                  lambda _, y: y[0]
+                                ).as_numpy_iterator()
+                            ))
+      
+      # Processing rest of files
+      for file in files[1:]:
+        # Initialize empty structures
+        df : pd.DataFrame = self.Data.Read_Excel_File(dir + '/' + file)
+        SoC: pd.DataFrame = pd.DataFrame(
+                data={'SoC' : diffSoC(
+                            chargeData=(df.loc[:,'Charge_Capacity(Ah)']),
+                            discargeData=(df.loc[:,'Discharge_Capacity(Ah)'])
+                            )},
+                dtype=self.float_dtype
+              )
+        SoC['SoC(%)'] = applyMinMax(SoC['SoC'])
+        #* Converting to Tensor unit
+        if self.normaliseInput: # Normalise Inputs
+          data = (df.copy(deep=True)-self.Data.get_Mean[0][self.input_columns])/self.Data.get_STD[0][self.input_columns]
+        else:
+          data = (df.copy(deep=True))
+        
+        if self.normaliseLabal: # Normalise Labels
+          data[self.label_columns] = (SoC[self.label_columns].copy(deep=True)-self.Data.get_Mean[1][self.label_columns])/self.Data.get_STD[1][self.label_columns]
+        else:
+          data[self.label_columns] = (SoC[self.label_columns].copy(deep=True))
+
+        data = data[self.input_columns + self.label_columns] # Ensure order
+        data = tnp.array(val=data.values,
+                dtype=self.float_dtype, copy=True, ndmin=0)
+
+        ds : tf.raw_ops.BatchDataset = \
+              tf.keras.preprocessing.timeseries_dataset_from_array(
+                data=data, targets=None,
+                sequence_length=self.total_window_size, sequence_stride=1,
+                sampling_rate=1,
+                batch_size=self.batch, shuffle=False,
+                seed=None, start_index=None, end_index=None
+            )
+
+        ds : tf.raw_ops.MapDataset = ds.map(self.split_window)
+        
+        x : tnp.ndarray = tnp.asarray(list(ds.map(
+                                    lambda x, _: x[0,:,:]
+                                  ).as_numpy_iterator()
+                              ))
+        y : tnp.ndarray = tnp.asarray(list(ds.map(
+                                    lambda _, y: y[0]
+                                  ).as_numpy_iterator()
+                              ))
+              
+        data_ds = data_ds.concatenate(ds)
+        data_df = data_df.append(df, ignore_index=True)
+        data_x = tnp.append(arr=data_x, values=x, axis=0)
+        data_y = tnp.append(arr=data_y, values=y, axis=0)
+
+      print(f"\n\nData Generation: {(time.perf_counter() - tic):.2f} seconds")
+      return data_df, data_ds, data_x, data_y
+    return None
+
+  @property
+  def train(self):
+    if (self.shift == 1 & self.label_width == 1):
+      _, x, y = self.make_quickData(inputs=self.Data.train[self.input_columns],
+                                  labels=self.Data.train_SoC[self.label_columns]
+                                )
+      return _, x, y  
+    else:
+      ds, x, y = self.make_dataset(inputs=self.Data.train[self.input_columns],
+                                  labels=self.Data.train_SoC[self.label_columns]
+                                )
+      return ds, x, y
+
+  @property
+  def valid(self):
+    if (self.shift == 1 & self.label_width == 1):
+      _, x, y = self.make_quickData(inputs=self.Data.valid[self.input_columns],
+                                  labels=self.Data.valid_SoC[self.label_columns]
+                                )
+      return _, x, y
+    else:
+      ds, x, y = self.make_dataset(inputs=self.Data.valid[self.input_columns],
+                                  labels=self.Data.valid_SoC[self.label_columns]
+                                )
+      return ds, x, y  
