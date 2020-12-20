@@ -198,7 +198,15 @@ class WindowGenerator():
     # manually. This way the `tf.data.Datasets` are easier to inspect.
     inputs.set_shape([None, self.input_width, None])
     labels.set_shape([None, self.label_width, None])
-    return inputs, labels
+    
+    if self.input_width == 1:
+      return tf.transpose(
+                    a=inputs,
+                    perm=[0,2,1],
+                    conjugate=False,name='SwapFeatureWithHistory'), \
+              labels
+    else:
+      return inputs, labels
   
   @tf.autograph.experimental.do_not_convert
   def make_quickData(self, inputs : pd.DataFrame,
