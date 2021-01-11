@@ -53,13 +53,16 @@ import logging
 from sys import platform        # Get type of OS
 
 from parser.DataGenerator import *
+
+#! Temp Fix
+import numpy as np
 # %%
 # Define plot sizes
 mpl.rcParams['figure.figsize'] = (8, 6)
 mpl.rcParams['axes.grid'] = False
 
 # Configurage logger and print basics
-logging.basicConfig(level=logging.DEBUG,        
+logging.basicConfig(level=logging.CRITICAL,        
     format='%(asctime)s --> %(levelname)s:%(message)s')
 logging.warning("Logger enabled")
 
@@ -104,15 +107,28 @@ dataGenerator = DataGenerator(train_dir='Data/A123_Matt_Set',
 
 # training = dataGenerator.train.loc[:, 
 #                         ['Current(A)', 'Voltage(V)', 'Temperature (C)_1']]
+# data_soc = dataGenerator.train_SoC['SoC(%)']
+# plt.scatter(range(0, data_soc.size),data_soc)
+val_soc = dataGenerator.valid_SoC['SoC(%)']
+plt.scatter(range(0, val_soc.size),val_soc)
 # %%
 window = WindowGenerator(Data=dataGenerator,
                         input_width=500, label_width=1, shift=0,
                         input_columns=['Current(A)', 'Voltage(V)', 'Temperature (C)_1'],
                         label_columns=['SoC(%)'], batch=1,
-                        includeTarget=False, normaliseLabal=False)
-_, x_train, y_train = window.train
-_, x_valid, y_valid = window.valid
+                        includeTarget=False, normaliseLabal=False,
+                        shuffleTraining=False)
+# ds_train, xx_train, yy_train = window.train
+# ds_valid, xx_valid, yy_valid = window.valid
+_, _, xx_train, yy_train = window.full_train
+_, _, xx_valid, yy_valid = window.full_valid
+x_train = np.array(xx_train)
+x_valid = np.array(xx_valid)
+y_train = np.array(yy_train)
+y_valid = np.array(yy_valid)
 #train_df, train_ds, train_x, train_y = window.ParseFullData(dataGenerator.train_dir)
+#plt.scatter(range(0, y_train.size),y_train)
+plt.scatter(range(0, y_valid.size),y_valid)
 # %%
 def custom_loss(y_true, y_pred):
     #print(f"True: {y_true[0]}" ) # \nvs Pred: {tf.make_ndarray(y_pred)}")
@@ -139,7 +155,7 @@ except OSError as identifier:
     print("Model Not Found, creating new. {} \n".format(identifier))
     lstm_model = tf.keras.models.Sequential([
         # Shape [batch, time, features] => [batch, time, lstm_units]
-        tf.keras.layers.InputLayer(input_shape=x_train.shape[-2:],batch_size=1),
+        tf.keras.layers.InputLayer(input_shape=x_train.shape[-2:],batch_size=None),
         tf.keras.layers.LSTM(
             units=500, activation='tanh', recurrent_activation='sigmoid',
             use_bias=True, kernel_initializer='glorot_uniform',
@@ -147,15 +163,14 @@ except OSError as identifier:
             unit_forget_bias=True, kernel_regularizer=None,
             recurrent_regularizer=None, bias_regularizer=None,
             activity_regularizer=None, kernel_constraint=None,
-            recurrent_constraint=None, bias_constraint=None, dropout=0.0,
+            recurrent_constraint=None, bias_constraint=None, dropout=0.2,
             recurrent_dropout=0.0, implementation=2, return_sequences=False, #!
             return_state=False, go_backwards=False, stateful=False,
             time_major=False, unroll=False#,batch_input_shape=(1, 500, 3)
         ),
-        tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+        #tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
         # Shape => [batch, time, features]
         tf.keras.layers.Dense(units=1,
-                              kernel_initializer=tf.initializers.constant(0.5),
                               activation=None)
     ])
 
@@ -170,18 +185,24 @@ lstm_model.compile(loss=custom_loss,
             optimizer=tf.optimizers.Adam(learning_rate=10e-04,
                     beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
             metrics=[tf.metrics.MeanAbsoluteError(),
-                     tf.metrics.RootMeanSquaredError()])
-
+                     tf.metrics.RootMeanSquaredError()],
+            #run_eagerly=True
+            )
+# %%
 mEpoch : int = 50
 firtstEpoch : bool = True
-while iEpoch < mEpoch:
+while iEpoch < mEpoch-1:
     iEpoch+=1
     print(f"Epoch {iEpoch}/{mEpoch}")
     
     history = lstm_model.fit(x=x_train, y=y_train, epochs=1,
                         validation_data=(x_valid, y_valid),
-                        callbacks=[checkpoints], batch_size=1
+                        callbacks=[checkpoints], batch_size=1, shuffle=True
                         )#! Initially Batch size 1; 8 is safe to run - 137s
+    # history = lstm_model.fit(x=ds_train, epochs=1,
+    #                     validation_data=ds_valid,
+    #                     callbacks=[checkpoints], batch_size=1
+    #                     )#! Initially Batch size 1; 8 is safe to run - 137s
     lstm_model.save(f'{model_loc}{iEpoch}')
     
     if os.path.exists(f'{model_loc}{iEpoch-1}.ch'):

@@ -28,10 +28,11 @@ class WindowGenerator():
   includeTarget : bool          # Use Target as part of dataset.
   normaliseInput: bool          #
   normaliseLabal: bool          #
-
+  
   float_dtype   : type          # Float variable Type
   int_dtype     : type          # Int variable Type
 
+  shuffleTraining: bool         # Shuffeling Training data
   #label_columns_indices : list[int]
   #column_indices: list[int]
   total_window_size : int       # Size (input+shift)
@@ -45,6 +46,7 @@ class WindowGenerator():
                input_columns : list[str], label_columns : list[str],
                batch : int = 1, includeTarget : bool = False,
                normaliseInput : bool = True, normaliseLabal : bool = True,
+               shuffleTraining : bool = False,
                float_dtype : type = None,
                int_dtype : type = None) -> None:
     """ Window Constructor used to store data sets and properties of the 
@@ -77,7 +79,7 @@ class WindowGenerator():
     self.includeTarget = includeTarget
     self.normaliseInput = normaliseInput
     self.normaliseLabal = normaliseLabal
-
+    self.shuffleTraining = shuffleTraining
     # Variable types to use
     if float_dtype:
       #Get from Data generator
@@ -140,7 +142,8 @@ class WindowGenerator():
   
   @tf.autograph.experimental.do_not_convert
   def make_dataset(self, inputs : pd.DataFrame,
-                         labels : pd.DataFrame
+                         labels : pd.DataFrame,
+                         shuffle: bool
               ) -> tf.raw_ops.MapDataset:
 
     tic : float = time.perf_counter()
@@ -163,7 +166,7 @@ class WindowGenerator():
             data=data, targets=None,
             sequence_length=self.total_window_size, sequence_stride=1,
             sampling_rate=1,
-            batch_size=self.batch, shuffle=False,
+            batch_size=self.batch, shuffle=shuffle,
             seed=None, start_index=None, end_index=None
         )
 
@@ -229,7 +232,7 @@ class WindowGenerator():
                   targets=targets,
                   sequence_length=self.input_width,
                   sequence_stride=1, sampling_rate=1,batch_size=1,
-                  shuffle=False, seed=None, start_index=None, end_index=None
+                  shuffle=True, seed=None, start_index=None, end_index=None
             )
     x : tnp.ndarray = tnp.asarray(list(ds.map(
                                 lambda x, _: x[0,:,:]
@@ -299,10 +302,10 @@ class WindowGenerator():
               data=data, targets=None,
               sequence_length=self.total_window_size, sequence_stride=1,
               sampling_rate=1,
-              batch_size=self.batch, shuffle=False,
+              batch_size=1, shuffle=False,
               seed=None, start_index=None, end_index=None
           )
-
+      
       data_ds : tf.raw_ops.MapDataset = data_ds.map(self.split_window)
       
       data_x : tnp.ndarray = tnp.asarray(list(data_ds.map(
@@ -313,8 +316,17 @@ class WindowGenerator():
                                   lambda _, y: y[0]
                                 ).as_numpy_iterator()
                             ))
-      
-      # Processing rest of files
+      if self.batch > 1:
+        batched_x : tnp.ndarray = tnp.reshape(data_x[0:0+self.batch,:,:], (1,self.batch,len(self.input_columns)))
+        batched_y : tnp.ndarray = tnp.reshape(data_y[0:0+self.batch,:,:], (1,self.batch))
+        for i in range(1, data_x.shape[0]-self.batch+1):
+          batched_x = tnp.append(arr=batched_x,
+                               values=tnp.reshape(data_x[i:i+self.batch,:,:], (1,self.batch,len(self.input_columns))),
+                               axis=0)
+          batched_y = tnp.append(arr=batched_y,
+                               values=tnp.reshape(data_y[i:i+self.batch,:,:], (1,self.batch)),
+                               axis=0)
+        
       for file in files[1:]:
         # Initialize empty structures
         df : pd.DataFrame = self.Data.Read_Excel_File(dir + '/' + file)
@@ -346,7 +358,7 @@ class WindowGenerator():
                 data=data, targets=None,
                 sequence_length=self.total_window_size, sequence_stride=1,
                 sampling_rate=1,
-                batch_size=self.batch, shuffle=False,
+                batch_size=1, shuffle=False,
                 seed=None, start_index=None, end_index=None
             )
 
@@ -365,9 +377,41 @@ class WindowGenerator():
         data_df = data_df.append(df, ignore_index=True)
         data_x = tnp.append(arr=data_x, values=x, axis=0)
         data_y = tnp.append(arr=data_y, values=y, axis=0)
+        if self.batch > 1:
+          bat_x : tnp.ndarray = tnp.reshape(x[0:0+self.batch,:,:], (1,self.batch,len(self.input_columns)))
+          bat_y : tnp.ndarray = tnp.reshape(y[0:0+self.batch,:,:], (1,self.batch))
+          for i in range(1, x.shape[0]-self.batch+1):
+            bat_x = tnp.append(arr=bat_x,
+                      values=tnp.reshape(x[i:i+self.batch,:,:], (1,self.batch,len(self.input_columns))),
+                      axis=0)
+            bat_y = tnp.append(arr=bat_y,
+                      values=tnp.reshape(y[i:i+self.batch,:,:], (1,self.batch)),
+                      axis=0)
+          batched_x = tnp.append(arr=batched_x,
+                                 values=bat_x,
+                                 axis=0)
+          batched_y = tnp.append(arr=batched_y,
+                                 values=bat_y,
+                                 axis=0)
 
       print(f"\n\nData Generation: {(time.perf_counter() - tic):.2f} seconds")
-      return data_df, data_ds, data_x, data_y
+      # #! Need to fix that, this way, no proper transition between one file to another
+      if self.batch > 1:
+      #   batched_x : tnp.ndarray = tnp.reshape(data_x[0:0+self.batch,:,:], (1,self.batch,len(self.input_columns)))
+      #   batched_y : tnp.ndarray = tnp.reshape(data_y[0:0+self.batch,:,:], (1,self.batch))
+      #   for i in range(1, data_x.shape[0]-self.batch+1):
+      #     batched_x = tnp.append(arr=batched_x,
+      #                          values=tnp.reshape(data_x[i:i+self.batch,:,:], (1,self.batch,len(self.input_columns))),
+      #                          axis=0)
+      #     batched_y = tnp.append(arr=batched_y,
+      #                          values=tnp.reshape(data_y[i:i+self.batch,:,:], (1,self.batch)),
+      #                          axis=0)
+      #   print(f"\nData Batching: {(time.perf_counter() - tic):.2f} seconds")
+        print("Returning Batched Datasets")
+        return data_df, data_ds, batched_x, batched_y
+      else:
+        print("Returning Usual Datasets")
+        return data_df, data_ds, data_x, data_y
     return None
 
   @property
@@ -379,7 +423,8 @@ class WindowGenerator():
       return _, x, y  
     else:
       ds, x, y = self.make_dataset(inputs=self.Data.train[self.input_columns],
-                                  labels=self.Data.train_SoC[self.label_columns]
+                                  labels=self.Data.train_SoC[self.label_columns],
+                                  shuffle=self.shuffleTraining
                                 )
       return ds, x, y
 
@@ -392,6 +437,15 @@ class WindowGenerator():
       return _, x, y
     else:
       ds, x, y = self.make_dataset(inputs=self.Data.valid[self.input_columns],
-                                  labels=self.Data.valid_SoC[self.label_columns]
+                                  labels=self.Data.valid_SoC[self.label_columns],
+                                  shuffle=False
                                 )
       return ds, x, y  
+
+  @property
+  def full_train(self):
+    return self.ParseFullData(self.Data.train_dir)
+  
+  @property
+  def full_valid(self):
+    return self.ParseFullData(self.Data.valid_dir)

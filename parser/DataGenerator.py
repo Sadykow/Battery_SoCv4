@@ -11,7 +11,8 @@ from dataclasses import dataclass # Used for making annotations
 
 from parser.soc_calc import *
 
-r_FUDS  : range = range(18,25)
+#r_FUDS  : range = range(18,25)
+r_FUDS  : range = range(21,25)
 r_DST_US_FUDS : range = range(5, 25)
 
 @dataclass

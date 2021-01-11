@@ -43,15 +43,20 @@ def dot_product(x, kernel):
   print(f'DotProduct kernel: {kernel} or type: {type(kernel)}')
 
   if tf.keras.backend.backend() == 'tensorflow':
-    return tnp.squeeze(
-                a=tnp.dot(
-                    a=x,
-                    b=tnp.expand_dims(
-                        a=kernel,
-                        axis=0
-                      )
-                  ),
-                axis=-1)
+    # return tnp.squeeze(
+    #             a=tnp.dot(
+    #                 a=x,
+    #                 b=tnp.expand_dims(
+    #                     a=kernel,
+    #                     axis=0
+    #                   )
+    #               ),
+    #             axis=-1)
+    return tf.keras.backend.squeeze(x=tf.keras.backend.dot(
+                                      x=x,
+                                      y=tf.keras.backend.expand_dims(x=kernel,
+                                                                     axis=-1)),
+                                    axis=-1)
   else:
     return tnp.dot(a=x, b=kernel)
 # %%
