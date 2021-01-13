@@ -317,15 +317,65 @@ class WindowGenerator():
                                 ).as_numpy_iterator()
                             ))
       if self.batch > 1:
-        batched_x : tnp.ndarray = tnp.reshape(data_x[0:0+self.batch,:,:], (1,self.batch,len(self.input_columns)))
-        batched_y : tnp.ndarray = tnp.reshape(data_y[0:0+self.batch,:,:], (1,self.batch))
+        if self.includeTarget:
+          batched_x : tnp.ndarray = tnp.reshape(
+                        a=data_x[0:0+self.batch,:,:],
+                        newshape=(1,
+                                self.batch,
+                                len(self.input_columns)+len(self.label_columns)
+                                ),
+                        order='C'
+                      )
+        else:
+          batched_x : tnp.ndarray = tnp.reshape(
+                        a=data_x[0:0+self.batch,:,:],
+                        newshape=(1,
+                                self.batch,
+                                len(self.input_columns)
+                                ),
+                        order='C'
+                      )
+
+        batched_y : tnp.ndarray = tnp.reshape(
+                      a=data_y[0:0+self.batch,:,:],
+                      newshape=(1,self.batch),
+                      order='C'
+                    )
         for i in range(1, data_x.shape[0]-self.batch+1):
-          batched_x = tnp.append(arr=batched_x,
-                               values=tnp.reshape(data_x[i:i+self.batch,:,:], (1,self.batch,len(self.input_columns))),
-                               axis=0)
-          batched_y = tnp.append(arr=batched_y,
-                               values=tnp.reshape(data_y[i:i+self.batch,:,:], (1,self.batch)),
-                               axis=0)
+          if self.includeTarget:
+            batched_x = tnp.append(
+                            arr=batched_x,
+                            values=tnp.reshape(
+                                  a=data_x[i:i+self.batch,:,:],
+                                  newshape=(1,
+                                          self.batch,
+                                          len(self.input_columns)+\
+                                            len(self.label_columns)
+                                          ),
+                                  order='C'
+                                ),
+                            axis=0
+                          )
+          else:
+            batched_x = tnp.append(
+                            arr=batched_x,
+                            values=tnp.reshape(
+                                  a=data_x[i:i+self.batch,:,:],
+                                  newshape=(1,
+                                          self.batch,
+                                          len(self.input_columns)
+                                          ),
+                                  order='C'
+                                ),
+                            axis=0)
+          batched_y = tnp.append(
+                          arr=batched_y,
+                          values=tnp.reshape(
+                                a=data_y[i:i+self.batch,:,:],
+                                newshape=(1,self.batch),
+                                order='C'
+                              ),
+                          axis=0)
         
       for file in files[1:]:
         # Initialize empty structures
@@ -373,20 +423,72 @@ class WindowGenerator():
                                   ).as_numpy_iterator()
                               ))
               
-        data_ds = data_ds.concatenate(ds)
-        data_df = data_df.append(df, ignore_index=True)
+        data_ds = data_ds.concatenate(dataset=ds)
+        data_df = data_df.append(other=df, ignore_index=True)
         data_x = tnp.append(arr=data_x, values=x, axis=0)
         data_y = tnp.append(arr=data_y, values=y, axis=0)
         if self.batch > 1:
-          bat_x : tnp.ndarray = tnp.reshape(x[0:0+self.batch,:,:], (1,self.batch,len(self.input_columns)))
-          bat_y : tnp.ndarray = tnp.reshape(y[0:0+self.batch,:,:], (1,self.batch))
+          if self.includeTarget:
+            bat_x : tnp.ndarray = tnp.reshape(
+                                    a=x[0:0+self.batch,:,:],
+                                    newshape=(1,
+                                            self.batch,
+                                            len(self.input_columns)+\
+                                              len(self.label_columns)
+                                            ),
+                                    order='C'
+                                  )
+          else:
+            bat_x : tnp.ndarray = tnp.reshape(
+                                    a=x[0:0+self.batch,:,:],
+                                    newshape=(1,
+                                            self.batch,
+                                            len(self.input_columns)
+                                            ),
+                                    order='C'
+                                  )
+          bat_y : tnp.ndarray = tnp.reshape(
+                                  a=y[0:0+self.batch,:,:],
+                                  newshape=(1,self.batch),
+                                  order='C'
+                                )
           for i in range(1, x.shape[0]-self.batch+1):
-            bat_x = tnp.append(arr=bat_x,
-                      values=tnp.reshape(x[i:i+self.batch,:,:], (1,self.batch,len(self.input_columns))),
-                      axis=0)
-            bat_y = tnp.append(arr=bat_y,
-                      values=tnp.reshape(y[i:i+self.batch,:,:], (1,self.batch)),
-                      axis=0)
+            if self.includeTarget:
+              bat_x = tnp.append(
+                            arr=bat_x,
+                            values=tnp.reshape(
+                                    a=x[i:i+self.batch,:,:],
+                                    newshape=(1,
+                                            self.batch,
+                                            len(self.input_columns)+\
+                                              len(self.label_columns)
+                                            ),
+                                    order='C'
+                                  ),
+                            axis=0
+                          )
+            else:
+              bat_x = tnp.append(
+                            arr=bat_x,
+                            values=tnp.reshape(
+                                    a=x[i:i+self.batch,:,:],
+                                    newshape=(1,
+                                            self.batch,
+                                            len(self.input_columns)
+                                            ),
+                                    order='C'
+                                  ),
+                            axis=0
+                          )
+            bat_y = tnp.append(
+                          arr=bat_y,
+                          values=tnp.reshape(
+                                  a=y[i:i+self.batch,:,:],
+                                  newshape=(1,self.batch),
+                                  order='C'
+                                ),
+                          axis=0
+                        )
           batched_x = tnp.append(arr=batched_x,
                                  values=bat_x,
                                  axis=0)
@@ -395,18 +497,7 @@ class WindowGenerator():
                                  axis=0)
 
       print(f"\n\nData Generation: {(time.perf_counter() - tic):.2f} seconds")
-      # #! Need to fix that, this way, no proper transition between one file to another
       if self.batch > 1:
-      #   batched_x : tnp.ndarray = tnp.reshape(data_x[0:0+self.batch,:,:], (1,self.batch,len(self.input_columns)))
-      #   batched_y : tnp.ndarray = tnp.reshape(data_y[0:0+self.batch,:,:], (1,self.batch))
-      #   for i in range(1, data_x.shape[0]-self.batch+1):
-      #     batched_x = tnp.append(arr=batched_x,
-      #                          values=tnp.reshape(data_x[i:i+self.batch,:,:], (1,self.batch,len(self.input_columns))),
-      #                          axis=0)
-      #     batched_y = tnp.append(arr=batched_y,
-      #                          values=tnp.reshape(data_y[i:i+self.batch,:,:], (1,self.batch)),
-      #                          axis=0)
-      #   print(f"\nData Batching: {(time.perf_counter() - tic):.2f} seconds")
         print("Returning Batched Datasets")
         return data_df, data_ds, batched_x, batched_y
       else:

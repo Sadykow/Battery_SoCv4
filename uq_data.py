@@ -100,7 +100,7 @@ plt.title('Temperature - Part 2')
 plt.legend()
 plt.grid()
 # %%
-Cell type is LG HG2
-18650
-Apparently 18s 7p
-5 in Series
+# Cell type is LG HG2
+# 18650
+# Apparently 18s 7p
+# 5 in Series
