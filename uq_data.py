@@ -14,7 +14,9 @@ mpl.rcParams['figure.figsize'] = (18, 16)
 mpl.rcParams['axes.grid'] = False
 
 # %%
-df : pd.DataFrame = pd.read_csv(filepath_or_buffer='Data/UQ_Endurance/Copy_of_20201210-0055704.csv',
+df : pd.DataFrame = pd.read_csv(
+                #filepath_or_buffer='Data/UQ_Endurance/Copy_of_20201210-0055704.csv',
+                filepath_or_buffer='Data/UQ_Endurance/uq_data.csv',
                 sep=',', delimiter=None,
                 header='infer', names=None, index_col=None,
                 usecols=None, squeeze=False, prefix=None,
@@ -104,3 +106,20 @@ plt.grid()
 # 18650
 # Apparently 18s 7p
 # 5 in Series
+
+# 345 Volts - 5 in series - 69V each
+# 69V - 18 in series - 3.83V each
+# 60A - 7 in paralel - 8.6A each cell
+
+# Nominal Capacity: 3000mAh
+# Nominal voltage: 3.50V
+# Standard charge: 1500mA, 4.2V, 50mA
+# Max. charge voltage: 4.20V+/-0.05V
+# Max. charge current: 4000mA
+# Standard discharge: 600mA down to 2.5V
+# Fast discharge: 10000mA, 20000mA down to 2.5V
+# Max. continuous discharge: 20000mA
+# Cycle life: 300 at 10A, 200 at 20A both with 4A charge, ramaning capacity minimum 70%
+# Weight: 47.0g
+# Operating temperature: charge 0°C ~ 50°C, discharge: -20°C ~ 75°C
+# Storage temperature: 1 month: -20°C ~60°C, 3 month: -20°C ~ 45°C, 1 year: -20°C ~ 20°C 

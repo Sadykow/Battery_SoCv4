@@ -202,14 +202,15 @@ class WindowGenerator():
     inputs.set_shape([None, self.input_width, None])
     labels.set_shape([None, self.label_width, None])
     
-    if self.input_width == 1:
-      return tf.transpose(
-                    a=inputs,
-                    perm=[0,2,1],
-                    conjugate=False,name='SwapFeatureWithHistory'), \
-              labels
-    else:
-      return inputs, labels
+    # if self.input_width == 1:
+    #   return tf.transpose(
+    #                 a=inputs,
+    #                 perm=[0,2,1],
+    #                 conjugate=False,name='SwapFeatureWithHistory'), \
+    #           labels
+    # else:
+    #   return inputs, labels
+    return inputs, labels
   
   @tf.autograph.experimental.do_not_convert
   def make_quickData(self, inputs : pd.DataFrame,
