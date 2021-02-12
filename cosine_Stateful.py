@@ -1,101 +1,174 @@
-# To add a new cell, type '# %%'
-# To add a new markdown cell, type '# %% [markdown]'
-# %%
-#from IPython import get_ipython
-
 # %%
 import numpy as np
 #from standard_plots import *
 import tensorflow as tf
-# from keras.models import Sequential
-# from keras.layers import Dense, LSTM, Dropout
 from sklearn.preprocessing import MinMaxScaler
 
 import matplotlib.pyplot as plt
 
 #import theano
-
-#get_ipython().run_line_magic('matplotlib', 'inline')
-
 # %% [markdown]
 # # LSTMs
-
+# Origin location:
+# https://github.com/tykimos/tykimos.github.io/blob/a40bcc65952025bfb23c17060333231798739e26/_writing/cosine_LSTM.ipynb
 # %%
-dataset = np.cos(np.arange(1000)*(20*np.pi/1000))[:,None]
+# Configurate GPUs
+# Define plot sizes
+#! Select GPU for usage. CPU versions ignores it
+GPU=1
+physical_devices = tf.config.experimental.list_physical_devices('GPU')
+if physical_devices:
+    #! With /device/GPU:1 the output was faster.
+    #! need to research more why.
+    tf.config.experimental.set_visible_devices(
+                            physical_devices[GPU], 'GPU')
+
+    #if GPU == 1:
+    tf.config.experimental.set_memory_growth(
+                            physical_devices[GPU], True)
+    print("GPU found and memory growth enabled") 
+    
+    logical_devices = tf.config.experimental.list_logical_devices('GPU')
+    print("GPU found") 
+    print(f"\nPhysical GPUs: {len(physical_devices)}"
+          f"\nLogical GPUs: {len(logical_devices)}")
+#! For numeric stability, set the default floating-point dtype to float64
+tf.keras.backend.set_floatx('float32')
+# %%
+# Create a dataset which will be experimented on
+dataset : np.ndarray = np.cos(np.arange(1000)*(20*np.pi/1000))[:,None]
+def_type = np.float32
 plt.plot(dataset)
-
-
-# %%
-# convert an array of values into a dataset matrix
-def create_dataset(dataset, look_back=1):
-    dataX, dataY = [], []
-    for i in range(len(dataset)-look_back):
-        dataX.append(dataset[i:(i+look_back), 0])
-        dataY.append(dataset[i + look_back, 0])
-    return np.array(dataX), np.array(dataY)
-
+plt.title("Raw Dataset")
 # %% [markdown]
 # ## Window of 20 time steps
-
 # %%
-look_back = 20
-scaler = MinMaxScaler(feature_range=(0, 1))
+def create_dataset(dataset : np.ndarray, look_back : int =1
+                    ) -> tuple[np.ndarray, np.ndarray]:
+    """ Convert an array if values into a dataset matrix
+
+    Args:
+        dataset (np.ndarray): Input array
+        look_back (int, optional): History size. Defaults to 1.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: Returns X and Y sets
+    """
+    d_len : int = len(dataset)-look_back
+    dataX : np.ndarray = np.zeros(shape=(d_len, look_back, 1),
+                                  dtype=def_type)
+    dataY : np.ndarray = np.zeros(shape=(d_len),
+                                  dtype=def_type)
+    for i in range(0, d_len):
+        dataX[i,:,:] = dataset[i:(i+look_back), :]
+        dataY[i]     = dataset[i + look_back  , 0]
+    return dataX, dataY
+
+def roundup(x : float, factor : int = 10) -> int:
+    """ Round up to a factor. Uses it to create hidden neurons, or Buffer size.
+    TODO: Make it a smarter rounder.
+    Args:
+        x (float): Original float value.
+        factor (float): Factor towards which it has to be rounder
+
+    Returns:
+        int: Rounded up value based on factor.
+    """
+    if(factor == 10):
+        return int(np.ceil(x / 10)) * 10
+    elif(factor == 100):
+        return int(np.ceil(x / 100)) * 100
+    elif(factor == 1000):
+        return int(np.ceil(x / 1000)) * 1000
+    else:
+        print("Factor of {} not implemented.".format(factor))
+        return None
+
+look_back : int = 20
+scaler : MinMaxScaler = MinMaxScaler(feature_range=(0, 1))
 dataset = scaler.fit_transform(dataset)
+plt.plot(dataset)
+plt.title("Scaled with MinMaxScaler")
 
 # split into train and test sets
 train_size = int(len(dataset) * 0.67)
 test_size = len(dataset) - train_size
 train, test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
 
-trainX, trainY = create_dataset(train, look_back)
-testX, testY = create_dataset(test, look_back)
+trX, trY = create_dataset(train, look_back)
+tsX, tsY = create_dataset(test, look_back)
 
-trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], 1))
-testX = np.reshape(testX, (testX.shape[0], testX.shape[1], 1))
-
-
-# %%
-train.shape
+# trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], 1))
+# testX = np.reshape(testX, (testX.shape[0], testX.shape[1], 1))
 
 
 # %%
-trainX.shape
-
+print("Data Shapes:\n"
+      "Train {}\n"
+      "TrainX {}\n"
+      "TrainY {}\n".format(train.shape,trX.shape, trY.shape)
+      )
 
 # %%
-trainY.shape
-
-
-# %%
-#get_ipython().run_cell_magic('time', '', 'theano.config.compute_test_value = "ignore"\n# create and fit the LSTM network\nbatch_size = 1\nmodel = Sequential()\nmodel.add(LSTM(32,input_dim=1))\nmodel.add(Dropout(0.3))\nmodel.add(Dense(1))\nmodel.compile(loss=\'mean_squared_error\', optimizer=\'adam\')\nmodel.fit(trainX, trainY, nb_epoch=100, batch_size=batch_size, verbose=2)')
 batch_size = 1
 model = tf.keras.models.Sequential([
-    #tf.keras.layers.InputLayer(batch_input_shape=(1, 1, 1)),
-    tf.keras.layers.LSTM(32,input_dim=1),
-    tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),    
+    tf.keras.layers.InputLayer(input_shape=(look_back, 1)),
+    tf.keras.layers.LSTM(units=32, input_dim=1),
+    tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None), #! Specefying additional params breaks prediction
     tf.keras.layers.Dense(units=1,
-                            activation=None)
+        #! Setting activation function to None breaks during prediction
+                        activation=None
+                        )
 ])
-model.compile(loss='mean_squared_error', optimizer='adam')
-model.fit(trainX, trainY, epochs=100, batch_size=batch_size, verbose=2)
+#! Below is better with hell!!
+# model = tf.keras.models.Sequential()
+# model.add(tf.keras.layers.LSTM(32,input_dim=1))
+# model.add(tf.keras.layers.Dropout(0.3))
+# model.add(tf.keras.layers.Dense(1))
+print(model.summary())
+
+model.compile(loss='mean_squared_error', optimizer='adam',
+              metrics=[tf.metrics.MeanAbsoluteError(),
+                       tf.metrics.RootMeanSquaredError()]
+            )
+model.fit(trX, trY, epochs=100, batch_size=batch_size, verbose=1,
+            callbacks = [
+                # tf.keras.callbacks.EarlyStopping(monitor='loss',
+                #                                 min_delta=0, 
+                #                                 patience=200,
+                #                                 verbose=1,
+                #                                 mode='min'),
+
+                tf.keras.callbacks.ModelCheckpoint('Models/cosine_lstm', 
+                                            monitor='root_mean_squared_error',
+                                            save_best_only=True, 
+                                            mode='min',
+                                            verbose=1)
+                    ]
+    )
+best_model = tf.keras.models.load_model('Models/cosine_lstm', compile=False)
+best_model.compile(loss='mean_squared_error', optimizer='adam',
+              metrics=[tf.metrics.MeanAbsoluteError(),
+                       tf.metrics.RootMeanSquaredError()])
 # %%
-trainScore = model.evaluate(trainX, trainY, batch_size=batch_size, verbose=0)
-print('Train Score: ', trainScore)
-testScore = model.evaluate(testX[:252], testY[:252],
-                            batch_size=batch_size, verbose=0)
-print('Test Score: ', testScore)
+print("Latest model:")
+model.evaluate(trX, trY, batch_size=batch_size, verbose=1)
+model.evaluate(tsX[:252], tsY[:252], 
+                            batch_size=batch_size, verbose=1)
+print("\n\nBest model:")
+best_model.evaluate(trX, trY, batch_size=batch_size, verbose=1)
+best_model.evaluate(tsX[:252], tsY[:252], 
+                            batch_size=batch_size, verbose=1)
+
 # %%
+# His
 look_ahead = 250
-trainPredict = [np.vstack([trainX[-1][1:], trainY[-1]])]
+trainPredict = [np.vstack([trX[-1][1:], trY[-1]])]
 predictions = np.zeros((look_ahead,1))
 for i in range(look_ahead):
-    prediction = model.predict(np.array([trainPredict[-1]]),
-                                batch_size=batch_size)
+    prediction = model.predict(np.array([trainPredict[-1]]), batch_size=batch_size)
     predictions[i] = prediction
     trainPredict.append(np.vstack([trainPredict[-1][1:],prediction]))
-
-
-# %%
 plt.figure(figsize=(12,5))
 # plt.plot(np.arange(len(trainX)),np.squeeze(trainX))
 # plt.plot(np.arange(200),scaler.inverse_transform(np.squeeze(trainPredict)[:,None][1:]))
@@ -105,70 +178,82 @@ plt.plot(np.arange(look_ahead),dataset[train_size:(train_size+look_ahead)],
         label="test function")
 plt.legend()
 plt.show()
+# %%
+# Mine
+look_ahead = 250
+# Stack the last sample together with X and Y.
+trainPredict = np.array([np.vstack([trX[-1][1:],
+                           trY[-1]])])   # Size 20
+best_predictions = np.zeros((look_ahead,1))
+for i in range(0, look_ahead):
+    best_prediction = best_model.predict(trainPredict[-1:,:,:], batch_size=batch_size)
+    best_predictions[i] = best_prediction
+    #trainPredict = (np.append([trainPredict[-1:,1:,:],np.expand_dims(prediction,axis=1)]))
+    trainPredict = np.reshape(np.append(trainPredict[-1,1:], best_prediction),
+                              (1,20,1))
+plt.figure(figsize=(12,5))
+plt.plot(np.arange(look_ahead),best_predictions,'r',label="best_prediction")
+plt.plot(np.arange(look_ahead),dataset[train_size:(train_size+look_ahead)],
+        label="test function")
+plt.legend()
+plt.show()
 
 # %% [markdown]
 # ## Stateful LSTMs
 
 # %%
-look_back = 20
-scaler = MinMaxScaler(feature_range=(0, 1))
-dataset = scaler.fit_transform(dataset)
+# look_back = 20
+# scaler = MinMaxScaler(feature_range=(0, 1))
+# dataset = scaler.fit_transform(dataset)
 
-# split into train and test sets
-train_size = int(len(dataset) * 0.67)
-test_size = len(dataset) - train_size
-train, test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
+# # split into train and test sets
+# train_size = int(len(dataset) * 0.67)
+# test_size = len(dataset) - train_size
+# train, test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
 
-trainX, trainY = create_dataset(train, look_back)
-testX, testY = create_dataset(test, look_back)
+# trainX, trainY = create_dataset(train, look_back)
+# testX, testY = create_dataset(test, look_back)
 
-trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], 1))
-testX = np.reshape(testX, (testX.shape[0], testX.shape[1], 1))
-
+# trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], 1))
+# testX = np.reshape(testX, (testX.shape[0], testX.shape[1], 1))
+# %%
+# Calculate neurons smartly
 
 # %%
-#get_ipython().run_cell_magic('time', '', 'theano.config.compute_test_value = "ignore"\n# create and fit the LSTM network\nbatch_size = 1\nmodel = Sequential()\n# model.add(LSTM(32, batch_input_shape=(batch_size, look_back, 1), stateful=True, return_sequences=True))\n# model.add(Dropout(0.3))\n# model.add(LSTM(32, batch_input_shape=(batch_size, look_back, 1), stateful=True, return_sequences=True))\n# model.add(Dropout(0.3))\nmodel.add(LSTM(32, batch_input_shape=(batch_size, look_back, 1), stateful=True))\nmodel.add(Dropout(0.3))\nmodel.add(Dense(1))\nmodel.compile(loss=\'mean_squared_error\', optimizer=\'adam\')\nfor i in range(200):\n    model.fit(trainX, trainY, nb_epoch=1, batch_size=batch_size, verbose=0, shuffle=False)\n    model.reset_states()')
-
-batch_size = 1
-model = tf.keras.models.Sequential([
-    #tf.keras.layers.InputLayer(batch_input_shape=(1, 1, 1)),
-    tf.keras.layers.LSTM(32, batch_input_shape=(batch_size, look_back, 1),
-                         stateful=True, return_sequences=True),
+stateful_model = tf.keras.models.Sequential([
+    tf.keras.layers.InputLayer(batch_input_shape=(batch_size, look_back, 1)),
+    tf.keras.layers.LSTM(units=32, stateful=True, return_sequences=False),
     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(32, batch_input_shape=(batch_size, look_back, 1),
-                        stateful=True, return_sequences=True),
-    tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(32, batch_input_shape=(batch_size, look_back, 1),
-                        stateful=True),
     tf.keras.layers.Dense(units=1,
                             activation=None)
 ])
-model.compile(loss='mean_squared_error', optimizer='adam')
-for i in range(200):
-    model.fit(trainX, trainY, epochs=1, batch_size=batch_size,
-                verbose=0, shuffle=False)
-    model.reset_states()
+print(stateful_model.summary())
 
+stateful_model.compile(loss='mean_squared_error', optimizer='adam',
+              metrics=[tf.metrics.MeanAbsoluteError(),
+                       tf.metrics.RootMeanSquaredError()]
+            )
+for i in range(100):    
+    stateful_model.fit(trX, trY, epochs=1, batch_size=batch_size, verbose=1,
+            shuffle=False
+    )
+    stateful_model.reset_states()
 # %%
-trainScore = model.evaluate(trainX, trainY, batch_size=batch_size, verbose=0)
-print('Train Score: ', trainScore)
-testScore = model.evaluate(testX[:252], testY[:252], batch_size=batch_size,
-                            verbose=0)
-print('Test Score: ', testScore)
+print("Latest model:")
+stateful_model.evaluate(trX, trY, batch_size=batch_size, verbose=1)
+stateful_model.evaluate(tsX[:252], tsY[:252], 
+                            batch_size=batch_size, verbose=1)
 # %%
 look_ahead = 250
-trainPredict = [np.vstack([trainX[-1][1:], trainY[-1]])]
+trainPredict = [np.vstack([trX[-1][1:], trY[-1]])]
 predictions = np.zeros((look_ahead,1))
 for i in range(look_ahead):
-    prediction = model.predict(np.array([trainPredict[-1]]),
+    prediction = stateful_model.predict(np.array([trainPredict[-1]]),
                                 batch_size=batch_size)
     predictions[i] = prediction
     trainPredict.append(np.vstack([trainPredict[-1][1:],prediction]))
-# %%
+
 plt.figure(figsize=(12,5))
-# plt.plot(np.arange(len(trainX)),np.squeeze(trainX))
-# plt.plot(np.arange(200),scaler.inverse_transform(np.squeeze(trainPredict)[:,None][1:]))
-# plt.plot(np.arange(200),scaler.inverse_transform(np.squeeze(testY)[:,None][:200]),'r')
 plt.plot(np.arange(look_ahead),predictions,'r',label="prediction")
 plt.plot(np.arange(look_ahead),dataset[train_size:(train_size+look_ahead)],
         label="test function")
@@ -180,106 +265,102 @@ plt.show()
 
 # %%
 look_back = 40
-scaler = MinMaxScaler(feature_range=(0, 1))
-dataset = scaler.fit_transform(dataset)
+# scaler = MinMaxScaler(feature_range=(0, 1))
+# dataset = scaler.fit_transform(dataset)
 
-# split into train and test sets
-train_size = int(len(dataset) * 0.67)
-test_size = len(dataset) - train_size
-train, test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
+# # split into train and test sets
+# train_size = int(len(dataset) * 0.67)
+# test_size = len(dataset) - train_size
+# train, test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
 
-trainX, trainY = create_dataset(train, look_back)
-testX, testY = create_dataset(test, look_back)
+trX, trY = create_dataset(train, look_back)
+tsX, tsY = create_dataset(test, look_back)
 
-trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], 1))
-testX = np.reshape(testX, (testX.shape[0], testX.shape[1], 1))
+# trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], 1))
+# testX = np.reshape(testX, (testX.shape[0], testX.shape[1], 1))
 
 
 # %%
 #get_ipython().run_cell_magic('time', '', 'theano.config.compute_test_value = "ignore"\n# create and fit the LSTM network\nbatch_size = 1\nmodel = Sequential()\n# model.add(LSTM(32, batch_input_shape=(batch_size, look_back, 1), stateful=True, return_sequences=True))\n# model.add(Dropout(0.3))\n# model.add(LSTM(32, batch_input_shape=(batch_size, look_back, 1), stateful=True, return_sequences=True))\n# model.add(Dropout(0.3))\nmodel.add(LSTM(32, batch_input_shape=(batch_size, look_back, 1), stateful=True))\nmodel.add(Dropout(0.3))\nmodel.add(Dense(1))\nmodel.compile(loss=\'mean_squared_error\', optimizer=\'adam\')\nfor i in range(200):\n    model.fit(trainX, trainY, nb_epoch=1, batch_size=batch_size, verbose=0, shuffle=False)\n    model.reset_states()')
 batch_size = 1
-model = tf.keras.models.Sequential([
-    tf.keras.layers.LSTM(32, batch_input_shape=(batch_size, look_back, 1),
-                         stateful=True, return_sequences=True),
-    tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(32, batch_input_shape=(batch_size, look_back, 1),
-                        stateful=True, return_sequences=True),
-    tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(32, batch_input_shape=(batch_size, look_back, 1),
-                        stateful=True),
+stateful_model = tf.keras.models.Sequential([
+    tf.keras.layers.InputLayer(batch_input_shape=(batch_size, look_back, 1)),
+    # tf.keras.layers.LSTM(32, batch_input_shape=(batch_size, look_back, 1),
+    #                      stateful=True, return_sequences=True),
+    # tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
+    # tf.keras.layers.LSTM(32, batch_input_shape=(batch_size, look_back, 1),
+    #                     stateful=True, return_sequences=True),
+    # tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
+    tf.keras.layers.LSTM(units=32, stateful=True, return_sequences=False),
     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
     tf.keras.layers.Dense(units=1,
                             activation=None)
 ])
-model.compile(loss='mean_squared_error', optimizer='adam')
-for i in range(200):
-    model.fit(trainX, trainY, epochs=1, batch_size=batch_size,
-                verbose=1, shuffle=False)
-    model.reset_states()
+print(stateful_model.summary())
+stateful_model.compile(loss='mean_squared_error', optimizer='adam',
+              metrics=[tf.metrics.MeanAbsoluteError(),
+                       tf.metrics.RootMeanSquaredError()]
+            )
+for i in range(100):    
+    stateful_model.fit(trX, trY, epochs=1, batch_size=batch_size, verbose=1,
+            shuffle=False
+    )
+    stateful_model.reset_states()
 # %%
-trainScore = model.evaluate(trainX, trainY, batch_size=batch_size, verbose=0)
-print('Train Score: ', trainScore)
-testScore = model.evaluate(testX[:252], testY[:252], batch_size=batch_size,
-                            verbose=0)
-print('Test Score: ', testScore)
+stateful_model.evaluate(trX, trY, batch_size=batch_size, verbose=1)
+stateful_model.evaluate(tsX[:252], tsY[:252], 
+                            batch_size=batch_size, verbose=1)
 # %%
 look_ahead = 250
-trainPredict = [np.vstack([trainX[-1][1:], trainY[-1]])]
+trainPredict = [np.vstack([trX[-1][1:], trY[-1]])]
 predictions = np.zeros((look_ahead,1))
 for i in range(look_ahead):
-    prediction = model.predict(np.array([trainPredict[-1]]),
+    prediction = stateful_model.predict(np.array([trainPredict[-1]]),
                                 batch_size=batch_size)
     predictions[i] = prediction
     trainPredict.append(np.vstack([trainPredict[-1][1:],prediction]))
 
-
-# %%
 plt.figure(figsize=(12,5))
-# plt.plot(np.arange(len(trainX)),np.squeeze(trainX))
-# plt.plot(np.arange(200),scaler.inverse_transform(np.squeeze(trainPredict)[:,None][1:]))
-# plt.plot(np.arange(200),scaler.inverse_transform(np.squeeze(testY)[:,None][:200]),'r')
 plt.plot(np.arange(look_ahead),predictions,'r',label="prediction")
 plt.plot(np.arange(look_ahead),dataset[train_size:(train_size+look_ahead)],
-            label="test function")
+        label="test function")
 plt.legend()
 plt.show()
-
 # %% [markdown]
 # ## Stateful LSTMs, Stacked
 
 # %%
 batch_size = 1
 model = tf.keras.models.Sequential([
-    tf.keras.layers.LSTM(32, batch_input_shape=(batch_size, look_back, 1),
-                         stateful=True, return_sequences=True),
+    tf.keras.layers.InputLayer(batch_input_shape=(batch_size, look_back, 1)),
+    tf.keras.layers.LSTM(units=32, stateful=True, return_sequences=True),
     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(32, batch_input_shape=(batch_size, look_back, 1),
-                        stateful=True),
+    tf.keras.layers.LSTM(units=32, stateful=True, return_sequences=False),
     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.Dense(units=1,
-                            activation=None)
+    tf.keras.layers.Dense(units=1, activation=None)
 ])
-model.compile(loss='mean_squared_error', optimizer='adam')
+print(model.summary())
+model.compile(loss='mean_squared_error', optimizer='adam',
+              metrics=[tf.metrics.MeanAbsoluteError(),
+                       tf.metrics.RootMeanSquaredError()]
+            )
 for i in range(200):
-    model.fit(trainX, trainY, epochs=1, batch_size=batch_size,
-                verbose=0, shuffle=False)
+    model.fit(trX, trY, epochs=1, batch_size=batch_size,
+                verbose=1, shuffle=False)
     model.reset_states()
 # %%
-trainScore = model.evaluate(trainX, trainY, batch_size=batch_size, verbose=0)
-print('Train Score: ', trainScore)
-testScore = model.evaluate(testX[:252], testY[:252], batch_size=batch_size,
-                            verbose=0)
-print('Test Score: ', testScore)
+model.evaluate(trX, trY, batch_size=batch_size, verbose=1)
+model.evaluate(tsX[:252], tsY[:252], 
+                            batch_size=batch_size, verbose=1)
 # %%
 look_ahead = 250
-trainPredict = [np.vstack([trainX[-1][1:], trainY[-1]])]
+trainPredict = [np.vstack([trX[-1][1:], trY[-1]])]
 predictions = np.zeros((look_ahead,1))
 for i in range(look_ahead):
     prediction = model.predict(np.array([trainPredict[-1]]),
                                 batch_size=batch_size)
     predictions[i] = prediction
     trainPredict.append(np.vstack([trainPredict[-1][1:],prediction]))
-# %%
 plt.figure(figsize=(12,5))
 # plt.plot(np.arange(len(trainX)),np.squeeze(trainX))
 # plt.plot(np.arange(200),scaler.inverse_transform(np.squeeze(trainPredict)[:,None][1:]))
@@ -294,44 +375,84 @@ plt.show()
 # ## Stateful LSTM stacked DEEPER!
 
 # %%
-#get_ipython().run_cell_magic('time', '', 'theano.config.compute_test_value = "ignore"\n# create and fit the LSTM network\nbatch_size = 1\nmodel = Sequential()\nfor i in range(2):\n    model.add(LSTM(32, batch_input_shape=(batch_size, look_back, 1), stateful=True, return_sequences=True))\n    model.add(Dropout(0.3))\nmodel.add(LSTM(32, batch_input_shape=(batch_size, look_back, 1), stateful=True))\nmodel.add(Dropout(0.3))\nmodel.add(Dense(1))\nmodel.compile(loss=\'mean_squared_error\', optimizer=\'adam\')\nfor i in range(200):\n    model.fit(trainX, trainY, nb_epoch=1, batch_size=batch_size, verbose=0, shuffle=False)\n    model.reset_states()')
+dataset = np.cos(np.arange(1000)*(20*np.pi/1000))[:,None]
+look_back : int = 1
+scaler : MinMaxScaler = MinMaxScaler(feature_range=(0, 1))
+dataset = scaler.fit_transform(dataset)
+# split into train and test sets
+train_size = int(len(dataset) * 0.67)
+test_size = len(dataset) - train_size
+train, test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
+
+trX, trY = create_dataset(train, look_back)
+tsX, tsY = create_dataset(test, look_back)
+
+#N_s: int = len(trX) # number of samples in the training data.
+#alpha: int = 2 # a - (2-10)
+# N_i: int = trX.shape[-2:][0] \
+#             * trX.shape[-2:][1] # Ni - Number of input neurons
+#N_o: int = 1 # No - Number of output neorons.
+    
+# print(f"№ of Samples in the training data: {N_s},\n"
+#     f"\t\t\t\t    Chosen Scaling factor: {alpha}, \n"
+#     f"\t\t\t\t  № of Input neurons: {N_i}, \n"
+#     f"\t\t\t\t  № of Output neurons: {N_o}.")
+#hidden_nodes =  roundup(N_s / (alpha * (N_i+N_o)))
+#del N_s, alpha, N_i, N_o
+#! Alpha 6 gives best so far
+h_nodes : int = roundup(len(trX) / (6 * ((look_back * 1)+1)))
+print(f"The number of hidden nodes is {h_nodes}.")
+
 batch_size = 1
-model = tf.keras.models.Sequential([
-    tf.keras.layers.LSTM(32, batch_input_shape=(batch_size, look_back, 1),
-                         stateful=True, return_sequences=True),
+triple_model = tf.keras.models.Sequential([
+    tf.keras.layers.InputLayer(batch_input_shape=(batch_size, look_back, 1)),
+    tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(32, batch_input_shape=(batch_size, look_back, 1),
-                        stateful=True, return_sequences=True),
+    tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(32, batch_input_shape=(batch_size, look_back, 1),
-                        stateful=True),
-    tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.Dense(units=1,
-                            activation=None)
+    tf.keras.layers.LSTM(units=int(h_nodes/2), stateful=True, return_sequences=True),
+    tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+    tf.keras.layers.LSTM(units=int(h_nodes/2), stateful=True, return_sequences=False),
+    tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+    tf.keras.layers.Dense(units=1, activation=None)
 ])
-model.compile(loss='mean_squared_error', optimizer='adam')
-for i in range(200):
-    model.fit(trainX, trainY, epochs=1, batch_size=batch_size,
+# look_back : int = 40
+# triple_model = tf.keras.models.Sequential([
+#     tf.keras.layers.InputLayer(batch_input_shape=(batch_size, look_back, 1)),
+#     tf.keras.layers.LSTM(units=32, stateful=True, return_sequences=True),
+#     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
+#     tf.keras.layers.LSTM(units=32, stateful=True, return_sequences=True),
+#     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
+#     tf.keras.layers.LSTM(units=32, stateful=True, return_sequences=False),
+#     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
+#     tf.keras.layers.Dense(units=1, activation=None)
+# ])
+print(triple_model.summary())
+triple_model.compile(loss='mean_squared_error', optimizer='adam',
+              metrics=[tf.metrics.MeanAbsoluteError(),
+                       tf.metrics.RootMeanSquaredError()]
+            )
+epochs : int = 500
+for i in range(1,epochs+1):
+    #print(f'Epoch {i}/{epochs}')
+    triple_model.fit(trX, trY, epochs=1, batch_size=batch_size,
                 verbose=0, shuffle=False)
-    model.reset_states()
-# %%
-trainScore = model.evaluate(trainX, trainY, batch_size=batch_size, verbose=0)
-print('Train Score: ', trainScore)
-testScore = model.evaluate(testX[:252], testY[:252], batch_size=batch_size,
-                            verbose=0)
-print('Test Score: ', testScore)
-# %%
-look_ahead = 250
-trainPredict = [np.vstack([trainX[-1][1:], trainY[-1]])]
+    triple_model.reset_states()
+
+triple_model.evaluate(tsX[:252], tsY[:252], 
+                            batch_size=batch_size, verbose=1)
+triple_model.reset_states()
+
+triple_model.evaluate(trX, trY, batch_size=batch_size, verbose=1)
+look_ahead : int = 250
+trainPredict = [np.vstack([trX[-1][1:], trY[-1]])]
 predictions = np.zeros((look_ahead,1))
 for i in range(look_ahead):
-    prediction = model.predict(np.array([trainPredict[-1]]),
+    prediction = triple_model.predict(np.array([trainPredict[-1]]),
                                 batch_size=batch_size)
     predictions[i] = prediction
     trainPredict.append(np.vstack([trainPredict[-1][1:],prediction]))
 
-
-# %%
 plt.figure(figsize=(12,5))
 # plt.plot(np.arange(len(trainX)),np.squeeze(trainX))
 # plt.plot(np.arange(200),scaler.inverse_transform(np.squeeze(trainPredict)[:,None][1:]))
@@ -341,14 +462,15 @@ plt.plot(np.arange(look_ahead),dataset[train_size:(train_size+look_ahead)],
             label="test function")
 plt.legend()
 plt.show()
+#triple_model.save('Models/cosine_lstm')
 
 # %% [markdown]
 # ## Normal Deep Learning in Keras
 
 # %%
 #get_ipython().run_cell_magic('time', '', 'trainX = np.squeeze(trainX)\ntestX = np.squeeze(testX)\ntheano.config.compute_test_value = "ignore"\n# create and fit the LSTM network\nbatch_size = 1\nmodel = Sequential()\nmodel.add(Dense(output_dim=32,input_dim=40,activation="relu"))\nmodel.add(Dropout(0.3))\nfor i in range(2):\n    model.add(Dense(output_dim=32,activation="relu"))\n    model.add(Dropout(0.3))\nmodel.add(Dense(1))\nmodel.compile(loss=\'mean_squared_error\', optimizer=\'adagrad\')\nmodel.fit(trainX, trainY, nb_epoch=100, batch_size=32, verbose=0)')
-trainX = np.squeeze(trainX)
-testX = np.squeeze(testX)
+trainX = np.squeeze(trX)
+testX = np.squeeze(tsX)
 batch_size = 1
 model = tf.keras.models.Sequential([
     tf.keras.layers.Dense(units=32,input_dim=40,activation="relu"),
@@ -358,23 +480,30 @@ model = tf.keras.models.Sequential([
     tf.keras.layers.Dense(units=1,
                             activation=None)
 ])
+# model = Sequential()
+# model.add(Dense(output_dim=32,input_dim=40,activation="relu"))
+# model.add(Dropout(0.3))
+# for i in range(2):
+#     model.add(Dense(output_dim=32,activation="relu"))
+#     model.add(Dropout(0.3))
+# model.add(Dense(1))
 model.compile(loss='mean_squared_error', optimizer='adagrad')
-model.fit(trainX, trainY, epochs=100, batch_size=32, verbose=0)
-# %%
-trainScore = model.evaluate(trainX, trainY, batch_size=batch_size, verbose=0)
+model.fit(trX, trY, epochs=100, batch_size=32, verbose=0)
+
+trainScore = model.evaluate(trainX, trY, batch_size=batch_size, verbose=0)
 print('Train Score: ', trainScore)
-testScore = model.evaluate(testX[:252], testY[:252], batch_size=batch_size,
+testScore = model.evaluate(testX[:252], tsY[:252], batch_size=batch_size,
                             verbose=0)
 print('Test Score: ', testScore)
-# %%
+
 look_ahead = 250
-xval = np.hstack([trainX[-1][1:], trainY[-1]])[None,:]
+xval = np.hstack([trainX[-1][1:], trY[-1]])[None,:]
 predictions = np.zeros((look_ahead,1))
 for i in range(look_ahead):
     prediction = model.predict(xval, batch_size=32)
     predictions[i] = prediction
     xval = np.hstack([xval[:,1:],prediction])
-# %%
+
 plt.figure(figsize=(12,5))
 # plt.plot(np.arange(len(trainX)),np.squeeze(trainX))
 # plt.plot(np.arange(200),scaler.inverse_transform(np.squeeze(trainPredict)[:,None][1:]))
