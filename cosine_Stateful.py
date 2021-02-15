@@ -43,7 +43,7 @@ plt.title("Raw Dataset")
 # %% [markdown]
 # ## Window of 20 time steps
 # %%
-def create_dataset(dataset : np.ndarray, look_back : int =1
+def create_dataset(dataset : np.ndarray, look_back : int = 1
                     ) -> tuple[np.ndarray, np.ndarray]:
     """ Convert an array if values into a dataset matrix
 
@@ -514,3 +514,193 @@ plt.plot(np.arange(look_ahead),dataset[train_size:(train_size+look_ahead)],
 plt.legend()
 plt.show()
 # %%
+import pandas as pd
+# Create a dataset which will be experimented on
+dataset : np.ndarray = np.cos(np.arange(1200)*(20*np.pi/1000))[:,None]
+def_type = np.float32
+plt.plot(dataset[:100])
+plt.title("Raw Dataset")
+look_back : int = 1
+scaler : MinMaxScaler = MinMaxScaler(feature_range=(0, 1))
+
+b_dataframe : pd.DataFrame = pd.DataFrame(
+            data=dataset[0:100,0],
+            columns=['batch_0'],dtype=np.float32
+            )
+for i in range(1,12):
+    b_dataframe[f'batch_{i}'] = dataset[i*100:i*100+100]
+
+def create_Batch_dataset(dataset : np.ndarray, look_back : int = 1
+                    ) -> tuple[np.ndarray, np.ndarray]:
+    
+    d_len : int = dataset.shape[0]-look_back
+    batch : int = dataset.shape[1]
+
+    dataX : np.ndarray = np.zeros(shape=(d_len, batch, look_back, 1),
+                                  dtype=np.float32)
+    dataY : np.ndarray = np.zeros(shape=(d_len, batch),
+                                  dtype=np.float32)
+    for i in range(0, d_len):
+        for j in range(0, batch):
+            dataX[i, j, :, :] = dataset[i:(i+look_back), j]
+            dataY[i, j]       = dataset[i + look_back, j]
+    return dataX, dataY
+
+# def create_BatchD_dataset(dataset : np.ndarray, look_back : int = 1
+#                     ) -> tuple[np.ndarray, np.ndarray]:
+    
+#     d_len : int = dataset.shape[0]-look_back
+#     batch : int = dataset.shape[1]
+
+#     dataX : np.ndarray = np.zeros(shape=(d_len*batch, look_back, 1),
+#                                   dtype=np.float32)
+#     dataY : np.ndarray = np.zeros(shape=(d_len*batch),
+#                                   dtype=np.float32)
+#     for i in range(0, d_len):
+#         for j in range(0, batch):
+#             dataX[i*batch:i*batch+j, :, :] = dataset[i:(i+look_back), j]
+#             dataY[i*batch:i*batch+j]       = dataset[i + look_back, j]
+#     return dataX, dataY
+
+b_dataframe = scaler.fit_transform(b_dataframe)
+
+trX, trY = create_Batch_dataset(b_dataframe, look_back)
+trX = np.reshape(trX[:],newshape=(trX.shape[0]*trX.shape[1],1,1),order='C')
+trY = np.reshape(trY[:],newshape=(trY.shape[0]*trY.shape[1],1),order='C')
+# # %%
+# @tf.autograph.experimental.do_not_convert
+# def split_window(features : tf.Tensor) -> tuple[tf.Tensor, tf.Tensor]:
+#     inputs : tf.Tensor=features[:,input_slice,:-len(label_columns)]
+    
+#     labels : tf.Tensor = features[:, labels_slice, :]
+#     labels = tf.stack(
+#                 [labels[:, :, -i]
+#                     for i in range(len(label_columns),0,-1)], axis=-1)
+    
+#     # Slicing doesn't preserve static shape information, so set the shapes
+#     # manually. This way the `tf.data.Datasets` are easier to inspect.
+#     inputs.set_shape([None, input_width, None])
+#     labels.set_shape([None, label_width, None])
+    
+#     return inputs, labels
+
+# data_ds : tf.raw_ops.BatchDataset = \
+#     tf.keras.preprocessing.timeseries_dataset_from_array(
+#         data=dataset, targets=None,
+#         sequence_length=1, sequence_stride=1,
+#         sampling_rate=1,
+#         batch_size=12, shuffle=False,
+#         seed=None, start_index=None, end_index=None
+#     )
+
+# data_ds : tf.raw_ops.MapDataset = data_ds.map(split_window)
+# %%
+h_nodes = 64
+batch_size = trX.shape[1]
+# model = tf.keras.models.Sequential([
+#     tf.keras.layers.InputLayer(batch_input_shape=(1, 12, 1, 1)),
+#     #tf.keras.layers.InputLayer(input_shape=(look_back, 1)),
+#     tf.keras.layers.TimeDistributed(
+#         tf.keras.layers.LSTM(units=h_nodes, 
+#                         stateful=True, return_sequences=True)
+#                 ),
+#     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
+#     tf.keras.layers.TimeDistributed(
+#         tf.keras.layers.LSTM(units=h_nodes, 
+#                         stateful=True, return_sequences=True)
+#                     ),
+#     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
+#     tf.keras.layers.TimeDistributed(
+#         tf.keras.layers.LSTM(units=int(h_nodes/2), 
+#                         stateful=True, return_sequences=True)
+#                     ),
+#     tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+#     tf.keras.layers.TimeDistributed(
+#         tf.keras.layers.LSTM(units=int(h_nodes/2), 
+#                         stateful=True, return_sequences=False)
+#                     ),
+#     tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+#     tf.keras.layers.TimeDistributed(
+#         tf.keras.layers.Dense(units=1, activation=None)
+#                     )
+# ])
+model = tf.keras.models.Sequential([
+    tf.keras.layers.InputLayer(batch_input_shape=(12, 1, 1)),
+    tf.keras.layers.LSTM(units=h_nodes, 
+                    stateful=True, return_sequences=True),    
+    tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),    
+    tf.keras.layers.LSTM(units=h_nodes, 
+                    stateful=True, return_sequences=True),
+    tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),    
+    tf.keras.layers.LSTM(units=int(h_nodes/2), 
+                    stateful=True, return_sequences=True),
+    tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+    tf.keras.layers.LSTM(units=int(h_nodes/2), 
+                        stateful=True, return_sequences=False),    
+    tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+    tf.keras.layers.Dense(units=1, activation=None)    
+])
+def custom_loss(y_true, y_pred):
+    loss = tf.keras.backend.abs(y_pred - y_true)  # (batch_size, 2)
+    tf.print(y_true)
+    return loss
+print(model.summary())
+#model.fit(trX, trY, batch_size=12, epochs = 1, shuffle=False)
+model.compile(loss='mean_squared_error', optimizer='adam',
+              metrics=[tf.metrics.MeanAbsoluteError(),
+                       tf.metrics.RootMeanSquaredError()]
+            )
+#print(model.summary())
+epochs : int = 1000
+history = []
+for i in range(1,epochs+1):
+    print(f'Epoch {i}/{epochs}')
+    # for j in range(0,trX.shape[0]):
+    #     model.train_on_batch(trX[j,:,:,:], trY[j,:])
+    history.append(model.fit(trX, trY, batch_size=12, epochs = 1, shuffle=False))
+    #! Wont work. Needs a Callback for that.
+    # if(i % train_df.shape[0] == 0):
+    #     print("Reseting model")
+    model.reset_states()
+# %%
+# for j in range(0,trX.shape[0]):
+#     model.evaluate(trX[j,:,:,:], trY[j,:], batch_size=12, verbose=1)
+model.evaluate(trX[:,:,:], trY[:,:], batch_size=12, verbose=1)
+model.reset_states()
+
+new_model = tf.keras.models.Sequential([
+    tf.keras.layers.InputLayer(batch_input_shape=(1, look_back, 1)),
+    tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
+    tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
+    tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
+    tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
+    tf.keras.layers.LSTM(units=int(h_nodes/2), stateful=True, return_sequences=True),
+    tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+    tf.keras.layers.LSTM(units=int(h_nodes/2), stateful=True, return_sequences=False),
+    tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+    tf.keras.layers.Dense(units=1, activation=None)
+])
+new_model.set_weights(model.get_weights())
+new_model.compile(loss='mean_squared_error', optimizer='adam',
+              metrics=[tf.metrics.MeanAbsoluteError(),
+                       tf.metrics.RootMeanSquaredError()]
+            )
+new_model.evaluate(trX[::12,:,:], trY[::12,], batch_size=1, verbose=1)
+
+look_ahead = 250
+xval = trX[-1:,:,:]
+predictions = np.zeros((look_ahead,1))
+for i in range(look_ahead):
+    prediction = new_model.predict(xval[-1:,:,:], batch_size=1)
+    predictions[i] = prediction
+    xval = np.expand_dims(prediction, axis=1)
+
+plt.figure(figsize=(12,5))
+# plt.plot(np.arange(len(trainX)),np.squeeze(trainX))
+# plt.plot(np.arange(200),scaler.inverse_transform(np.squeeze(trainPredict)[:,None][1:]))
+# plt.plot(np.arange(200),scaler.inverse_transform(np.squeeze(testY)[:,None][:200]),'r')
+plt.plot(np.arange(look_ahead),predictions,'r',label="prediction")
+#plt.plot(np.arange(look_ahead),dataset[train_size:(train_size+look_ahead)],
+            #label="test function")
+plt.legend()
+plt.show()

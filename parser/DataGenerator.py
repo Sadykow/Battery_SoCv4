@@ -14,6 +14,7 @@ from parser.soc_calc import *
 r_FUDS  : range = range(18,25)    # Charge-Discharge Continuos cycle
 #r_FUDS  : range = range(21,25)    # ONLY CHARGE Cycle
 r_DST_US_FUDS : range = range(5, 25)
+r_DST_US : range = range(5, 19)
 
 @dataclass
 class DataGenerator():
@@ -21,7 +22,8 @@ class DataGenerator():
   valid_dir     : str           # Data directory location
   testi_dir     : str
   columns       : list[str]     # Columns names and their order
-  r_profile     : str           # Profile to use as String
+  r_profile     : str           # Profile to use for Training
+  v_profile     : str           # Profile to use for Validation
 
   float_dtype   : type          # Float variable Type
   int_dtype     : type          # Int variable Type
@@ -39,6 +41,7 @@ class DataGenerator():
   def __init__(self, train_dir : str, valid_dir : str, test_dir : str,
                columns : list[str],
                PROFILE_range : str,
+               PROFILE_valid : str = 'DST_US06',
                float_dtype : type = tnp.float32,
                int_dtype : type = tnp.int16) -> None:
     """ Data Constructor used to extract Excel files by profiles
@@ -65,6 +68,14 @@ class DataGenerator():
       self.r_profile == r_DST_US_FUDS
     else:
       self.r_profile == r_FUDS
+    
+    # Select profile for validation
+    if(PROFILE_range == 'FUDS'):
+      self.v_profile = r_FUDS
+    elif(PROFILE_range == 'DST_US06_FUDS'):
+      self.v_profile == r_DST_US_FUDS
+    else:
+      self.v_profile == r_DST_US
     
     # Variable types to use
     self.float_dtype = float_dtype

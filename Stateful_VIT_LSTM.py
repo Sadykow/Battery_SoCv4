@@ -10,7 +10,7 @@ import os
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import matplotlib.pyplot as plt
 
 from parser.soc_calc import diffSoC
@@ -41,7 +41,10 @@ tf.keras.backend.set_floatx('float32')
 float_dtype : type = np.float32
 train_dir : str = 'Data/A123_Matt_Set'
 valid_dir : str = 'Data/A123_Matt_Val'
-columns   : list[str] = ['Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)']
+columns   : list[str] = [
+                        'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
+                        'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
+                    ]
 
 def Read_Excel_File(path : str, profile : range,
                     columns : list[str]) -> pd.DataFrame:
@@ -92,61 +95,45 @@ def Read_Excel_File(path : str, profile : range,
 for _, _, files in os.walk(train_dir):
     files.sort(key=lambda f: int(f[-13:-5])) # Sort by last dates
     # Initialize empty structures
-    train_df : pd.DataFrame = Read_Excel_File(train_dir + '/' + files[0],
-                                range(18,25), columns)
-    train_df : pd.DataFrame = pd.DataFrame(
-            data={'batch_0' : diffSoC(
-                        chargeData=(train_df.loc[:,'Charge_Capacity(Ah)']),
-                        discargeData=(train_df.loc[:,'Discharge_Capacity(Ah)'])
-                        )},
-            dtype=float_dtype
-        )    
-    i : int = 1
-    for file in files[1:]:
-        df : pd.DataFrame = Read_Excel_File(train_dir + '/' + file,
+    train_X : list[pd.DataFrame] = []
+    train_Y : list[pd.DataFrame] = []
+    for file in files[0:]:
+        X : pd.DataFrame = Read_Excel_File(train_dir + '/' + file,
                                     range(18,25), columns)
-        df: pd.DataFrame = pd.DataFrame(
+        Y : pd.DataFrame = pd.DataFrame(
                 data={'SoC' : diffSoC(
-                            chargeData=df.loc[:,'Charge_Capacity(Ah)'],
-                            discargeData=df.loc[:,'Discharge_Capacity(Ah)']
+                            chargeData=X.loc[:,'Charge_Capacity(Ah)'],
+                            discargeData=X.loc[:,'Discharge_Capacity(Ah)']
                             )},
                 dtype=float_dtype
             )
-        train_df[f'batch_{i}'] = df.copy(deep=True)
-        i += 1
+        X = X[['Current(A)', 'Voltage(V)', 'Temperature (C)_1']]
+        train_X.append(X)
+        train_Y.append(Y)
+
 #? Getting Validation/Testing data in one column
 for _, _, files in os.walk(valid_dir):
     files.sort(key=lambda f: int(f[-13:-5])) # Sort by last dates
     # Initialize empty structures
-    valid_df : pd.DataFrame = Read_Excel_File(valid_dir + '/' + files[0],
-                                range(5,19), columns)
-    valid_df : pd.DataFrame = pd.DataFrame(
-            data={'SoC' : diffSoC(
-                        chargeData=(valid_df.loc[:,'Charge_Capacity(Ah)']),
-                        discargeData=(valid_df.loc[:,'Discharge_Capacity(Ah)'])
-                        )},
-            dtype=float_dtype
-        )
-    #data_SoC['SoC(%)'] = applyMinMax(data_SoC['SoC'])
-    #i : int = 1
+    valid_X : list[pd.DataFrame] = []
+    valid_Y : list[pd.DataFrame] = []
     for file in files[1:]:
-        df : pd.DataFrame = Read_Excel_File(valid_dir + '/' + file,
+        X : pd.DataFrame = Read_Excel_File(valid_dir + '/' + file,
                                     range(5,19), columns)
-        df: pd.DataFrame = pd.DataFrame(
+        Y: pd.DataFrame = pd.DataFrame(
                 data={'SoC' : diffSoC(
-                            chargeData=df.loc[:,'Charge_Capacity(Ah)'],
-                            discargeData=df.loc[:,'Discharge_Capacity(Ah)']
+                            chargeData=X.loc[:,'Charge_Capacity(Ah)'],
+                            discargeData=X.loc[:,'Discharge_Capacity(Ah)']
                             )},
                 dtype=float_dtype
             )
-        #SoC['SoC(%)'] = applyMinMax(SoC['SoC'])
-
-        # train_df[f'batch_{i}'] = df.copy(deep=True)
-        # i += 1
-        valid_df = valid_df.append(df.copy(deep=True), ignore_index=True)
+        X = X[['Current(A)', 'Voltage(V)', 'Temperature (C)_1']]
+        valid_X.append(X)
+        valid_Y.append(Y)        
 # %%
-look_back : int = 1
-scaler : MinMaxScaler = MinMaxScaler(feature_range=(0, 1))
+look_back : int = 50
+scaler_MM : MinMaxScaler = MinMaxScaler(feature_range=(0, 1))
+scaler_SS : StandardScaler = StandardScaler()
 def roundup(x : float, factor : int = 10) -> int:
     """ Round up to a factor. Uses it to create hidden neurons, or Buffer size.
     TODO: Make it a smarter rounder.
@@ -186,43 +173,51 @@ def create_noBatch_dataset(dataset : np.ndarray, look_back : int = 1
         dataY[i]     = reshaped[i + look_back]
     return dataX, dataY
 
-def create_Batch_dataset(dataset : np.ndarray, look_back : int = 1
-                    ) -> tuple[np.ndarray, np.ndarray]:
+def create_Batch_dataset(dataX : np.ndarray, dataY : np.ndarray,
+                    look_back : int = 1) -> tuple[np.ndarray, np.ndarray]:
     
-    d_len : int = dataset.shape[0]-look_back
-    batch : int = dataset.shape[1]
+    d_len : int = dataX.shape[1]-look_back
+    batch : int = dataX.shape[0]
 
-    dataX : np.ndarray = np.zeros(shape=(d_len, batch, look_back, 1),
+    dX : np.ndarray = np.zeros(shape=(d_len, batch, look_back, dataX.shape[2]),
                                   dtype=float_dtype)
-    dataY : np.ndarray = np.zeros(shape=(d_len, batch),
+    dY : np.ndarray = np.zeros(shape=(d_len, batch),
                                   dtype=float_dtype)
     for i in range(0, d_len):
         for j in range(0, batch):
-            dataX[i, j, :, :] = dataset[i:(i+look_back), j]
-            dataY[i, j]       = dataset[i + look_back, j]
-    return dataX, dataY
+            dX[i, j, :, :] = dataX[j, i:(i+look_back), :]
+            dY[i, j]       = dataY[j, i + look_back]
+    return dX, dY
 
-train_df = scaler.fit_transform(train_df)
-valid_df = scaler.fit_transform(valid_df)
+tr_np_X : np.ndarray = np.zeros(shape=(len(train_X), train_X[0].shape[0],
+                                        train_X[0].shape[1]),
+                                dtype=np.float32, order='C')
+tr_np_Y : np.ndarray = np.zeros(shape=(len(train_Y), train_Y[0].shape[0],
+                                        train_Y[0].shape[1]),
+                                dtype=np.float32, order='C')
+#! Tvoy Mat'... Alll this time, samples were not equal
+for i in range(0, len(train_X)):
+    tr_np_X[i,:,:] = scaler_SS.fit_transform(train_X[i][:7996])
+    tr_np_Y[i,:,:] = scaler_MM.fit_transform(train_Y[i][:7996])
 # trX, trY = create_noBatch_dataset(train_df, look_back)
-tsX, tsY = create_noBatch_dataset(valid_df, look_back)
+#tsX, tsY = create_noBatch_dataset(valid_df, look_back)
 
-trX, trY = create_Batch_dataset(train_df, look_back)
+trX, trY = create_Batch_dataset(tr_np_X, tr_np_Y, look_back)
 
-trX = np.reshape(trX[:],newshape=(trX.shape[0]*trX.shape[1],1,1),order='C')
-trY = np.reshape(trY[:],newshape=(trY.shape[0]*trY.shape[1],1),order='C')
+trX = np.reshape(trX[:],newshape=(trX.shape[0]*trX.shape[1],trX.shape[2],trX.shape[3]),order='C')
+trY = np.reshape(trY[:],newshape=(trY.shape[0]*trY.shape[1],)  ,order='C')
 print("Data Shapes:\n"
       "Train {}\n"
       "TrainX {}\n"
-      "TrainY {}\n".format(train_df.shape,trX.shape, trY.shape)
+      "TrainY {}\n".format(tr_np_X.shape,trX.shape, trY.shape)
       )
 # %%
 h_nodes : int = roundup(len(trX) / (6 * ((look_back * 1)+1)))
 print(f"The number of hidden nodes is {h_nodes}.")
-h_nodes = 82
-batch_size = train_df.shape[1]
+h_nodes : int = int(h_nodes/10)
+batch_size = tr_np_X.shape[0]
 model = tf.keras.models.Sequential([
-    tf.keras.layers.InputLayer(batch_input_shape=(batch_size, look_back, 1)),
+    tf.keras.layers.InputLayer(batch_input_shape=(batch_size, look_back, tr_np_X.shape[2])),
     tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
     tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
@@ -234,27 +229,32 @@ model = tf.keras.models.Sequential([
     tf.keras.layers.Dense(units=1, activation=None)
 ])
 print(model.summary())
-model.compile(loss='mean_squared_error', optimizer='adam',
+model.compile(loss='mean_squared_error',
+              optimizer='adam',
+            #   optimizer=tf.optimizers.Adam(learning_rate=10e-04,
+            #         beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
               metrics=[tf.metrics.MeanAbsoluteError(),
                        tf.metrics.RootMeanSquaredError()]
             )
+min_rmse = 100
+histories = []
 # %%
-epochs : int = 600
+epochs : int = 100
+file_path = 'Models/Stateful/LSTM_test2'
 for i in range(1,epochs+1):
     print(f'Epoch {i}/{epochs}')
-    model.fit(trX, trY, epochs=1, batch_size=batch_size,
+    history = model.fit(trX, trY, epochs=1, batch_size=batch_size,
                 verbose=1, shuffle=False)
-    # for j in range(0,trX.shape[0]):
-    #     model.train_on_batch(trX[j,:,:,:], trY[j,:])
-    #! Wont work. Needs a Callback for that.
-    # if(i % train_df.shape[0] == 0):
-    #     print("Reseting model")
+    if(history.history['root_mean_squared_error'][0] < min_rmse):
+        min_rmse = history.history['root_mean_squared_error'][0]
+        model.save(file_path)
+    histories.append(history)
     model.reset_states()
 # %%
 # for j in range(0,trX.shape[0]):
 #     model.evaluate(trX[j,:,:,:], trY[j,:], batch_size=12, verbose=1)
 new_model = tf.keras.models.Sequential([
-    tf.keras.layers.InputLayer(batch_input_shape=(1, look_back, 1)),
+    tf.keras.layers.InputLayer(batch_input_shape=(1, look_back, tr_np_X.shape[2])),
     tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
     tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
@@ -265,7 +265,7 @@ new_model = tf.keras.models.Sequential([
     tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
     tf.keras.layers.Dense(units=1, activation=None)
 ])
-new_model.set_weights(model.get_weights())
+new_model.set_weights(tf.keras.models.load_model(file_path).get_weights())
 new_model.compile(loss='mean_squared_error', optimizer='adam',
               metrics=[tf.metrics.MeanAbsoluteError(),
                        tf.metrics.RootMeanSquaredError()]
@@ -275,15 +275,17 @@ new_model.evaluate(tsX[:252], tsY[:252],
                             batch_size=1, verbose=1)
 new_model.reset_states()
 
-new_model.evaluate(trX[::batch_size,:,:], trY[::batch_size,:], batch_size=1, verbose=1)
+new_model.evaluate(trX[::batch_size,:,:], trY[::batch_size], batch_size=1, verbose=1)
 new_model.reset_states()
 model.evaluate(trX, trY, batch_size=batch_size,verbose=1)
 model.reset_states()
 
-look_ahead = 1500
-xval = trX[-1:,:,:]
-predictions = np.zeros((look_ahead,1))
-new_model.predict(trX[:1000:12,:,:], batch_size=1)
+look_ahead = 5000
+pre_train = 2000
+xval = trX[:pre_train*batch_size:batch_size,:,:]
+predictions = np.zeros((pre_train + look_ahead,1))
+predictions[:pre_train] = new_model.predict(xval, batch_size=1)
+
 for i in range(look_ahead):
     prediction = new_model.predict(xval[-1:,:,:], batch_size=1)
     predictions[i] = prediction
@@ -292,8 +294,12 @@ new_model.reset_states()
 
 plt.figure(figsize=(12,5))
 plt.plot(np.arange(look_ahead),predictions,'r',label="prediction")
-# plt.plot(np.arange(look_ahead),dataset[train_size:(train_size+look_ahead)],
-#             label="test function")
+for i in range(12):
+    plt.plot(trY[i::batch_size],'--')
 plt.legend()
 plt.show()
 # %%
+rmse = np.zeros(shape=(len(histories)) )
+for i in range(0, len(histories)):
+    rmse[i] = (histories[i].history['root_mean_squared_error'])[0]
+plt.plot(rmse)

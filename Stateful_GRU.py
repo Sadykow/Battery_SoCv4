@@ -1,6 +1,6 @@
 #!/usr/bin/python
 # %% [markdown]
-# # Stateful LSTM example based on Cosine wave.
+# # Stateful GRU example based on Cosine wave.
 # Design will use onlt SoC to predict RUL. This method will also investigate
 #batching mechanism for individual files to speed the process.
 
@@ -17,7 +17,7 @@ from parser.soc_calc import diffSoC
 # Configurate GPUs
 # Define plot sizes
 #! Select GPU for usage. CPU versions ignores it
-GPU=1
+GPU=0
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
@@ -209,8 +209,6 @@ tsX, tsY = create_noBatch_dataset(valid_df, look_back)
 
 trX, trY = create_Batch_dataset(train_df, look_back)
 
-trX = np.reshape(trX[:],newshape=(trX.shape[0]*trX.shape[1],1,1),order='C')
-trY = np.reshape(trY[:],newshape=(trY.shape[0]*trY.shape[1],1),order='C')
 print("Data Shapes:\n"
       "Train {}\n"
       "TrainX {}\n"
@@ -219,17 +217,17 @@ print("Data Shapes:\n"
 # %%
 h_nodes : int = roundup(len(trX) / (6 * ((look_back * 1)+1)))
 print(f"The number of hidden nodes is {h_nodes}.")
-h_nodes = 82
+h_nodes = 64
 batch_size = train_df.shape[1]
 model = tf.keras.models.Sequential([
     tf.keras.layers.InputLayer(batch_input_shape=(batch_size, look_back, 1)),
-    tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
+    tf.keras.layers.GRU(units=h_nodes, stateful=True, return_sequences=True),
     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
+    tf.keras.layers.GRU(units=h_nodes, stateful=True, return_sequences=True),
     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(units=int(h_nodes/2), stateful=True, return_sequences=True),
+    tf.keras.layers.GRU(units=int(h_nodes/2), stateful=True, return_sequences=True),
     tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(units=int(h_nodes/2), stateful=True, return_sequences=False),
+    tf.keras.layers.GRU(units=int(h_nodes/2), stateful=True, return_sequences=False),
     tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
     tf.keras.layers.Dense(units=1, activation=None)
 ])
@@ -239,29 +237,28 @@ model.compile(loss='mean_squared_error', optimizer='adam',
                        tf.metrics.RootMeanSquaredError()]
             )
 # %%
-epochs : int = 600
+epochs : int = 250
 for i in range(1,epochs+1):
     print(f'Epoch {i}/{epochs}')
-    model.fit(trX, trY, epochs=1, batch_size=batch_size,
-                verbose=1, shuffle=False)
-    # for j in range(0,trX.shape[0]):
-    #     model.train_on_batch(trX[j,:,:,:], trY[j,:])
+    # model.fit(trX[:,:,:,:], trY[:,:], epochs=1, batch_size=12,
+    #             verbose=1, shuffle=False)
+    for j in range(0,trX.shape[0]):
+        model.train_on_batch(trX[j,:,:,:], trY[j,:])
     #! Wont work. Needs a Callback for that.
     # if(i % train_df.shape[0] == 0):
     #     print("Reseting model")
-    model.reset_states()
+    model.reset_states()    
 # %%
-# for j in range(0,trX.shape[0]):
-#     model.evaluate(trX[j,:,:,:], trY[j,:], batch_size=12, verbose=1)
+model.evaluate(trX, trY, batch_size=12, verbose=1)
 new_model = tf.keras.models.Sequential([
     tf.keras.layers.InputLayer(batch_input_shape=(1, look_back, 1)),
-    tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
+    tf.keras.layers.GRU(units=h_nodes, stateful=True, return_sequences=True),
     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
+    tf.keras.layers.GRU(units=h_nodes, stateful=True, return_sequences=True),
     tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(units=int(h_nodes/2), stateful=True, return_sequences=True),
+    tf.keras.layers.GRU(units=int(h_nodes/2), stateful=True, return_sequences=True),
     tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(units=int(h_nodes/2), stateful=True, return_sequences=False),
+    tf.keras.layers.GRU(units=int(h_nodes/2), stateful=True, return_sequences=False),
     tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
     tf.keras.layers.Dense(units=1, activation=None)
 ])
@@ -275,20 +272,17 @@ new_model.evaluate(tsX[:252], tsY[:252],
                             batch_size=1, verbose=1)
 new_model.reset_states()
 
-new_model.evaluate(trX[::batch_size,:,:], trY[::batch_size,:], batch_size=1, verbose=1)
-new_model.reset_states()
-model.evaluate(trX, trY, batch_size=batch_size,verbose=1)
-model.reset_states()
+new_model.evaluate(trX[:,0,:,:], trY[:,0], batch_size=1, verbose=1)
 
-look_ahead = 1500
-xval = trX[-1:,:,:]
+look_ahead : int = 250
+#trainPredict = [np.vstack([trX[-1][1:], trY[-1]])]
+trainPredict = [np.vstack([trX[-1,0,:,:], trY[-1,0]])]
 predictions = np.zeros((look_ahead,1))
-new_model.predict(trX[:1000:12,:,:], batch_size=1)
 for i in range(look_ahead):
-    prediction = new_model.predict(xval[-1:,:,:], batch_size=1)
+    prediction = new_model.predict(np.array([trainPredict[-1]]),
+                                batch_size=batch_size)
     predictions[i] = prediction
-    xval = np.expand_dims(prediction, axis=1)
-new_model.reset_states()
+    trainPredict.append(np.vstack([trainPredict[-1][1:],prediction]))
 
 plt.figure(figsize=(12,5))
 plt.plot(np.arange(look_ahead),predictions,'r',label="prediction")

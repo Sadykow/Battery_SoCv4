@@ -145,7 +145,7 @@ for _, _, files in os.walk(valid_dir):
         # i += 1
         valid_df = valid_df.append(df.copy(deep=True), ignore_index=True)
 # %%
-look_back : int = 1
+look_back : int = 40
 scaler : MinMaxScaler = MinMaxScaler(feature_range=(0, 1))
 def roundup(x : float, factor : int = 10) -> int:
     """ Round up to a factor. Uses it to create hidden neurons, or Buffer size.
@@ -182,7 +182,7 @@ def create_noBatch_dataset(dataset : np.ndarray, look_back : int = 1
     dataY : np.ndarray = np.zeros(shape=(d_len),
                                   dtype=float_dtype)
     for i in range(0, d_len):
-        dataX[i,:,:] = reshaped[i:(i+look_back)]
+        dataX[i,:,:] = np.expand_dims(reshaped[i:(i+look_back)], axis=1)
         dataY[i]     = reshaped[i + look_back]
     return dataX, dataY
 
@@ -198,7 +198,7 @@ def create_Batch_dataset(dataset : np.ndarray, look_back : int = 1
                                   dtype=float_dtype)
     for i in range(0, d_len):
         for j in range(0, batch):
-            dataX[i, j, :, :] = dataset[i:(i+look_back), j]
+            dataX[i, j, :, :] = np.expand_dims(dataset[i:(i+look_back), j], axis=1)
             dataY[i, j]       = dataset[i + look_back, j]
     return dataX, dataY
 
@@ -209,8 +209,6 @@ tsX, tsY = create_noBatch_dataset(valid_df, look_back)
 
 trX, trY = create_Batch_dataset(train_df, look_back)
 
-trX = np.reshape(trX[:],newshape=(trX.shape[0]*trX.shape[1],1,1),order='C')
-trY = np.reshape(trY[:],newshape=(trY.shape[0]*trY.shape[1],1),order='C')
 print("Data Shapes:\n"
       "Train {}\n"
       "TrainX {}\n"
@@ -219,7 +217,7 @@ print("Data Shapes:\n"
 # %%
 h_nodes : int = roundup(len(trX) / (6 * ((look_back * 1)+1)))
 print(f"The number of hidden nodes is {h_nodes}.")
-h_nodes = 82
+h_nodes = 64
 batch_size = train_df.shape[1]
 model = tf.keras.models.Sequential([
     tf.keras.layers.InputLayer(batch_input_shape=(batch_size, look_back, 1)),
@@ -239,20 +237,19 @@ model.compile(loss='mean_squared_error', optimizer='adam',
                        tf.metrics.RootMeanSquaredError()]
             )
 # %%
-epochs : int = 600
+epochs : int = 25
 for i in range(1,epochs+1):
     print(f'Epoch {i}/{epochs}')
-    model.fit(trX, trY, epochs=1, batch_size=batch_size,
-                verbose=1, shuffle=False)
-    # for j in range(0,trX.shape[0]):
-    #     model.train_on_batch(trX[j,:,:,:], trY[j,:])
+    # model.fit(trX[:,:,:,:], trY[:,:], epochs=1, batch_size=12,
+    #             verbose=1, shuffle=False)
+    for j in range(0,trX.shape[0]):
+        model.train_on_batch(trX[j,:,:,:], trY[j,:])
     #! Wont work. Needs a Callback for that.
     # if(i % train_df.shape[0] == 0):
     #     print("Reseting model")
-    model.reset_states()
+    model.reset_states()    
 # %%
-# for j in range(0,trX.shape[0]):
-#     model.evaluate(trX[j,:,:,:], trY[j,:], batch_size=12, verbose=1)
+model.evaluate(trX, trY, batch_size=1, verbose=1)
 new_model = tf.keras.models.Sequential([
     tf.keras.layers.InputLayer(batch_input_shape=(1, look_back, 1)),
     tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
@@ -275,20 +272,17 @@ new_model.evaluate(tsX[:252], tsY[:252],
                             batch_size=1, verbose=1)
 new_model.reset_states()
 
-new_model.evaluate(trX[::batch_size,:,:], trY[::batch_size,:], batch_size=1, verbose=1)
-new_model.reset_states()
-model.evaluate(trX, trY, batch_size=batch_size,verbose=1)
-model.reset_states()
+new_model.evaluate(trX[:,0,:,:], trY[:,0], batch_size=1, verbose=1)
 
-look_ahead = 1500
-xval = trX[-1:,:,:]
+look_ahead : int = 250
+#trainPredict = [np.vstack([trX[-1][1:], trY[-1]])]
+trainPredict = [np.vstack([trX[-1,0,:,:], trY[-1,0]])]
 predictions = np.zeros((look_ahead,1))
-new_model.predict(trX[:1000:12,:,:], batch_size=1)
 for i in range(look_ahead):
-    prediction = new_model.predict(xval[-1:,:,:], batch_size=1)
+    prediction = new_model.predict(np.array([trainPredict[-1]]),
+                                batch_size=batch_size)
     predictions[i] = prediction
-    xval = np.expand_dims(prediction, axis=1)
-new_model.reset_states()
+    trainPredict.append(np.vstack([trainPredict[-1][1:],prediction]))
 
 plt.figure(figsize=(12,5))
 plt.plot(np.arange(look_ahead),predictions,'r',label="prediction")
