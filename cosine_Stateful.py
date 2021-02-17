@@ -432,11 +432,11 @@ triple_model.compile(loss='mean_squared_error', optimizer='adam',
               metrics=[tf.metrics.MeanAbsoluteError(),
                        tf.metrics.RootMeanSquaredError()]
             )
-epochs : int = 500
+epochs : int = 250
 for i in range(1,epochs+1):
     #print(f'Epoch {i}/{epochs}')
     triple_model.fit(trX, trY, epochs=1, batch_size=batch_size,
-                verbose=0, shuffle=False)
+                verbose=1, shuffle=False)
     triple_model.reset_states()
 
 triple_model.evaluate(tsX[:252], tsY[:252], 
@@ -691,7 +691,7 @@ look_ahead = 250
 xval = trX[-1:,:,:]
 predictions = np.zeros((look_ahead,1))
 for i in range(look_ahead):
-    prediction = new_model.predict(xval[-1:,:,:], batch_size=1)
+    prediction = triple_model.predict(xval[-1:,:,:], batch_size=1)
     predictions[i] = prediction
     xval = np.expand_dims(prediction, axis=1)
 
