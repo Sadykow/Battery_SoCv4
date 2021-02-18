@@ -13,11 +13,10 @@ import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 
-from parser.soc_calc import diffSoC
 # Configurate GPUs
 # Define plot sizes
 #! Select GPU for usage. CPU versions ignores it
-GPU=0
+GPU=1
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
@@ -88,13 +87,34 @@ def Read_Excel_File(path : str, profile : range,
     df = df[columns]   # Order columns in the proper sequence
     return df
 
+def diffSoC(chargeData   : pd.Series,
+            discargeData : pd.Series) -> pd.Series:
+    """ Return SoC based on differnece of Charge and Discharge Data.
+    Data in range of 0 to 1.
+    Args:
+        chargeData (pd.Series): Charge Data Series
+        discargeData (pd.Series): Discharge Data Series
+
+    Raises:
+        ValueError: If any of data has negative
+        ValueError: If the data trend is negative. (end-beg)<0.
+
+    Returns:
+        pd.Series: Ceil data with 2 decimal places only.
+    """
+    # Raise error
+    if((any(chargeData) < 0)
+        |(any(discargeData) < 0)):
+        raise ValueError("Parser: Charge/Discharge data contains negative.")
+    return np.round((chargeData - discargeData)*100)/100
+
 #? Getting training data and separated file by batch
 train_df : list[np.ndarray] = []
 for _, _, files in os.walk(train_dir):
     files.sort(key=lambda f: int(f[-13:-5])) # Sort by last dates
     # Initialize empty structures
     df : pd.DataFrame = Read_Excel_File(train_dir + '/' + files[0],
-                                range(22,25), columns)
+                                range(18,25), columns)
     train_df.append(pd.DataFrame(
             data={'batch_0' : diffSoC(
                         chargeData=(df.loc[:,'Charge_Capacity(Ah)']),
@@ -105,7 +125,7 @@ for _, _, files in os.walk(train_dir):
 
     for file in files[1:]:
         df : pd.DataFrame = Read_Excel_File(train_dir + '/' + file,
-                                    range(22,25), columns)
+                                    range(18,25), columns)
         train_df.append(pd.DataFrame(
                 data={'SoC' : diffSoC(
                             chargeData=df.loc[:,'Charge_Capacity(Ah)'],
@@ -159,24 +179,26 @@ def create_noBatch_dataset(dataset : np.ndarray, look_back : int = 1
 def create_Batch_dataset(dataset : list[np.ndarray], look_back : int = 1
                     ) -> tuple[np.ndarray, np.ndarray]:
     
-    batch : int = len(dataset.shape[1])
-    d_len : int = dataset.shape[0]-look_back
-    
-
-    dataX : list[np.ndarray] = [] 
-    np.zeros(shape=(d_len, batch, look_back, 1),
-                                  dtype=float_dtype)
+    batch : int = len(dataset)
+    dataX : list[np.ndarray] = []
     dataY : list[np.ndarray] = []
-    np.zeros(shape=(d_len, batch),
-                                  dtype=float_dtype)
+    
     for i in range(0, batch):
-        for j in range(0, batch):
-            dataX[i, j, :, :] = dataset[i:(i+look_back), j:j+1]
-            dataY[i, j]       = dataset[i + look_back, j:j+1]
+        d_len : int = dataset[i].shape[0]-look_back
+        dataX.append(np.zeros(shape=(d_len, look_back, 1),
+                    dtype=float_dtype))
+        dataY.append(np.zeros(shape=(d_len,), dtype=float_dtype))    
+        for j in range(0, d_len):
+            #dataX[i, j, :, :] = dataset[i:(i+look_back), j:j+1]
+            #dataY[i, j]       = dataset[i + look_back, j:j+1]
+            dataX[i][j,:,:] = dataset[i][j:(j+look_back), :]  
+            dataY[i][j]     = dataset[i][j+look_back,]
     return dataX, dataY
 
+sample_size : int = 0
 for i in range(0, len(train_df)):
     train_df[i] = scaler.fit_transform(train_df[i])
+    sample_size += train_df[i].shape[0]
 #valid_df = scaler.fit_transform(valid_df)
 # trX, trY = create_noBatch_dataset(train_df, look_back)
 #tsX, tsY = create_noBatch_dataset(valid_df, look_back)
@@ -185,72 +207,77 @@ trX, trY = create_Batch_dataset(train_df, look_back)
 
 # trX = np.reshape(trX[:],newshape=(trX.shape[0]*trX.shape[1],1,1),order='C')
 # trY = np.reshape(trY[:],newshape=(trY.shape[0]*trY.shape[1],1),order='C')
-trX = 1 - trX
-trY = 1 - trY
-print("Data Shapes:\n"
-      "Train {}\n"
-      "TrainX {}\n"
-      "TrainY {}\n".format(train_df.shape,trX.shape, trY.shape)
-      )
+#trX = 1 - trX
+#trY = 1 - trY
+# print("Data Shapes:\n"
+#       "Train {}\n"
+#       "TrainX {}\n"
+#       "TrainY {}\n".format(train_df.shape,trX.shape, trY.shape)
+#       )
 # %%
-h_nodes : int = roundup(len(trX) / (6 * ((look_back * 1)+1)))
+h_nodes : int = roundup(sample_size / (6 * ((look_back * 1)+1)))
 print(f"The number of hidden nodes is {h_nodes}.")
 h_nodes = 96
-batch_size = train_df.shape[1]
+#batch_size = train_df.shape[1]
 model = tf.keras.models.Sequential([
     tf.keras.layers.InputLayer(batch_input_shape=(1, look_back, 1)),
     tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
-    tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
-    tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(units=int(h_nodes/2), stateful=True, return_sequences=True),
     tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(units=int(h_nodes/2), stateful=True, return_sequences=False),
+    tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
+    tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+    tf.keras.layers.LSTM(units=int(h_nodes), stateful=True, return_sequences=True),
+    tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+    tf.keras.layers.LSTM(units=int(h_nodes), stateful=True, return_sequences=True),
+    tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+    tf.keras.layers.LSTM(units=int(h_nodes), stateful=True, return_sequences=True),
+    tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+    tf.keras.layers.LSTM(units=int(h_nodes), stateful=True, return_sequences=True),
+    tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+    tf.keras.layers.LSTM(units=int(h_nodes), stateful=True, return_sequences=False),
     tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
     tf.keras.layers.Dense(units=1, activation=None)
 ])
 print(model.summary())
 model.compile(loss='mean_squared_error', optimizer='adam',
               metrics=[tf.metrics.MeanAbsoluteError(),
-                       tf.metrics.RootMeanSquaredError(),
-                       tf.metrics.Accuracy()]
+                       tf.metrics.RootMeanSquaredError()]
             )
 min_rmse = 100
 #histories = []
 firtstEpoch : bool = True
 # %%
-epochs : int = 100 #! 26 seconds
-file_path = 'Models/Stateful/LSTM_test5_SOC'
-#! What if I am wrong, and 12 batches would meen sequence not paralled
+#epochs : int = 60 #! 37*12 seconds = 444s
+epochs : int = 6 #! 37*12 seconds = 444s
+file_path = 'Models/Stateful/LSTM_test11_SOC'
 for i in range(1,epochs+1):
     print(f'Epoch {i}/{epochs}')
-    for i in range(0, trX.shape[1]):
-        history = model.fit(trX[:,i,:,:], trY[:,i], epochs=1, batch_size=1,
+    for i in range(0, len(trX)):
+        history = model.fit(trX[i], trY[i], epochs=1, batch_size=1,
                 verbose=1, shuffle=False)
-        model.reset_states()
+        #model.reset_states()    #! Try next time without reset
     # for j in range(0,trX.shape[0]):
     #     model.train_on_batch(trX[j,:,:,:], trY[j,:])
     #! Wont work. Needs a Callback for that.
     # if(i % train_df.shape[0] == 0):
     #     print("Reseting model")
-    # if(history.history['root_mean_squared_error'][0] < min_rmse):
-    #     min_rmse = history.history['root_mean_squared_error'][0]
-    #     model.save(file_path)
+    if(history.history['root_mean_squared_error'][0] < min_rmse):
+        min_rmse = history.history['root_mean_squared_error'][0]
+        model.save(file_path)
 
     #histories.append(history)
     
     
     # Saving history variable
     # convert the history.history dict to a pandas DataFrame:     
-    # hist_df = pd.DataFrame(history.history)
+    hist_df = pd.DataFrame(history.history)
     # # or save to csv:
-    # with open('Models/Stateful/LSTM_test1_SOC-history.csv', mode='a') as f:
-    #     if(firtstEpoch):
-    #         hist_df.to_csv(f, index=False)
-    #         firtstEpoch = False
-    #     else:
-    #         hist_df.to_csv(f, index=False, header=False)
-
+    with open('Models/Stateful/LSTM_test11_SOC-history.csv', mode='a') as f:
+        if(firtstEpoch):
+            hist_df.to_csv(f, index=False)
+            firtstEpoch = False
+        else:
+            hist_df.to_csv(f, index=False, header=False)
+model.save('Models/Stateful/LSTM_test11_SOC_Last')
 # # %%
 # # for j in range(0,trX.shape[0]):
 # #     model.evaluate(trX[j,:,:,:], trY[j,:], batch_size=12, verbose=1)
@@ -271,30 +298,37 @@ for i in range(1,epochs+1):
 #               metrics=[tf.metrics.MeanAbsoluteError(),
 #                        tf.metrics.RootMeanSquaredError()]
 #             )
-# # %%
-# new_model.evaluate(tsX[:252], tsY[:252], 
-#                             batch_size=1, verbose=1)
-# new_model.reset_states()
+# %%
+#? Following version was trained on file by file approach.
+#model = tf.keras.models.load_model('Models/Stateful/LSTM_test7_SOC_Last')
+#? Following version was trained on all files in sequence, without reset.
+model = tf.keras.models.load_model('Models/Stateful/LSTM_test11_SOC')
+pred = model.predict(trX[0], batch_size=1)
+#pred1 = model.predict(trX[1], batch_size=1)
+#pred2 = model.predict(trX[2], batch_size=1)
+model.reset_states()
+# %%
+total_cycle : int = 8000
+pre_predict : int = 1000
+index_file  : int = 3
+look_ahead = total_cycle - pre_predict
+predictions = np.zeros((look_ahead,1))
+prediction = model.predict(trX[index_file][:pre_predict,:,:], batch_size=1)[-1:,:]
+for i in range(look_ahead):
+    prediction = model.predict(np.expand_dims(prediction,
+                                               axis=1),
+                            batch_size=1)
+    predictions[i] = prediction    
+model.reset_states()
 
-# new_model.evaluate(trX[::batch_size,:,:], trY[::batch_size,:], batch_size=1, verbose=1)
-# new_model.reset_states()
-# model.evaluate(trX, trY, batch_size=batch_size,verbose=1)
-# model.reset_states()
-
-# look_ahead = 1500
-# xval = trX[-1:,:,:]
-# predictions = np.zeros((look_ahead,1))
-# new_model.predict(trX[:1000:12,:,:], batch_size=1)
-# for i in range(look_ahead):
-#     prediction = new_model.predict(xval[-1:,:,:], batch_size=1)
-#     predictions[i] = prediction
-#     xval = np.expand_dims(prediction, axis=1)
-# new_model.reset_states()
-
-# plt.figure(figsize=(12,5))
-# plt.plot(np.arange(look_ahead),predictions,'r',label="prediction")
-# # plt.plot(np.arange(look_ahead),dataset[train_size:(train_size+look_ahead)],
-# #             label="test function")
-# plt.legend()
-# plt.show()
+time = np.linspace(0,trX[index_file].shape[0],8000)
+multiplier : float = trX[index_file][pre_predict:total_cycle,0,0][0]/(predictions[0][0]+0.08)
+plt.figure(figsize=(12,5))
+plt.plot(time[0:pre_predict], trX[index_file][:pre_predict,0,0], 'b-', label='True')
+#plt.plot(time[pre_predict:],(predictions+0.075)*8.5,'r',label="prediction")
+plt.plot(time[pre_predict:],(predictions+0.08)*multiplier,'r',label="prediction")
+plt.plot(time[pre_predict:], trX[index_file][pre_predict:total_cycle,0,0], 'b--', label='True')
+plt.legend()
+plt.title("Remaining Useful Life prediction")
+plt.show()
 # %%

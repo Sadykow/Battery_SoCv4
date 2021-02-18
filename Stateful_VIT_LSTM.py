@@ -12,8 +12,8 @@ import pandas as pd
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import matplotlib.pyplot as plt
+from tensorflow.python.keras.backend import dropout
 
-from parser.soc_calc import diffSoC
 # Configurate GPUs
 # Define plot sizes
 #! Select GPU for usage. CPU versions ignores it
@@ -91,6 +91,27 @@ def Read_Excel_File(path : str, profile : range,
     df = df[columns]   # Order columns in the proper sequence
     return df
 
+def diffSoC(chargeData   : pd.Series,
+            discargeData : pd.Series) -> pd.Series:
+    """ Return SoC based on differnece of Charge and Discharge Data.
+    Data in range of 0 to 1.
+    Args:
+        chargeData (pd.Series): Charge Data Series
+        discargeData (pd.Series): Discharge Data Series
+
+    Raises:
+        ValueError: If any of data has negative
+        ValueError: If the data trend is negative. (end-beg)<0.
+
+    Returns:
+        pd.Series: Ceil data with 2 decimal places only.
+    """
+    # Raise error
+    if((any(chargeData) < 0)
+        |(any(discargeData) < 0)):
+        raise ValueError("Parser: Charge/Discharge data contains negative.")
+    return np.round((chargeData - discargeData)*100)/100
+
 #? Getting training data and separated file by batch
 for _, _, files in os.walk(train_dir):
     files.sort(key=lambda f: int(f[-13:-5])) # Sort by last dates
@@ -110,28 +131,9 @@ for _, _, files in os.walk(train_dir):
         X = X[['Current(A)', 'Voltage(V)', 'Temperature (C)_1']]
         train_X.append(X)
         train_Y.append(Y)
-
-# #? Getting Validation/Testing data in one column
-# for _, _, files in os.walk(valid_dir):
-#     files.sort(key=lambda f: int(f[-13:-5])) # Sort by last dates
-#     # Initialize empty structures
-#     valid_X : list[pd.DataFrame] = []
-#     valid_Y : list[pd.DataFrame] = []
-#     for file in files[1:]:
-#         X : pd.DataFrame = Read_Excel_File(valid_dir + '/' + file,
-#                                     range(5,19), columns)
-#         Y: pd.DataFrame = pd.DataFrame(
-#                 data={'SoC' : diffSoC(
-#                             chargeData=X.loc[:,'Charge_Capacity(Ah)'],
-#                             discargeData=X.loc[:,'Discharge_Capacity(Ah)']
-#                             )},
-#                 dtype=float_dtype
-#             )
-#         X = X[['Current(A)', 'Voltage(V)', 'Temperature (C)_1']]
-#         valid_X.append(X)
-#         valid_Y.append(Y)        
+      
 # %%
-look_back : int = 50
+look_back : int = 1
 scaler_MM : MinMaxScaler = MinMaxScaler(feature_range=(0, 1))
 scaler_SS : StandardScaler = StandardScaler()
 def roundup(x : float, factor : int = 10) -> int:
@@ -173,59 +175,90 @@ def create_noBatch_dataset(dataset : np.ndarray, look_back : int = 1
         dataY[i]     = reshaped[i + look_back]
     return dataX, dataY
 
-def create_Batch_dataset(dataX : np.ndarray, dataY : np.ndarray,
-                    look_back : int = 1) -> tuple[np.ndarray, np.ndarray]:
+# def create_Batch_dataset(dataX : np.ndarray, dataY : np.ndarray,
+#                     look_back : int = 1) -> tuple[np.ndarray, np.ndarray]:
     
-    d_len : int = dataX.shape[1]-look_back
-    batch : int = dataX.shape[0]
+#     d_len : int = dataX.shape[1]-look_back
+#     batch : int = dataX.shape[0]
 
-    dX : np.ndarray = np.zeros(shape=(d_len, batch, look_back, dataX.shape[2]),
-                                  dtype=float_dtype)
-    dY : np.ndarray = np.zeros(shape=(d_len, batch),
-                                  dtype=float_dtype)
-    for i in range(0, d_len):
-        for j in range(0, batch):
-            dX[i, j, :, :] = dataX[j, i:(i+look_back), :]
-            dY[i, j]       = dataY[j, i + look_back]
-    return dX, dY
+#     dX : np.ndarray = np.zeros(shape=(d_len, batch, look_back, dataX.shape[2]),
+#                                   dtype=float_dtype)
+#     dY : np.ndarray = np.zeros(shape=(d_len, batch),
+#                                   dtype=float_dtype)
+#     for i in range(0, d_len):
+#         for j in range(0, batch):
+#             dX[i, j, :, :] = dataX[j, i:(i+look_back), :]
+#             dY[i, j]       = dataY[j, i + look_back]
+#     return dX, dY
+def create_Batch_dataset(X : list[np.ndarray], Y : list[np.ndarray],
+                    look_back : int = 1
+                    ) -> tuple[np.ndarray, np.ndarray]:
+    
+    batch : int = len(X)
+    dataX : list[np.ndarray] = []
+    dataY : list[np.ndarray] = []
+    
+    for i in range(0, batch):
+        d_len : int = X[i].shape[0]-look_back
+        dataX.append(np.zeros(shape=(d_len, look_back, 3),
+                    dtype=float_dtype))
+        dataY.append(np.zeros(shape=(d_len,), dtype=float_dtype))    
+        for j in range(0, d_len):
+            #dataX[i, j, :, :] = dataset[i:(i+look_back), j:j+1]
+            #dataY[i, j]       = dataset[i + look_back, j:j+1]
+            dataX[i][j,:,:] = X[i][j:(j+look_back), :]  
+            dataY[i][j]     = Y[i][j+look_back,]
+    return dataX, dataY
 
-tr_np_X : np.ndarray = np.zeros(shape=(len(train_X), train_X[0].shape[0],
-                                        train_X[0].shape[1]),
-                                dtype=np.float32, order='C')
-tr_np_Y : np.ndarray = np.zeros(shape=(len(train_Y), train_Y[0].shape[0],
-                                        train_Y[0].shape[1]),
-                                dtype=np.float32, order='C')
-#! Tvoy Mat'... Alll this time, samples were not equal
+# tr_np_X : np.ndarray = np.zeros(shape=(len(train_X), train_X[0].shape[0],
+#                                         train_X[0].shape[1]),
+#                                 dtype=np.float32, order='C')
+# tr_np_Y : np.ndarray = np.zeros(shape=(len(train_Y), train_Y[0].shape[0],
+#                                         train_Y[0].shape[1]),
+#                                 dtype=np.float32, order='C')
+#! Tvoy mat'... All this time, samples were not equal
+sample_size : int = 0
 for i in range(0, len(train_X)):
-    tr_np_X[i,:,:] = scaler_SS.fit_transform(train_X[i][:7095])
-    tr_np_Y[i,:,:] = scaler_MM.fit_transform(train_Y[i][:7095])
+    # tr_np_X[i,:,:] = scaler_SS.fit_transform(train_X[i][:7095])
+    # tr_np_Y[i,:,:] = scaler_MM.fit_transform(train_Y[i][:7095])
+    #train_X[i] = scaler_SS.fit_transform(train_X[i])
+    train_X[i] = train_X[i].to_numpy()
+    train_Y[i] = scaler_MM.fit_transform(train_Y[i])
+    sample_size += train_X[i].shape[0]
 # trX, trY = create_noBatch_dataset(train_df, look_back)
 #tsX, tsY = create_noBatch_dataset(valid_df, look_back)
 
-trX, trY = create_Batch_dataset(tr_np_X, tr_np_Y, look_back)
+trX, trY = create_Batch_dataset(train_X, train_Y, look_back)
 
-trX = np.reshape(trX[:],newshape=(trX.shape[0]*trX.shape[1],trX.shape[2],trX.shape[3]),order='C')
-trY = np.reshape(trY[:],newshape=(trY.shape[0]*trY.shape[1],)  ,order='C')
-print("Data Shapes:\n"
-      "Train {}\n"
-      "TrainX {}\n"
-      "TrainY {}\n".format(tr_np_X.shape,trX.shape, trY.shape)
-      )
+# trX = np.reshape(trX[:],newshape=(trX.shape[0]*trX.shape[1],trX.shape[2],trX.shape[3]),order='C')
+# trY = np.reshape(trY[:],newshape=(trY.shape[0]*trY.shape[1],)  ,order='C')
+# print("Data Shapes:\n"
+#       "Train {}\n"
+#       "TrainX {}\n"
+#       "TrainY {}\n".format(tr_np_X.shape,trX.shape, trY.shape)
+    #   )
 # %%
-h_nodes : int = roundup(len(trX) / (6 * ((look_back * 1)+1)))
+#! Feature count missing
+h_nodes : int = roundup(sample_size / (6 * ((look_back * 3)+1)))
 print(f"The number of hidden nodes is {h_nodes}.")
-h_nodes : int = int(h_nodes/10*2)
-batch_size = tr_np_X.shape[0]
+h_nodes : int = 96
+#batch_size = tr_np_X.shape[0]
 model = tf.keras.models.Sequential([
-    tf.keras.layers.InputLayer(batch_input_shape=(batch_size, look_back, tr_np_X.shape[2])),
-    tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
-    tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(units=h_nodes, stateful=True, return_sequences=True),
-    tf.keras.layers.Dropout(rate=0.3, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(units=int(h_nodes/2), stateful=True, return_sequences=True),
-    tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
-    tf.keras.layers.LSTM(units=int(h_nodes/2), stateful=True, return_sequences=False),
-    tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+    tf.keras.layers.InputLayer(batch_input_shape=(1, look_back, 3)),
+    tf.keras.layers.LSTM(units=h_nodes, stateful=True,
+                         return_sequences=True, dropout=0.2),
+    tf.keras.layers.LSTM(units=h_nodes, stateful=True,
+                         return_sequences=True, dropout=0.2),
+    tf.keras.layers.LSTM(units=h_nodes, stateful=True,
+                         return_sequences=True, dropout=0.2),
+    tf.keras.layers.LSTM(units=h_nodes, stateful=True,
+                         return_sequences=True, dropout=0.2),
+    tf.keras.layers.LSTM(units=h_nodes, stateful=True,
+                         return_sequences=True, dropout=0.2),
+    tf.keras.layers.LSTM(units=h_nodes, stateful=True,
+                         return_sequences=True, dropout=0.2),
+    tf.keras.layers.LSTM(units=h_nodes, stateful=True,
+                         return_sequences=False, dropout=0.2),
     tf.keras.layers.Dense(units=1, activation=None)
 ])
 print(model.summary())
@@ -240,29 +273,29 @@ min_rmse = 100
 #histories = []
 firtstEpoch : bool = True
 # %%
-epochs : int = 500 #! 41 second
-file_path = 'Models/Stateful/LSTM_test3_VIT'
+epochs : int = 30 #! 120*12 second = 1440s
+file_path = 'Models/Stateful/LSTM_test10_VIT'
 for i in range(1,epochs+1):
     print(f'Epoch {i}/{epochs}')
-    history = model.fit(trX, trY, epochs=1, batch_size=batch_size,
+    for i in range(0, len(trX)):
+        history = model.fit(trX[i], trY[i], epochs=1, batch_size=1,
                 verbose=1, shuffle=False)
+        model.reset_states()    #! Try next time without reset
     if(history.history['root_mean_squared_error'][0] < min_rmse):
         min_rmse = history.history['root_mean_squared_error'][0]
         model.save(file_path)
     #histories.append(history)
-    model.reset_states()
-
     # Saving history variable
     # convert the history.history dict to a pandas DataFrame:     
     hist_df = pd.DataFrame(history.history)
     # or save to csv:
-    with open('Models/Stateful/LSTM_test3_VIT-history.csv', mode='a') as f:
+    with open('Models/Stateful/LSTM_test10_VIT-history.csv', mode='a') as f:
         if(firtstEpoch):
             hist_df.to_csv(f, index=False)
             firtstEpoch = False
         else:
             hist_df.to_csv(f, index=False, header=False)
-
+model.save('Models/Stateful/LSTM_test10_VIT_Last')
 # # %%
 # # for j in range(0,trX.shape[0]):
 # #     model.evaluate(trX[j,:,:,:], trY[j,:], batch_size=12, verbose=1)
@@ -316,3 +349,41 @@ for i in range(1,epochs+1):
 # for i in range(0, len(histories)):
 #     rmse[i] = (histories[i].history['root_mean_squared_error'])[0]
 # plt.plot(rmse)
+# %%
+#? Single stright line fit over SoC. Always starts from 1 to 0.
+#?Try improve with incresed neurons number
+# model = tf.keras.models.load_model('Models/Stateful/LSTM_test10_VIT')
+
+#? Or maybe I should not have. Since it makes perfect sense.
+# pred = model.predict(trX[1], batch_size=1)
+# #pred1 = model.predict(trX[1], batch_size=1)
+# #pred2 = model.predict(trX[2], batch_size=1)
+# model.reset_states()
+
+# # %%
+# 1/(pred[0]-pred[-1])
+
+
+# total_cycle : int = 8000
+# pre_predict : int = 1000
+# index_file  : int = 3
+# look_ahead = total_cycle - pre_predict
+# predictions = np.zeros((look_ahead,1))
+# prediction = model.predict(trX[index_file][:pre_predict,:,:], batch_size=1)[-1:,:]
+# for i in range(look_ahead):
+#     prediction = model.predict(np.expand_dims(prediction,
+#                                                axis=1),
+#                             batch_size=1)
+#     predictions[i] = prediction    
+# model.reset_states()
+
+# time = np.linspace(0,trX[index_file].shape[0],8000)
+# multiplier : float = trX[index_file][pre_predict:total_cycle,0,0][0]/(predictions[0][0]+0.08)
+# plt.figure(figsize=(12,5))
+# plt.plot(time[0:pre_predict], trX[index_file][:pre_predict,0,0], 'b-', label='True')
+# #plt.plot(time[pre_predict:],(predictions+0.075)*8.5,'r',label="prediction")
+# plt.plot(time[pre_predict:],(predictions+0.08)*multiplier,'r',label="prediction")
+# plt.plot(time[pre_predict:], trX[index_file][pre_predict:total_cycle,0,0], 'b--', label='True')
+# plt.legend()
+# plt.title("Remaining Useful Life prediction")
+# plt.show()
