@@ -49,6 +49,7 @@ import os
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import tensorflow_addons as tfa
 from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 
@@ -166,7 +167,7 @@ for _, _, files in os.walk(train_dir):
                             )},
                 dtype=float_dtype
             )
-        X = X[columns]
+        X = X[['Current(A)', 'Voltage(V)']]
         train_X.append(X)
         train_Y.append(Y)
 # %%
@@ -222,16 +223,12 @@ for i in range(0, len(train_X)):
 
 trX, trY = create_Batch_dataset(train_X, train_Y, look_back)
 # %%
-def custom_loss(y_true, y_pred):
-    print(type(y_pred))
-    print(type(y_true))
-    loss = tf.keras.backend.pow(y_true-y_pred)
-    print(type(loss))
-    return None
-
-def custom_metric(y_true, y_pred):
-    return None
-
+def custom_loss(y_true : tf.Tensor, y_pred : tf.Tensor) -> tf.Tensor:
+    y_pred = tf.convert_to_tensor(value=y_pred)
+    y_true = tf.dtypes.cast(x=y_true, dtype=y_pred.dtype)
+    return (tf.math.squared_difference(x=y_pred, y=y_true))/2
+    
+    
 
 h_nodes : int = roundup(sample_size / (6 * ((look_back * 1)+1)))
 print(f"The number of hidden nodes is {h_nodes}.")
@@ -251,16 +248,21 @@ model = tf.keras.models.Sequential([
     tf.keras.layers.Dense(units=1, activation=None)
 ])
 print(model.summary())
-model.compile(loss=custom_loss, optimizer='adam',
+model.compile(loss=custom_loss, optimizer=tf.keras.optimizers.SGD(
+                    learning_rate=0.01, momentum=0.3,
+                    nesterov=False, name='SGDwM'),
               metrics=[tf.metrics.MeanAbsoluteError(),
-                       tf.metrics.RootMeanSquaredError(),
-                       custom_metric]
+                       tf.metrics.RootMeanSquaredError()]
             )
 min_rmse = 100
 #histories = []
 firtstEpoch : bool = True
+# %%
 history = model.fit(trX[0], trY[0], epochs=1, batch_size=1,
                 verbose=1, shuffle=False)
+model.reset_states()
+plt.plot(model.predict(trX[0], batch_size=1))
+model.reset_states()
 # %%
 epochs : int = 6 #! 37*12 seconds = 444s
 file_path = 'Models/Stateful/LSTM_test11_SOC'
