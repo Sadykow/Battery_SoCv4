@@ -204,6 +204,8 @@ class WindowGenerator():
     dataY : list[np.ndarray] = []
     
     input_length : int = len(self.input_columns)
+    MEAN = np.mean(a=self.Data.train_df[:input_length])
+    STD = np.std(a=self.Data.train_df[:input_length])
     tic : float = time.perf_counter()
     for i in range(0, batch):
         d_len : int = X[i].shape[0]-look_back
@@ -212,14 +214,7 @@ class WindowGenerator():
         dataY.append(np.zeros(shape=(d_len,), dtype=self.float_dtype))
         for j in range(0, d_len):
             if self.normaliseInput: #! Spmething wrong here
-              dataX[i][j,:,:] = (
-                    np.copy(a=X[i][self.input_columns].to_numpy()[j:(j+look_back), :])-
-                    np.mean(a=X[i][self.input_columns].to_numpy()[j:(j+look_back), :],
-                                axis=0,
-                                dtype=self.float_dtype,
-                                keepdims=False)
-                    )/np.std(a=X[i][self.input_columns].to_numpy()[j:(j+look_back), :], axis=0,
-                                keepdims=False)                  
+              dataX[i][j,:,:] = (X[i][self.input_columns].to_numpy()[j:(j+look_back), :]-MEAN)/STD
             else:
               dataX[i][j,:,:] = X[i][self.input_columns].to_numpy()[j:(j+look_back), :]
             dataY[i][j]     = Y[i].to_numpy()[j+look_back,]
