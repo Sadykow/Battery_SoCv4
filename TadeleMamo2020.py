@@ -153,7 +153,9 @@ firtstEpoch : bool = True
 while iEpoch < mEpoch-1:
     iEpoch+=1
     print(f"Epoch {iEpoch}/{mEpoch}")
-    
+#! In Mamo methods implement Callback to reset model after 500 steps and then 
+#!step by one sample for next epoch to capture shift in data. Hell method, but
+#!might be more effective that batching 12 together.  
     history = lstm_model.fit(x=x_train, y=y_train, epochs=1,
                         validation_data=(x_valid, y_valid),
                         callbacks=[checkpoints], batch_size=1, shuffle=True

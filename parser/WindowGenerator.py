@@ -4,17 +4,20 @@
 # Used to separate huge code ammounts to separate files.
 # %%
 import os, time
+from matplotlib.pyplot import axis
 from numpy.core.fromnumeric import ndim
 import pandas as pd             # Tabled data storage
 import tensorflow as tf
+from tensorflow.python.keras.backend import dtype
 from tensorflow.python.lib.io.file_io import copy
 import tensorflow.experimental.numpy as tnp
-
+import numpy as np
 # Used for making annotations
 from dataclasses import dataclass
 
 from parser.DataGenerator import DataGenerator
-from parser.soc_calc import diffSoC, applyMinMax
+from sklearn.preprocessing import MinMaxScaler
+from parser.soc_calc import diffSoC
 
 class WindowGenerator():
   Data : DataGenerator          # Data object containing Parsed data
@@ -24,6 +27,7 @@ class WindowGenerator():
   shift         : int           # Step or skip
   label_columns : list[str]     # List of targets
   input_columns : list[str]     # List of Input features
+  batching      : bool          # Enable bacthning with default set
   batch         : int           # Bathes size. Samples simeltaniosly.
   includeTarget : bool          # Use Target as part of dataset.
   normaliseInput: bool          #
@@ -44,6 +48,7 @@ class WindowGenerator():
   def __init__(self, Data : DataGenerator,
                input_width : int, label_width : int, shift : int,
                input_columns : list[str], label_columns : list[str],
+               batching : bool = False,
                batch : int = 1, includeTarget : bool = False,
                normaliseInput : bool = True, normaliseLabal : bool = True,
                shuffleTraining : bool = False,
@@ -58,6 +63,7 @@ class WindowGenerator():
         label_width (int): Size of the output
         shift (int): Step or shift in data window
         label_columns (list[str]): Label column names
+        batching (bool): Enabeling batching mechanism with default list size
         batch (int, optional): Size of the batches define how many samples
     gets dead together. Defaults to 1.
         includeTarget (bool, optional): Apply target to main dataset. Target has
@@ -75,6 +81,7 @@ class WindowGenerator():
     self.label_width = label_width
     self.shift = shift
     #self.label_names = label_names
+    self.batching = batching
     self.batch = batch
     self.includeTarget = includeTarget
     self.normaliseInput = normaliseInput
@@ -82,14 +89,15 @@ class WindowGenerator():
     self.shuffleTraining = shuffleTraining
     # Variable types to use
     if float_dtype:
+      self.float_dtype = float_dtype
+    else:
       #Get from Data generator
       self.float_dtype = self.Data.float_dtype
-    else:
-      self.float_dtype = float_dtype
+
     if int_dtype:
-      self.int_dtype = self.Data.int_dtype
-    else:
       self.int_dtype = int_dtype
+    else:
+      self.int_dtype = self.Data.int_dtype
     
     # Work out the label column indices.
     self.input_columns = input_columns
@@ -141,32 +149,36 @@ class WindowGenerator():
         '\n\n'])
   
   @tf.autograph.experimental.do_not_convert
-  def make_dataset(self, inputs : pd.DataFrame,
-                         labels : pd.DataFrame,
-                         shuffle: bool
+  def make_dataset_from_array(self, inputs : tnp.ndarray,
+                                    labels : tnp.ndarray
               ) -> tf.raw_ops.MapDataset:
 
-    tic : float = time.perf_counter()
-    if self.normaliseInput: # Normalise Inputs
-      data : pd.DataFrame = (inputs.copy(deep=True)-self.Data.get_Mean[0][self.input_columns])/self.Data.get_STD[0][self.input_columns]
+    input_length : int = len(self.input_columns)    
+    tic : float = time.perf_counter()    
+    if self.normaliseInput: # Normalise Inputs      
+      data : tnp.ndarray = tnp.divide(
+                            x1=tnp.subtract(
+                                  x1=tnp.copy(a=inputs[:,:input_length]),
+                                  x2=tnp.mean(a=inputs[:,:input_length], axis=0,
+                                              dtype=self.float_dtype,
+                                              keepdims=False)
+                                ),
+                            x2=tnp.std(a=inputs[:,:input_length], axis=0,
+                                       keepdims=False)
+                          )
     else:
-      data : pd.DataFrame = (inputs.copy(deep=True))
+      data : tnp.ndarray = tnp.copy(a=inputs[:,:input_length])
     
-    if self.normaliseLabal: # Normalise Labels
-      data[self.label_columns] = (labels.copy(deep=True)-self.Data.get_Mean[1][self.label_columns])/self.Data.get_STD[1][self.label_columns]
-    else:
-      data[self.label_columns] = (labels.copy(deep=True))
-
-    data = data[self.input_columns + self.label_columns] # Ensure order
-    data = tnp.array(val=data.values,
-            dtype=self.float_dtype, copy=True, ndmin=0)
+    data = tnp.append(arr=data,
+                      values=labels,
+                      axis=1)
 
     ds : tf.raw_ops.BatchDataset = \
           tf.keras.preprocessing.timeseries_dataset_from_array(
             data=data, targets=None,
             sequence_length=self.total_window_size, sequence_stride=1,
             sampling_rate=1,
-            batch_size=self.batch, shuffle=shuffle,
+            batch_size=1, shuffle=False,
             seed=None, start_index=None, end_index=None
         )
 
@@ -176,12 +188,45 @@ class WindowGenerator():
                               ).as_numpy_iterator()
                           ))
     y : tnp.ndarray = tnp.asarray(list(ds.map(
-                                lambda _, y: y[0]
+                                lambda _, y: y[0,0]
                               ).as_numpy_iterator()
                           ))
     print(f"\n\nData windowing took: {(time.perf_counter() - tic):.2f} seconds")
     return ds, x, y
-  
+
+  @tf.autograph.experimental.do_not_convert
+  def make_dataset_from_list(self, X : list[np.ndarray],
+                                   Y : list[np.ndarray],
+                                   look_back : int = 1
+              ) -> tuple[np.ndarray, np.ndarray]:
+    batch : int = len(X)
+    dataX : list[np.ndarray] = []
+    dataY : list[np.ndarray] = []
+    
+    input_length : int = len(self.input_columns)
+    tic : float = time.perf_counter()
+    for i in range(0, batch):
+        d_len : int = X[i].shape[0]-look_back
+        dataX.append(np.zeros(shape=(d_len, look_back, input_length),
+                    dtype=self.float_dtype))
+        dataY.append(np.zeros(shape=(d_len,), dtype=self.float_dtype))
+        for j in range(0, d_len):
+            if self.normaliseInput: #! Spmething wrong here
+              dataX[i][j,:,:] = (
+                    np.copy(a=X[i][self.input_columns].to_numpy()[j:(j+look_back), :])-
+                    np.mean(a=X[i][self.input_columns].to_numpy()[j:(j+look_back), :],
+                                axis=0,
+                                dtype=self.float_dtype,
+                                keepdims=False)
+                    )/np.std(a=X[i][self.input_columns].to_numpy()[j:(j+look_back), :], axis=0,
+                                keepdims=False)                  
+            else:
+              dataX[i][j,:,:] = X[i][self.input_columns].to_numpy()[j:(j+look_back), :]
+            dataY[i][j]     = Y[i].to_numpy()[j+look_back,]
+
+    print(f"\n\nData windowing took: {(time.perf_counter() - tic):.2f} seconds")
+    return dataX, dataY
+
   @tf.autograph.experimental.do_not_convert
   def split_window(self, features : tf.Tensor) -> tuple[tf.Tensor, tf.Tensor]:
     if self.includeTarget:
@@ -509,28 +554,32 @@ class WindowGenerator():
   @property
   def train(self):
     if (self.shift == 1 & self.label_width == 1):
-      _, x, y = self.make_quickData(inputs=self.Data.train[self.input_columns],
-                                  labels=self.Data.train_SoC[self.label_columns]
+      print("Maling train dataset from list")
+      x, y = self.make_dataset_from_list(
+                                  X=self.Data.train_list,
+                                  Y=self.Data.train_list_label
                                 )
-      return _, x, y  
+      return x, y  
     else:
-      ds, x, y = self.make_dataset(inputs=self.Data.train[self.input_columns],
-                                  labels=self.Data.train_SoC[self.label_columns],
-                                  shuffle=self.shuffleTraining
+      ds, x, y = self.make_dataset_from_array(
+                                  inputs=self.Data.train,
+                                  labels=self.Data.train_SoC
                                 )
       return ds, x, y
 
   @property
   def valid(self):
     if (self.shift == 1 & self.label_width == 1):
-      _, x, y = self.make_quickData(inputs=self.Data.valid[self.input_columns],
-                                  labels=self.Data.valid_SoC[self.label_columns]
+      print("Maling train dataset from list")
+      x, y = self.make_dataset_from_list(
+                                  X=self.Data.valid_list,
+                                  Y=self.Data.valid_list_label
                                 )
-      return _, x, y
+      return x, y
     else:
-      ds, x, y = self.make_dataset(inputs=self.Data.valid[self.input_columns],
-                                  labels=self.Data.valid_SoC[self.label_columns],
-                                  shuffle=False
+      ds, x, y = self.make_dataset_from_array(
+                                  inputs=self.Data.valid,
+                                  labels=self.Data.valid_SoC
                                 )
       return ds, x, y  
 

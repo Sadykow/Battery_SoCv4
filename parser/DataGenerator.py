@@ -8,14 +8,30 @@ import pandas as pd               # Tabled data storage
 import tensorflow.experimental.numpy as tnp
 
 from dataclasses import dataclass # Used for making annotations
+from itertools import chain       # Make Chain ranges
+from sklearn.preprocessing import MinMaxScaler
+from parser.soc_calc import diffSoC
 
-from parser.soc_calc import *
+c_DST   : range = range(4 ,6 )    # ONLY Charge Cycle
+d_DST   : range = range(6 ,12)    # ONLY Desciarge Cycle
+r_DST   : range = range(4 ,12)    # Charge-Discharge Continuos cycle
 
+c_US    : range = range(10,14)    # ONLY Charge Cycle
+d_US    : range = range(14,20)    # ONLY Desciarge Cycle
+r_US    : range = range(10,20)    # Charge-Discharge Continuos cycle
+
+c_FUDS  : range = range(18,22)    # ONLY Charge Cycle
+d_FUDS  : range = range(22,25)    # ONLY Desciarge Cycle
 r_FUDS  : range = range(18,25)    # Charge-Discharge Continuos cycle
-#r_FUDS  : range = range(21,25)    # ONLY CHARGE Cycle
-r_DST_US_FUDS : range = range(5, 25)
-r_DST_US : range = range(5, 19)
 
+
+r_US_FUDS     : range = range(10, 25)  # US06 and FUDS
+r_DST_FUDS    : chain = chain(
+                        range(4 , 12), # DST and FUDS
+                        range(18, 25)
+                      )
+r_DST_US      : range = range(4 , 20)  # DST and US06
+r_DST_US_FUDS : range = range(4 , 25)  # Full cycle
 @dataclass
 class DataGenerator():
   train_dir     : str
@@ -28,20 +44,27 @@ class DataGenerator():
   float_dtype   : type          # Float variable Type
   int_dtype     : type          # Int variable Type
 
-  train_df : pd.DataFrame      # Training Dataset   80~85%
+  train_df : tnp.ndarray       # Training Dataset   80~85%
   train_t  : float
-  train_SoC: pd.DataFrame
+  train_SoC: tnp.ndarray
+  tr_ls_df : list[pd.DataFrame] # List of Training Dataset
+  tr_ls_SoC: list[pd.DataFrame]
+  train_s  : int
   
-  valid_df : pd.DataFrame      # Validating Dataset 15~20%
+  valid_df : tnp.ndarray       # Validating Dataset 15~20%
   valid_t  : float
-  valid_SoC: pd.DataFrame
+  valid_SoC: tnp.ndarray
+  vl_ls_df : list[pd.DataFrame] # List of Validating Dataset
+  vl_ls_SoC: list[pd.DataFrame]
+  valid_s  : int
   
+  gener_t  : float             # Time it took to create TNP
+
   #testi_df : pd.DataFrame      # Testing Dataset Any Size%
   
   def __init__(self, train_dir : str, valid_dir : str, test_dir : str,
                columns : list[str],
                PROFILE_range : str,
-               PROFILE_valid : str = 'DST_US06',
                float_dtype : type = tnp.float32,
                int_dtype : type = tnp.int16) -> None:
     """ Data Constructor used to extract Excel files by profiles
@@ -61,21 +84,20 @@ class DataGenerator():
     self.testi_dir = test_dir
     self.columns = columns
     
+    #! Charge and Discharge only into this switch
     # Select profile based on string
-    if(PROFILE_range == 'FUDS'):
+    if(PROFILE_range == 'DST'):
+      self.r_profile = r_DST
+      self.v_profile = r_US_FUDS
+    elif(PROFILE_range == 'US06'):
+      self.r_profile = r_US
+      self.v_profile = r_DST_FUDS
+    elif(PROFILE_range == 'FUDS'):
       self.r_profile = r_FUDS
-    elif(PROFILE_range == 'DST_US06_FUDS'):
-      self.r_profile == r_DST_US_FUDS
+      self.v_profile = r_DST_US
     else:
-      self.r_profile == r_FUDS
-    
-    # Select profile for validation
-    if(PROFILE_range == 'FUDS'):
-      self.v_profile = r_FUDS
-    elif(PROFILE_range == 'DST_US06_FUDS'):
-      self.v_profile == r_DST_US_FUDS
-    else:
-      self.v_profile == r_DST_US
+      self.r_profile = r_DST_US_FUDS
+      self.v_profile = r_DST_US
     
     # Variable types to use
     self.float_dtype = float_dtype
@@ -83,13 +105,71 @@ class DataGenerator():
 
     # Extracting data
     tic : float = time.perf_counter()
-    self.train_df, self.train_SoC = self.ParseExcelData(self.train_dir)
+    self.tr_ls_df, self.tr_ls_SoC = self.ParseExcelData(self.train_dir,
+                                                        self.r_profile)
     self.train_t = time.perf_counter() - tic
     
     tic : float = time.perf_counter()
-    self.valid_df, self.valid_SoC = self.ParseExcelData(self.valid_dir)
+    self.vl_ls_df, self.vl_ls_SoC = self.ParseExcelData(self.valid_dir,
+                                                        self.v_profile)
     self.valid_t = time.perf_counter() - tic
-  
+    
+    # Get number of samples
+    self.train_s = 0
+    self.valid_s = 0
+    for i in range(0, len(self.tr_ls_df)):
+      self.train_s += self.tr_ls_df[i].shape[0]    
+    for i in range(0, len(self.vl_ls_df)):
+      self.valid_s += self.vl_ls_df[i].shape[0]
+    
+    # Creating TensorNumpy arrays for all dataset
+    scaller : MinMaxScaler = MinMaxScaler(feature_range=(0,1))
+    tic : float = time.perf_counter()
+    self.train_df = tnp.array(val=self.tr_ls_df[0],
+                              dtype=self.float_dtype, copy=True)
+    self.train_SoC = tnp.array(val=scaller.fit_transform(self.tr_ls_SoC[0]),
+                              dtype=self.float_dtype, copy=True)
+    self.valid_df = tnp.array(val=self.vl_ls_df[0],
+                              dtype=self.float_dtype, copy=True)
+    self.valid_SoC = tnp.array(val=scaller.fit_transform(self.vl_ls_SoC[0]),
+                              dtype=self.float_dtype, copy=True)
+    
+    for i in range(1, len(self.tr_ls_df)):
+      self.train_df = tnp.append(
+                              arr=self.train_df,
+                              values=tnp.array(
+                                    val=self.tr_ls_df[i],
+                                    dtype=self.float_dtype, copy=True
+                                  ),
+                              axis=0
+                            )
+      self.train_SoC = tnp.append(
+                              arr=self.train_SoC,
+                              values=tnp.array(
+                                  val=scaller.fit_transform(self.tr_ls_SoC[i]),
+                                  dtype=self.float_dtype, copy=True
+                                ),
+                              axis=0
+                            )
+    for i in range(1, len(self.vl_ls_df)):
+      self.valid_df = tnp.append(
+                              arr=self.valid_df,
+                              values=tnp.array(
+                                    val=self.vl_ls_df[i],
+                                    dtype=self.float_dtype, copy=True
+                                  ),
+                              axis=0
+                            )
+      self.valid_SoC = tnp.append(
+                              arr=self.valid_SoC,
+                              values=tnp.array(
+                                  val=scaller.fit_transform(self.vl_ls_SoC[i]),
+                                  dtype=self.float_dtype, copy=True
+                                ),
+                              axis=0
+                            )
+    self.gener_t = time.perf_counter() - tic    
+
   def __repr__(self) -> str:
     """ General information upon how many samples per each dataset and time in
     took to create one. Along with proportion.
@@ -97,43 +177,53 @@ class DataGenerator():
     Returns:
         str: New line string with information.
     """
-    total_samples = self.train_df.shape[0] + self.valid_df.shape[0]
-    train_proportion = self.train_df.shape[0]/total_samples*100
-    valid_proportion = self.valid_df.shape[0]/total_samples*100
+    total_samples = self.train_s + self.valid_s
+    train_proportion = self.train_s/total_samples*100
+    valid_proportion = self.valid_s/total_samples*100
     return '\n'.join([
-      f'\n\n№ Trainig Samples: {self.train_df.shape[0]}',
+      f'\n\n№ Trainig Samples PD, NP: {self.train_s}, {self.train_df.shape[0]}',
       f'Time took to extract Tr: {self.train_t}',
-      f'№ Validation Samples: {self.valid_df.shape[0]}',
+      f'№ Validation Samples  PD, NP: {self.valid_s}, {self.valid_df.shape[0]}',
       f'Time took to extract Vl: {self.valid_t}',
       f'Data Vl/Tr: {valid_proportion:.2f}% to {train_proportion:.2f}%',
+      f'Time for TNP generator: {self.gener_t}',
+      f'Data Mean: {tnp.mean(self.train_df)}',
+      f'Data STD: {tnp.std(self.train_df)}',
       '\n\n'])
 
-  def ParseExcelData(self, directory : str
-              ) -> tuple[pd.DataFrame, pd.DataFrame]:
+  def ParseExcelData(self, directory : str,
+                    indexes : range,
+              ) -> tuple[list[pd.DataFrame], list[pd.DataFrame]]:
     """ Parsing Excel data from Battery Testing Machine
 
     Args:
         directory (str): Dataset directory location. !! Make sure not other file
     formats stored. No check has been added.
+        indexes (range): The data indexes to select regions
 
     Returns:
-        tuple[pd.DataFrame, pd.DataFrame]: Returning data itself and SoC
+        tuple[list[pd.DataFrame], list[pd.DataFrame]]: Returning data itself 
+    and SoC in the list format to capture absolutely all samples.
     """
     for _, _, files in os.walk(directory):
       files.sort(key=lambda f: int(f[-13:-5])) # Sort by last dates
       # Initialize empty structures
-      data_df : pd.DataFrame = self.Read_Excel_File(directory + '/' + files[0])
-      data_SoC: pd.DataFrame = pd.DataFrame(
-               data={'SoC' : diffSoC(
-                          chargeData=(data_df.loc[:,'Charge_Capacity(Ah)']),
-                          discargeData=(data_df.loc[:,'Discharge_Capacity(Ah)'])
-                          )},
-               dtype=self.float_dtype
-            )
-      data_SoC['SoC(%)'] = applyMinMax(data_SoC['SoC'])
+      data_df : list[pd.DataFrame] = []
+      data_SoC : list[pd.DataFrame] = []
+      # data_df : pd.DataFrame = self.Read_Excel_File(directory + '/' + files[0],
+      #                                               indexes)
+      # data_SoC: pd.DataFrame = pd.DataFrame(
+      #          data={'SoC' : diffSoC(
+      #                     chargeData=(data_df.loc[:,'Charge_Capacity(Ah)']),
+      #                     discargeData=(data_df.loc[:,'Discharge_Capacity(Ah)'])
+      #                     )},
+      #          dtype=self.float_dtype
+      #       )
+      # data_SoC['SoC(%)'] = MinMaxScaler(data_SoC['SoC'])
 
-      for file in files[1:]:
-        df : pd.DataFrame = self.Read_Excel_File(directory + '/' + file)
+      for file in files[:]:
+        df : pd.DataFrame = self.Read_Excel_File(directory + '/' + file,
+                                                  indexes)
         SoC: pd.DataFrame = pd.DataFrame(
                data={'SoC' : diffSoC(
                             chargeData=df.loc[:,'Charge_Capacity(Ah)'],
@@ -141,18 +231,21 @@ class DataGenerator():
                             )},
                dtype=self.float_dtype
             )
-        SoC['SoC(%)'] = applyMinMax(SoC['SoC'])
+        #SoC['SoC(%)'] = MinMaxScaler(SoC['SoC'])
 
-        data_df = data_df.append(df.copy(deep=True), ignore_index=True)
-        data_SoC = data_SoC.append(SoC.copy(deep=True), ignore_index=True)
+        #data_df = data_df.append(df.copy(deep=True), ignore_index=True)
+        #data_SoC = data_SoC.append(SoC.copy(deep=True), ignore_index=True)
+        data_df.append(df)
+        data_SoC.append(SoC)
       return data_df, data_SoC
 
-  def Read_Excel_File(self, path : str) -> pd.DataFrame:
+  def Read_Excel_File(self, path : str, indexes : range) -> pd.DataFrame:
     """ Reads Excel File with all parameters. Sheet Name universal, columns,
     type taken from global variables initialization.
 
     Args:
         path (str): Path to files with os.walk
+        indexes (range): Step_Index to select from
 
     Returns:
         pd.DataFrame: Single File frame.
@@ -164,7 +257,7 @@ class DataGenerator():
                         usecols=['Step_Index'] + self.columns,
                         squeeze=False,
                         dtype=self.float_dtype,
-                        engine=None, converters=None, true_values=None,
+                        engine='openpyxl', converters=None, true_values=None,
                         false_values=None, skiprows=None, nrows=None,
                         na_values=None, keep_default_na=True, na_filter=True,
                         verbose=False, parse_dates=False, date_parser=None,
@@ -178,41 +271,25 @@ class DataGenerator():
                         usecols=['Step_Index'] + self.columns,
                         squeeze=False,
                         dtype=self.float_dtype,
-                        engine=None, converters=None, true_values=None,
+                        engine='openpyxl', converters=None, true_values=None,
                         false_values=None, skiprows=None, nrows=None,
                         na_values=None, keep_default_na=True, na_filter=True,
                         verbose=False, parse_dates=False, date_parser=None,
                         thousands=None, comment=None, skipfooter=0,
                         convert_float=True, mangle_dupe_cols=True
                       )
-    df = df[df['Step_Index'].isin(self.r_profile)]
+    df = df[df['Step_Index'].isin(indexes)]
     df = df.reset_index(drop=True)
     df = df.drop(columns=['Step_Index'])
     df = df[self.columns]   # Order columns in the proper sequence
     return df
 
   @property
-  def get_Mean(self) -> tuple[pd.Series, pd.Series]:
-    """ Gets the mean of training data. Normalization has to be performed only
-    by training constants.
+  def train_list(self) -> tnp.ndarray:
+    return self.tr_ls_df
 
-    Returns:
-        tuple[pd.Series, pd.Series]: Separate mean for Data and SoC
-    """
-    return self.train_df.mean(), self.train_SoC.mean()
-  
   @property
-  def get_STD(self) -> tuple[pd.Series, pd.Series]:
-    """Get the Standard Deviation of training data. Normalization has to be
-    performed only on training constants.
-
-    Returns:
-        tuple[pd.Series, pd.Series]: Separate STD for DATA and SoC
-    """
-    return self.train_df.std(), self.train_SoC.std()
-  
-  @property
-  def train(self) -> pd.DataFrame:
+  def train(self) -> tnp.ndarray:
     """ Training Dataset
 
     Returns:
@@ -221,7 +298,7 @@ class DataGenerator():
     return self.train_df
 
   @property
-  def train_label(self) -> pd.DataFrame:
+  def train_label(self) -> tnp.ndarray:
     """ Training Dataset
 
     Returns:
@@ -230,7 +307,11 @@ class DataGenerator():
     return self.train_SoC
 
   @property
-  def valid(self) -> pd.DataFrame:
+  def train_list_label(self) -> tnp.ndarray:
+    return self.tr_ls_SoC
+
+  @property
+  def valid(self) -> tnp.ndarray:
     """ Validation Dataset
 
     Returns:
@@ -239,10 +320,23 @@ class DataGenerator():
     return self.valid_df
 
   @property
-  def valid_label(self) -> pd.DataFrame:
+  def valid_list(self) -> tnp.ndarray:
+    return self.vl_ls_df
+
+  @property
+  def valid_label(self) -> tnp.ndarray:
     """ Validation Dataset
 
     Returns:
         pd.DataFrame: valid['SoC', 'SoC(%)' ...]
     """
     return self.valid_SoC
+  
+  @property
+  def valid_list_label(self) -> tnp.ndarray:
+    """ Validation Dataset
+
+    Returns:
+        pd.DataFrame: valid['SoC', 'SoC(%)' ...]
+    """
+    return self.vl_ls_SoC

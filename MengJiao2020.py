@@ -45,18 +45,19 @@
 
 # 400 Epochs until RMSE = 0.150 or MAE = 0.0076
 # %%
-import os
+import os, io
+from pprint import pp
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 import tensorflow_addons as tfa
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import matplotlib.pyplot as plt
 
 # Configurate GPUs
 # Define plot sizes
 #! Select GPU for usage. CPU versions ignores it
-GPU=1
+GPU=0
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
@@ -81,7 +82,7 @@ float_dtype : type = np.float32
 train_dir : str = 'Data/A123_Matt_Set'
 valid_dir : str = 'Data/A123_Matt_Val'
 columns   : list[str] = [
-                        'Current(A)', 'Voltage(V)',
+                        'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
                         'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
                     ]
 
@@ -157,7 +158,7 @@ for _, _, files in os.walk(train_dir):
     # Initialize empty structures
     train_X : list[pd.DataFrame] = []
     train_Y : list[pd.DataFrame] = []
-    for file in files[0:1]:
+    for file in files[:]:
         X : pd.DataFrame = Read_Excel_File(train_dir + '/' + file,
                                     range(22,25), columns) #! or 21
         Y : pd.DataFrame = pd.DataFrame(
@@ -172,8 +173,9 @@ for _, _, files in os.walk(train_dir):
         train_Y.append(Y)
 # %%
 look_back : int = 1
-scaler_MM : MinMaxScaler = MinMaxScaler(feature_range=(0, 1))
-scaler_SS : MinMaxScaler = MinMaxScaler(feature_range=(0, 1))
+scaler_MM : MinMaxScaler    = MinMaxScaler(feature_range=(0, 1))
+scaler_CC : MinMaxScaler    = MinMaxScaler(feature_range=(0, 1))
+scaler_VV : StandardScaler  = StandardScaler()
 def roundup(x : float, factor : int = 10) -> int:
     """ Round up to a factor. Uses it to create hidden neurons, or Buffer size.
     TODO: Make it a smarter rounder.
@@ -216,19 +218,15 @@ def create_Batch_dataset(X : list[np.ndarray], Y : list[np.ndarray],
 
 sample_size : int = 0
 for i in range(0, len(train_X)):
-    train_X[i] = scaler_SS.fit_transform(train_X[i])
-    #train_X[i] = train_X[i].to_numpy()
+    #! Scale better with STD on voltage
+    #train_X[i].iloc[:,0] = scaler_CC.fit_transform(np.expand_dims(train_X[i]['Current(A)'], axis=1))
+    #train_X[i].iloc[:,1] = scaler_VV.fit_transform(np.expand_dims(train_X[i]['Voltage(V)'], axis=1))    
     train_Y[i] = scaler_MM.fit_transform(train_Y[i])
+    train_X[i] = train_X[i].to_numpy()
     sample_size += train_X[i].shape[0]
+    
 
 trX, trY = create_Batch_dataset(train_X, train_Y, look_back)
-# %%
-def custom_loss(y_true : tf.Tensor, y_pred : tf.Tensor) -> tf.Tensor:
-    y_pred = tf.convert_to_tensor(value=y_pred)
-    y_true = tf.dtypes.cast(x=y_true, dtype=y_pred.dtype)
-    return (tf.math.squared_difference(x=y_pred, y=y_true))/2
-    
-    
 
 h_nodes : int = roundup(sample_size / (6 * ((look_back * 1)+1)))
 print(f"The number of hidden nodes is {h_nodes}.")
@@ -242,56 +240,169 @@ model = tf.keras.models.Sequential([
         recurrent_regularizer=None, bias_regularizer=None,
         activity_regularizer=None, kernel_constraint=None,
         recurrent_constraint=None, bias_constraint=None, dropout=0,
-        recurrent_dropout=0, return_sequences=False, return_state=False,
+        recurrent_dropout=0, return_sequences=True,
+        return_state=False,
         go_backwards=False, stateful=True, unroll=False, time_major=False,
-        reset_after=True),
+        reset_after=True
+        ),
+    tf.keras.layers.GRU(units=h_nodes, activation='tanh',
+        recurrent_activation='sigmoid', use_bias=True,
+        kernel_initializer='glorot_uniform', recurrent_initializer='orthogonal',
+        bias_initializer='zeros', kernel_regularizer=None,
+        recurrent_regularizer=None, bias_regularizer=None,
+        activity_regularizer=None, kernel_constraint=None,
+        recurrent_constraint=None, bias_constraint=None, dropout=0,
+        recurrent_dropout=0, return_sequences=False,
+        return_state=False,
+        go_backwards=False, stateful=True, unroll=False, time_major=False,
+        reset_after=True
+        ),
     tf.keras.layers.Dense(units=1, activation=None)
 ])
+# model : tf.keras.models.Sequential = tf.keras.models.load_model(
+#             'Models/Stateful/MengJiao-shortTest',
+#             compile=False)
 print(model.summary())
-model.compile(loss=custom_loss, optimizer=tf.keras.optimizers.SGD(
-                    learning_rate=0.01, momentum=0.3,
+# %%
+#! Test with golbal
+def custom_loss(y_true : tf.Tensor, y_pred : tf.Tensor) -> tf.Tensor:
+    y_pred = tf.convert_to_tensor(value=y_pred)
+    y_true = tf.dtypes.cast(x=y_true, dtype=y_pred.dtype)        
+    #tf.print(y_pred, output_stream='file://pp-temp.txt')
+    #tf.print(y_true, output_stream='file://tt-temp.txt')
+    return (tf.math.squared_difference(x=y_pred, y=y_true))/2
+    
+
+model.compile(loss=custom_loss, optimizer=
+                    tf.keras.optimizers.SGD(
+                    learning_rate=0.01, momentum=0.3, #! Put learning rate to 0
                     nesterov=False, name='SGDwM'),
               metrics=[tf.metrics.MeanAbsoluteError(),
-                       tf.metrics.RootMeanSquaredError()]
+                       tf.metrics.RootMeanSquaredError(),
+                       tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
             )
 min_rmse = 100
 #histories = []
 firtstEpoch : bool = True
-# %%
-history = model.fit(trX[0], trY[0], epochs=1, batch_size=1,
-                verbose=1, shuffle=False)
-model.reset_states()
-plt.plot(model.predict(trX[0], batch_size=1))
-model.reset_states()
-# %%
-epochs : int = 6 #! 37*12 seconds = 444s
-file_path = 'Models/Stateful/LSTM_test11_SOC'
-for i in range(1,epochs+1):
-    print(f'Epoch {i}/{epochs}')
-    for i in range(0, len(trX)):
-        history = model.fit(trX[i], trY[i], epochs=1, batch_size=1,
-                verbose=1, shuffle=False)
-        #model.reset_states()    #! Try next time without reset
-    # for j in range(0,trX.shape[0]):
-    #     model.train_on_batch(trX[j,:,:,:], trY[j,:])
-    #! Wont work. Needs a Callback for that.
-    # if(i % train_df.shape[0] == 0):
-    #     print("Reseting model")
-    if(history.history['root_mean_squared_error'][0] < min_rmse):
-        min_rmse = history.history['root_mean_squared_error'][0]
-        model.save(file_path)
 
-    #histories.append(history)
+# plt.figure()
+# plt.plot(trX[0][:,0,0])
+# plt.plot(trX[0][:,0,1])
+# plt.show()
+
+# %%
+epochs : int = 500
+#trYY = np.zeros(shape=trY[0].shape)
+for i in range(1,epochs+1):
+    # with open("pp-temp.txt", "w") as file:
+    #     file.write('')
+    print(f'Epoch {i}/{epochs}')
+#! Fit one sample - PRedict next one like model() - read all through file output
+#!and hope this makes a good simulation of how online learning will go.
+
+    history = model.fit(trX[0], trY[0], epochs=1, batch_size=1,
+                    verbose=1, shuffle=False,
+                    #validation_data=(trX[0], trY[0]), validation_batch_size=1
+                    )
+#! In Mamo methods implement Callback to reset model after 500 steps and then 
+#!step by one sample for next epoch to capture shift in data. Hell method, but
+#!might be more effective that batching 12 together.
+    # plt.figure()
+    model.reset_states()
+    # plt.plot(model.predict(trX[0][1000:4000,:,:], batch_size=1))
+    # plt.plot(trY[0][1000:4000])
+    plt.plot(model.predict(trX[0][:,:,:], batch_size=1))
+    plt.plot(trY[0][:])
+    plt.show()
+    #model.reset_states()    
+#model.save('Models/Stateful/MengJiao-shortTestLONG2')
+# %%
+tr_pred = np.zeros(shape=(7094,))
+i = 0
+with open("pp-temp.txt", "r") as file1:
+    for line in file1.readlines():
+        tr_pred[i] = float(line.split('[[')[1].split(']]\n')[0])
+        i += 1
+
+plt.plot(tr_pred)
+plt.plot(trY[0])
+# %%
+def smooth(y, box_pts: int) -> np.array:
+    """ Smoothing data using numpy convolve. Based on the size of the
+    averaging box, data gets smoothed.
+    Here it used in following form:
+    y = V/(maxV-minV)
+    box_pts = 500
+
+    Args:
+        y (pd.Series): A data which requires to be soothed.
+        box_pts (int): Number of points to move averaging box
+
+    Returns:
+        np.array: Smoothed data array
+    """
+    box = np.ones(box_pts)/box_pts
+    y_smooth = np.convolve(y, box, mode='same')
+    return y_smooth
+# 5 seconds timestep
+plt.figure()
+plt.plot(train_X[0][:,1])
+plt.plot(smooth(train_X[0][:,1], 150))
+#plt.xlim([0, 7000])
+plt.ylim([2.5, 3.7])
+plt.xlabel('TimeSteps (s)')
+plt.ylabel('Voltage (V)')
+plt.grid()
+plt.show()
+# %%
+# Plot
+import seaborn as sns
+train_X[0]['Time (s)'] = np.linspace(0,7095*5,7095)
+g = sns.relplot(x='Time (s)', y='Temperature (C)_1', kind="line",
+                data=train_X[0], size=11, color='k')
+#plt.xlim(-100, 40000)
+#plt.ylim(2.25, 3.75)
+g.fig.autofmt_xdate()
+fir = g.fig
+fir.savefig('../1-Voltage.svg', transparent=True)
+# tr_pred = np.zeros(shape=(7094,))
+# i = 0
+# with open("tt-temp.txt", "r") as file1:
+#     for line in file1.readlines():
+#         tr_pred[i] = float(line.split('[[')[1].split(']]\n')[0])
+#         i += 1
+# plt.plot(tr_pred)
+# plt.plot(trY[0])
+# # %%
+# epochs : int = 6 #! 37*12 seconds = 444s
+# file_path = 'Models/Stateful/LSTM_test11_SOC'
+# for i in range(1,epochs+1):
+#     print(f'Epoch {i}/{epochs}')
+#     for i in range(0, len(trX)):
+#         history = model.fit(trX[i], trY[i], epochs=1, batch_size=1,
+#                 verbose=1, shuffle=False)
+#         #model.reset_states()    #! Try next time without reset
+#     # for j in range(0,trX.shape[0]):
+#     #     model.train_on_batch(trX[j,:,:,:], trY[j,:])
+#     #! Wont work. Needs a Callback for that.
+#     # if(i % train_df.shape[0] == 0):
+#     #     print("Reseting model")
+#     if(history.history['root_mean_squared_error'][0] < min_rmse):
+#         min_rmse = history.history['root_mean_squared_error'][0]
+#         model.save(file_path)
+
+#     #histories.append(history)
     
     
-    # Saving history variable
-    # convert the history.history dict to a pandas DataFrame:     
-    hist_df = pd.DataFrame(history.history)
-    # # or save to csv:
-    with open('Models/Stateful/LSTM_test11_SOC-history.csv', mode='a') as f:
-        if(firtstEpoch):
-            hist_df.to_csv(f, index=False)
-            firtstEpoch = False
-        else:
-            hist_df.to_csv(f, index=False, header=False)
-model.save('Models/Stateful/LSTM_test11_SOC_Last')
+#     # Saving history variable
+#     # convert the history.history dict to a pandas DataFrame:     
+#     hist_df = pd.DataFrame(history.history)
+#     # # or save to csv:
+#     with open('Models/Stateful/LSTM_test11_SOC-history.csv', mode='a') as f:
+#         if(firtstEpoch):
+#             hist_df.to_csv(f, index=False)
+#             firtstEpoch = False
+#         else:
+#             hist_df.to_csv(f, index=False, header=False)
+# model.save('Models/Stateful/LSTM_test11_SOC_Last')
+# %%

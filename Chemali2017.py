@@ -47,15 +47,13 @@ import pandas as pd             # File read
 import matplotlib as mpl        # Plot functionality
 import matplotlib.pyplot as plt
 import tensorflow as tf         # Tensorflow and Numpy replacement
-import tensorflow.experimental.numpy as tnp 
+import tensorflow_addons as tfa
+import numpy as np
 import logging
 
 from sys import platform        # Get type of OS
 
 from parser.DataGenerator import *
-
-#! Temp Fix
-import numpy as np
 # %%
 # Define plot sizes
 mpl.rcParams['figure.figsize'] = (8, 6)
@@ -76,7 +74,7 @@ logging.debug("\n\n"
     f"Axes grid: {mpl.rcParams['axes.grid']}"
     )
 #! Select GPU for usage. CPU versions ignores it
-GPU=0
+GPU=1
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
@@ -96,6 +94,7 @@ if physical_devices:
 #! For numeric stability, set the default floating-point dtype to float64
 tf.keras.backend.set_floatx('float32')
 # %%
+profile : str = 'FUDS'
 dataGenerator = DataGenerator(train_dir='Data/A123_Matt_Set',
                               valid_dir='Data/A123_Matt_Val',
                               test_dir='Data/A123_Matt_Test',
@@ -103,13 +102,13 @@ dataGenerator = DataGenerator(train_dir='Data/A123_Matt_Set',
                                 'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
                                 'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
                                 ],
-                              PROFILE_range = 'FUDS')
+                              PROFILE_range = profile)
 
 # training = dataGenerator.train.loc[:, 
 #                         ['Current(A)', 'Voltage(V)', 'Temperature (C)_1']]
 # data_soc = dataGenerator.train_SoC['SoC(%)']
 # plt.scatter(range(0, data_soc.size),data_soc)
-val_soc = dataGenerator.valid_SoC['SoC(%)']
+val_soc = dataGenerator.valid_SoC
 plt.scatter(range(0, val_soc.size),val_soc)
 # %%
 window = WindowGenerator(Data=dataGenerator,
@@ -118,28 +117,43 @@ window = WindowGenerator(Data=dataGenerator,
                         label_columns=['SoC(%)'], batch=1,
                         includeTarget=False, normaliseLabal=False,
                         shuffleTraining=False)
-# ds_train, xx_train, yy_train = window.train
-# ds_valid, xx_valid, yy_valid = window.valid
-_, _, xx_train, yy_train = window.full_train
-_, _, xx_valid, yy_valid = window.full_valid
-x_train = np.array(xx_train)
-x_valid = np.array(xx_valid)
-y_train = np.array(yy_train)
-y_valid = np.array(yy_valid)
+ds_train, xx_train, yy_train = window.train
+ds_valid, xx_valid, yy_valid = window.valid
+#_, _, xx_train, yy_train = window.full_train
+#_, _, xx_valid, yy_valid = window.full_valid
+x_train = np.array(xx_train, copy=True, dtype=np.float32)
+x_valid = np.array(xx_valid, copy=True, dtype=np.float32)
+y_train = np.array(yy_train, copy=True, dtype=np.float32)
+y_valid = np.array(yy_valid, copy=True, dtype=np.float32)
 #train_df, train_ds, train_x, train_y = window.ParseFullData(dataGenerator.train_dir)
 #plt.scatter(range(0, y_train.size),y_train)
-plt.scatter(range(0, y_valid.size),y_valid)
+#plt.scatter(range(0, y_valid.size),y_valid)
+# %%
+window = WindowGenerator(Data=dataGenerator,
+                        input_width=1, label_width=1, shift=1,
+                        input_columns=['Current(A)', 'Voltage(V)', 'Temperature (C)_1'],
+                        label_columns=['SoC(%)'], batch=1,
+                        includeTarget=False, normaliseLabal=False,
+                        shuffleTraining=False)
+x_train, y_train = window.train
+x_valid, y_valid = window.valid
 # %%
 def custom_loss(y_true, y_pred):
     #print(f"True: {y_true[0]}" ) # \nvs Pred: {tf.make_ndarray(y_pred)}")
-    loss = tf.keras.backend.square(y_true - y_pred)/2
+    loss = tf.math.divide(
+                        x=tf.keras.backend.square(
+                                x=tf.math.subtract(x=y_true,
+                                                   y=y_pred)
+                            ), 
+                        y=2
+                    )
     #print("\nInitial Loss: {}".format(loss))    
-    loss = tf.keras.backend.sum(loss, axis=1)
+    #loss = 
     #print(  "Summed  Loss: {}\n".format(loss))
-    return loss
+    return tf.keras.backend.sum(loss, axis=1)
     #! Cross-entropy problem if yo uwant to turn into classification.
 
-model_loc : str = 'Models/Chemali2017/FUDS-models/'
+model_loc : str = f'Models/Chemali2017/{profile}-models/'
 iEpoch = 0
 try:
     for _, _, files in os.walk(model_loc):
@@ -175,17 +189,18 @@ except OSError as identifier:
     ])
 
 checkpoints = tf.keras.callbacks.ModelCheckpoint(
-    filepath =model_loc+'FUDS-checkpoints/checkpoint',
+    filepath =model_loc+f'{profile}-checkpoints/checkpoint',
     monitor='val_loss', verbose=0,
     save_best_only=False, save_weights_only=False,
     mode='auto', save_freq='epoch', options=None,
 )
 
 lstm_model.compile(loss=custom_loss,
-            optimizer=tf.optimizers.Adam(learning_rate=10e-04,
+            optimizer=tf.optimizers.Adam(learning_rate=0.001,
                     beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
             metrics=[tf.metrics.MeanAbsoluteError(),
-                     tf.metrics.RootMeanSquaredError()],
+                     tf.metrics.RootMeanSquaredError(),
+                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
             #run_eagerly=True
             )
 # %%
@@ -213,7 +228,7 @@ while iEpoch < mEpoch-1:
     # convert the history.history dict to a pandas DataFrame:     
     hist_df = pd.DataFrame(history.history)
     # or save to csv:
-    with open(f'{model_loc}history-FUDS.csv', mode='a') as f:
+    with open(f'{model_loc}history-{profile}.csv', mode='a') as f:
         if(firtstEpoch):
             hist_df.to_csv(f, index=False)
             firtstEpoch = False
@@ -248,7 +263,7 @@ while iEpoch < mEpoch-1:
                     color='#698856')
         ax2.set_ylabel('Error', fontsize=16, color='#698856')
         ax2.tick_params(axis='y', labelcolor='#698856')
-        ax1.set_title("Chenali LSTM Test 2017 - Valid dataset. FUDS-trained",
+        ax1.set_title(f"Chenali LSTM Test 2017 - Valid dataset. {profile}-trained",
                     fontsize=18)
         ax1.legend(prop={'size': 16})
         ax1.set_ylim([-0.1,1.2])

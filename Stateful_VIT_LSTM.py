@@ -17,7 +17,7 @@ from tensorflow.python.keras.backend import dropout
 # Configurate GPUs
 # Define plot sizes
 #! Select GPU for usage. CPU versions ignores it
-GPU=0
+GPU=1
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
@@ -118,7 +118,7 @@ for _, _, files in os.walk(train_dir):
     # Initialize empty structures
     train_X : list[pd.DataFrame] = []
     train_Y : list[pd.DataFrame] = []
-    for file in files[0:]:
+    for file in files[0:1]:
         X : pd.DataFrame = Read_Excel_File(train_dir + '/' + file,
                                     range(22,25), columns) #! or 21
         Y : pd.DataFrame = pd.DataFrame(
@@ -262,7 +262,9 @@ model = tf.keras.models.Sequential([
     tf.keras.layers.Dense(units=1, activation=None)
 ])
 print(model.summary())
-model.compile(loss='mean_squared_error',
+tf.sqrt(tf.reduce_mean(tf.square(tf.subtract(targets, outputs))))
+tf.metrics.MeanAbsolutePercentageError()
+model.compile(loss=tf.losses.MeanAbsoluteError(),
               optimizer='adam',
             #   optimizer=tf.optimizers.Adam(learning_rate=10e-04,
             #         beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
