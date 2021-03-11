@@ -74,7 +74,7 @@ logging.debug("\n\n"
     f"Axes grid: {mpl.rcParams['axes.grid']}"
     )
 #! Select GPU for usage. CPU versions ignores it
-GPU=1
+GPU=0
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
@@ -94,7 +94,7 @@ if physical_devices:
 #! For numeric stability, set the default floating-point dtype to float64
 tf.keras.backend.set_floatx('float32')
 # %%
-profile : str = 'FUDS'
+profile : str = 'DST'
 dataGenerator = DataGenerator(train_dir='Data/A123_Matt_Set',
                               valid_dir='Data/A123_Matt_Val',
                               test_dir='Data/A123_Matt_Test',
@@ -129,14 +129,14 @@ y_valid = np.array(yy_valid, copy=True, dtype=np.float32)
 #plt.scatter(range(0, y_train.size),y_train)
 #plt.scatter(range(0, y_valid.size),y_valid)
 # %%
-window = WindowGenerator(Data=dataGenerator,
-                        input_width=1, label_width=1, shift=1,
-                        input_columns=['Current(A)', 'Voltage(V)', 'Temperature (C)_1'],
-                        label_columns=['SoC(%)'], batch=1,
-                        includeTarget=False, normaliseLabal=False,
-                        shuffleTraining=False)
-x_train, y_train = window.train
-x_valid, y_valid = window.valid
+# window = WindowGenerator(Data=dataGenerator,
+#                         input_width=1, label_width=1, shift=1,
+#                         input_columns=['Current(A)', 'Voltage(V)', 'Temperature (C)_1'],
+#                         label_columns=['SoC(%)'], batch=1,
+#                         includeTarget=False, normaliseLabal=False,
+#                         shuffleTraining=False)
+# x_train, y_train = window.train
+# x_valid, y_valid = window.valid
 # %%
 def custom_loss(y_true, y_pred):
     #print(f"True: {y_true[0]}" ) # \nvs Pred: {tf.make_ndarray(y_pred)}")
@@ -204,7 +204,7 @@ lstm_model.compile(loss=custom_loss,
             #run_eagerly=True
             )
 # %%
-mEpoch : int = 50
+mEpoch : int = 3
 firtstEpoch : bool = True
 while iEpoch < mEpoch-1:
     iEpoch+=1
@@ -241,7 +241,7 @@ while iEpoch < mEpoch-1:
         TAIL=y_valid.shape[0]
         PRED = lstm_model.predict(x_valid)
         RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-                    y_valid[::skip,-1]-PRED)))
+                    y_valid[::skip,]-PRED)))
         vl_test_time = range(0,PRED.shape[0])
         fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
         ax1.plot(vl_test_time[:TAIL:skip], y_valid[::skip,-1],
@@ -272,7 +272,8 @@ while iEpoch < mEpoch-1:
 
         val_perf = lstm_model.evaluate(x=x_valid,
                                        y=y_valid,
-                                       verbose=0)
+                                       batch_size=1,
+                                       verbose=1)
         textstr = '\n'.join((
             r'$Loss =%.2f$' % (val_perf[0], ),
             r'$MAE =%.2f$' % (val_perf[1], ),
@@ -281,5 +282,52 @@ while iEpoch < mEpoch-1:
                 verticalalignment='top',
                 bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
-        fig.savefig(f'{model_loc}FUDS-val-{iEpoch}.svg')
+        fig.savefig(f'{model_loc}{profile}-val-{iEpoch}.svg')
 # %%
+skip=1
+start = 0
+x_test = x_train[start:start+y_valid.shape[0],:,:]
+y_test = y_train[start:start+y_valid.shape[0],:]
+TAIL=y_test.shape[0]
+PRED = lstm_model.predict(x_test)
+RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+            y_test[::skip,]-PRED)))
+vl_test_time = range(0,PRED.shape[0])
+fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
+ax1.plot(vl_test_time[:TAIL:skip], y_test[::skip,-1],
+        label="True", color='#0000ff')
+ax1.plot(vl_test_time[:TAIL:skip],
+        PRED,
+        label="Recursive prediction", color='#ff0000')
+
+ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
+ax1.set_xlabel("Time Slice (s)", fontsize=16)
+ax1.set_ylabel("SoC (%)", fontsize=16)
+
+ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+ax2.plot(vl_test_time[:TAIL:skip],
+        RMS,
+        label="RMS error", color='#698856')
+ax2.fill_between(vl_test_time[:TAIL:skip],
+        RMS[:,0],
+            color='#698856')
+ax2.set_ylabel('Error', fontsize=16, color='#698856')
+ax2.tick_params(axis='y', labelcolor='#698856')
+ax1.set_title(f"Chenali LSTM Test 2017 - Train dataset. {profile}-trained",
+            fontsize=18)
+ax1.legend(prop={'size': 16})
+ax1.set_ylim([-0.1,1.2])
+ax2.set_ylim([-0.1,1.6])
+fig.tight_layout()  # otherwise the right y-label is slightly clipped
+
+val_perf = lstm_model.evaluate(x=x_test,
+                                y=y_test,
+                                batch_size=1,
+                                verbose=0)
+textstr = '\n'.join((
+    r'$Loss =%.2f$' % (val_perf[0], ),
+    r'$MAE =%.2f$' % (val_perf[1], ),
+    r'$RMSE=%.2f$' % (val_perf[2], )))
+ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
+        verticalalignment='top',
+        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
