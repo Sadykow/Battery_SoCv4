@@ -40,9 +40,7 @@
 #?Approximately 15~20% of provided data.
 #? Testing performed on any datasets.
 # %%
-import os
-
-from parser.WindowGenerator import WindowGenerator                       # OS, SYS, argc functions
+import os                       # OS, SYS, argc functions
 import pandas as pd             # File read
 import matplotlib as mpl        # Plot functionality
 import matplotlib.pyplot as plt
@@ -53,7 +51,8 @@ import logging
 
 from sys import platform        # Get type of OS
 
-from parser.DataGenerator import *
+from extractor.WindowGenerator import WindowGenerator
+from extractor.DataGenerator import *
 # %%
 # Define plot sizes
 mpl.rcParams['figure.figsize'] = (8, 6)
@@ -74,7 +73,7 @@ logging.debug("\n\n"
     f"Axes grid: {mpl.rcParams['axes.grid']}"
     )
 #! Select GPU for usage. CPU versions ignores it
-GPU=0
+GPU=1
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
@@ -93,11 +92,16 @@ if physical_devices:
                   f"\nLogical GPUs: {len(logical_devices)}")
 #! For numeric stability, set the default floating-point dtype to float64
 tf.keras.backend.set_floatx('float32')
-# %%
 profile : str = 'DST'
-dataGenerator = DataGenerator(train_dir='Data/A123_Matt_Set',
-                              valid_dir='Data/A123_Matt_Val',
-                              test_dir='Data/A123_Matt_Test',
+# %%
+#! Check OS to change SymLink usage
+if(platform=='win32'):
+    Data    : str = 'DataWin\\'
+else:
+    Data    : str = 'Data/'
+dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
+                              valid_dir=f'{Data}A123_Matt_Val',
+                              test_dir=f'{Data}A123_Matt_Test',
                               columns=[
                                 'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
                                 'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
@@ -200,13 +204,14 @@ lstm_model.compile(loss=custom_loss,
                     beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
             metrics=[tf.metrics.MeanAbsoluteError(),
                      tf.metrics.RootMeanSquaredError(),
+                     #tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
                      tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
             #run_eagerly=True
             )
 # %%
-mEpoch : int = 3
+mEpoch : int = 40
 firtstEpoch : bool = True
-while iEpoch < mEpoch-1:
+while iEpoch < mEpoch:
     iEpoch+=1
     print(f"Epoch {iEpoch}/{mEpoch}")
     
@@ -219,6 +224,7 @@ while iEpoch < mEpoch-1:
     #                     callbacks=[checkpoints], batch_size=1
     #                     )#! Initially Batch size 1; 8 is safe to run - 137s
     lstm_model.save(f'{model_loc}{iEpoch}')
+    lstm_model.save_weights(f'{model_loc}weights/{iEpoch}')
     
     if os.path.exists(f'{model_loc}{iEpoch-1}.ch'):
         os.remove(f'{model_loc}{iEpoch-1}.ch')
@@ -239,7 +245,7 @@ while iEpoch < mEpoch-1:
     if(iEpoch % 10 == 0):
         skip=1
         TAIL=y_valid.shape[0]
-        PRED = lstm_model.predict(x_valid)
+        PRED = lstm_model.predict(x_valid, batch_size=1)
         RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
                     y_valid[::skip,]-PRED)))
         vl_test_time = range(0,PRED.shape[0])
@@ -289,7 +295,7 @@ start = 0
 x_test = x_train[start:start+y_valid.shape[0],:,:]
 y_test = y_train[start:start+y_valid.shape[0],:]
 TAIL=y_test.shape[0]
-PRED = lstm_model.predict(x_test)
+PRED = lstm_model.predict(x_test, batch_size=1)
 RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
             y_test[::skip,]-PRED)))
 vl_test_time = range(0,PRED.shape[0])
@@ -331,3 +337,13 @@ textstr = '\n'.join((
 ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
         verticalalignment='top',
         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+fig.savefig(f'{model_loc}{profile}-train-{iEpoch}.svg')
+
+# %%
+# Convert the model to Tensorflow Lite and save.
+with open(f'{model_loc}{profile}.tflite', 'wb') as f:
+    f.write(
+        tf.lite.TFLiteConverter.from_keras_model(
+                model=lstm_model
+            ).convert()
+        )

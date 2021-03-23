@@ -4,8 +4,6 @@
 # https://github.com/gentaiscool/lstm-attention
 # %%
 import tensorflow as tf
-import tensorflow.experimental.numpy as tnp
-############################################## 
 """
 # ATTENTION LAYER
 Cite these works 
@@ -28,7 +26,6 @@ Example:
   model.add(Addition())
   # next add a Dense layer (for classification/regression) or whatever...
 """
-##############################################
 
 def dot_product(x, kernel):
   """
@@ -39,26 +36,18 @@ def dot_product(x, kernel):
     kernel (): weights
   Returns:
   """
-  print(f'DotProduct X: {x} or type: {type(x)}')
-  print(f'DotProduct kernel: {kernel} or type: {type(kernel)}')
+  # print(f'DotProduct X: {x} or type: {type(x)}')
+  # print(f'DotProduct kernel: {kernel} or type: {type(kernel)}')
 
-  if tf.keras.backend.backend() == 'tensorflow':
-    # return tnp.squeeze(
-    #             a=tnp.dot(
-    #                 a=x,
-    #                 b=tnp.expand_dims(
-    #                     a=kernel,
-    #                     axis=0
-    #                   )
-    #               ),
-    #             axis=-1)
+  if tf.keras.backend.backend() == 'tensorflow':    
     return tf.keras.backend.squeeze(x=tf.keras.backend.dot(
-                                      x=x,
-                                      y=tf.keras.backend.expand_dims(x=kernel,
-                                                                     axis=-1)),
+                                        x=x,
+                                        y=tf.keras.backend.expand_dims(x=kernel,
+                                                                       axis=-1)
+                                      ),
                                     axis=-1)
   else:
-    return tnp.dot(a=x, b=kernel)
+    return tf.keras.backend.dot(x=x, y=kernel)
 # %%
 class AttentionWithContext(tf.keras.layers.Layer):
   """
@@ -130,9 +119,9 @@ class AttentionWithContext(tf.keras.layers.Layer):
                  name='{}_u'.format(self.local_name),
                  regularizer=self.u_regularizer,
                  constraint=self.u_constraint)
-    print(f'Build W: {self.W} or type: {type(self.W)}')
-    print(f'Build b: {self.b} or type: {type(self.b)}')
-    print(f'Build u: {self.u} or type: {type(self.u)}')
+    # print(f'Build W: {self.W} or type: {type(self.W)}')
+    # print(f'Build b: {self.b} or type: {type(self.b)}')
+    # print(f'Build u: {self.u} or type: {type(self.u)}')
   
     super(AttentionWithContext, self).build(input_shape)
 
@@ -141,8 +130,8 @@ class AttentionWithContext(tf.keras.layers.Layer):
     return None
 
   def call(self, x, mask=None):
-    print(f'Call x: {x} or type: {type(x)}')
-    print(f'Call mask: {mask} or type: {type(mask)}')
+    # print(f'Call x: {x} or type: {type(x)}')
+    # print(f'Call mask: {mask} or type: {type(mask)}')
     uit = dot_product(x, self.W)
 
     if self.bias:
@@ -156,22 +145,27 @@ class AttentionWithContext(tf.keras.layers.Layer):
     # apply mask after the exp. will be re-normalized next
     if mask is not None:
       # Cast the mask to floatX to avoid float64 upcasting in theano
-      a *= tf.keras.backend.cast(mask, tf.keras.backend.floatx())
+      a *= tf.keras.backend.cast(x=mask, dtype=tf.keras.backend.floatx())
 
-    # in some cases especially in the early stages of training the sum may be almost zero and this results in NaN's. 
-    # Should add a small epsilon as the workaround
-    # a /= tf.keras.backend.cast(tf.keras.backend.sum(a, axis=1, keepdims=True), tf.keras.backend.floatx())
-    a /= tf.keras.backend.cast(tf.keras.backend.sum(a, axis=1, keepdims=True) + tf.keras.backend.epsilon(), tf.keras.backend.floatx())
+    # in some cases especially in the early stages of training the sum may be
+    #almost zero and this results in NaN's. Should add a small epsilon as the
+    #workaround:
+    # a /= K.cast(K.sum(a, axis=1, keepdims=True), K.floatx())
+    a /= tf.keras.backend.cast(
+              x=tf.keras.backend.sum(
+                    x=a,
+                    axis=1,
+                    keepdims=True
+                  ) + tf.keras.backend.epsilon(),
+              dtype=tf.keras.backend.floatx()
+            )
 
-    a = tf.keras.backend.expand_dims(a)
-    weighted_input = x * a
-    
-    return weighted_input
+    # Weighted Inout
+    return x * tf.keras.backend.expand_dims(x=a, axis=-1)
 
   def compute_output_shape(self, input_shape):
-    print(f'ComputeOutputShape x: {input_shape} or type: {type(input_shape)}')
-    return input_shape[0], input_shape[1], input_shape[2]
-#AttentionWithContext.build = build
+    # print(f'ComputeOutputShape x: {input_shape} or type: {type(input_shape)}')
+    return (input_shape[0], input_shape[1], input_shape[2])
 # %%	
 class Addition(tf.keras.layers.Layer):
   """
@@ -197,7 +191,7 @@ class Addition(tf.keras.layers.Layer):
     super(Addition, self).build(input_shape)
 
   def call(self, x):
-    return tf.keras.backend.sum(x, axis=1)
+    return tf.keras.backend.sum(x=x, axis=1, keepdims=False)
 
   def compute_output_shape(self, input_shape):
     return (input_shape[0], self.output_dim)

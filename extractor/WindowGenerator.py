@@ -15,9 +15,9 @@ import numpy as np
 # Used for making annotations
 from dataclasses import dataclass
 
-from parser.DataGenerator import DataGenerator
+from extractor.DataGenerator import DataGenerator
 from sklearn.preprocessing import MinMaxScaler
-from parser.soc_calc import diffSoC
+from extractor.soc_calc import diffSoC
 
 class WindowGenerator():
   Data : DataGenerator          # Data object containing Parsed data

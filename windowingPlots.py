@@ -182,14 +182,14 @@ train_X[0]['Test_Time(s)'] = train_X[0]['Test_Time(s)']-train_X[0]['Test_Time(s)
 # %%
 #sns.set(rc={'figure.figsize':(16,8)})
 V = sns.relplot(x='Test_Time(s)', y='Voltage(V)', kind="line",
-                data=train_X[0], size=11, color='r')
+                data=train_X[0], size=20, color='r')
 #plt.xlim(-100, 40000)
 plt.ylim(2.25, 3.78)
 plt.ylabel('Voltage (V)', size=16)
 plt.xlabel('Time (s)', size=16)
-plt.xticks(size=12)
-plt.yticks(size=12)
-plt.grid()
+plt.xticks(size=14)
+plt.yticks(size=20)
+plt.grid(which='major', alpha=1)
 #plt.legend(False)
 width : float = 1.5
 # Box 1
@@ -233,15 +233,15 @@ V.fig.savefig('../windowingPlots/1-Voltage.svg', transparent=True,
                 bbox_inches = "tight")
 # %%
 I = sns.relplot(x='Test_Time(s)', y='Current(A)', kind="line",
-                data=train_X[0], size=11, color='b')
+                data=train_X[0], size=20, color='b')
 #plt.xlim(-100, 40000)
 #plt.ylim(2.25, 3.75)
 #g.fig.autofmt_xdate()
 plt.ylabel('Current (A)', size=16)
 plt.xlabel('Time (s)', size=16)
 plt.xticks(size=12)
-plt.yticks(size=12)
-plt.grid()
+plt.yticks(size=20)
+plt.grid(which='major', alpha=1)
 #plt.legend(False)
 width : float = 1.5
 # Box 1
@@ -282,49 +282,65 @@ I.fig.savefig('../windowingPlots/2-Current.svg', transparent=True,
 # %%
 #sns.set(rc={'figure.figsize':(16,8)})
 T = sns.relplot(x='Test_Time(s)', y='Temperature (C)_1', kind="line",
-                data=train_X[0], size=11, color='k')
+                data=train_X[0], size=20, color='m')
 #plt.xlim(-100, 40000)
-plt.ylim(8, 14)
+# plt.ylim(8, 14)
 plt.ylabel('Temperature (C)', size=16)
 plt.xlabel('Time (s)', size=16)
 plt.xticks(size=12)
-plt.yticks(size=12)
-plt.grid()
+plt.yticks(size=20)
+plt.grid(which='major', alpha=1)
 #plt.legend(False)
 width : float = 1.5
 # Box 1
-x1,x2,y1,y2  = 0, 500, 9, 12
+x1,x2,y1,y2  = 0, 500, 19, 21#9, 12
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 
 # Box 2
-x1,x2,y1,y2  = 250, 750, 8.8, 11.8
+x1,x2,y1,y2  = 250, 750, 18.8, 20.8#8.8, 11.8
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 
 # Box 3
-x1,x2,y1,y2  = 600, 1100, 8.7, 11.7
+x1,x2,y1,y2  = 600, 1100, 18.7, 20.7#8.7, 11.7
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 
 # Box Last
-x1,x2,y1,y2  = 6500, 7000, 9.2, 12.2
+x1,x2,y1,y2  = 6500, 7000, 19.2, 21.2#9.2, 12.2
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 
 # Middle dots
-plt.plot([2000,3000,4000], [11.5,11.5,11.5], '.k', linewidth=width)
-plt.plot([2000,3000,4000], [ 9.5, 9.5, 9.5], '.k', linewidth=width)
+# plt.plot([2000,3000,4000], [11.5,11.5,11.5], '.k', linewidth=width)
+# plt.plot([2000,3000,4000], [ 9.5, 9.5, 9.5], '.k', linewidth=width)
+plt.plot([2000,3000,4000], [20.5,20.7,20.9], '.k', linewidth=width)
+plt.plot([2000,3000,4000], [19.0,19.2,19.4], '.k', linewidth=width)
 
 T.fig.savefig('../windowingPlots/3-Temperature.svg', transparent=True,
+                bbox_inches = "tight")
+# %% SoC Plot
+T = sns.relplot(x='Test_Time(s)', y='SoC', kind="line",
+                data=Y, size=20, color='k')
+plt.ylabel('SoC', size=16)
+plt.xlabel('Time (s)', size=16)
+plt.xticks(size=12)
+plt.yticks(size=20)
+plt.grid(which='major', alpha=1)
+#plt.legend(False)
+width : float = 3
+plt.plot([500, 750,1100,7000], [0.94,0.90,0.86,0.075], 'xk',
+            linewidth=width, marker='v', markersize=11)
+T.fig.savefig('../windowingPlots/4-SoC.svg', transparent=True,
                 bbox_inches = "tight")
 # %%
 # Windows i
