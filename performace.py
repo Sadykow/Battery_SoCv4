@@ -14,6 +14,8 @@ import tflite_runtime.interpreter as tflite
 import platform        # System for deligates, not the platform string
 import time
 
+# Flops counter
+from pypapi import events, papi_high as high
 # %%
 # Define plot sizes
 mpl.rcParams['figure.figsize'] = (8, 6)
@@ -250,4 +252,23 @@ for _ in range(5):
     # The function `get_tensor()` returns a copy of the tensor data.
     # Use `tensor()` in order to get a pointer to the tensor.    
     print(output_data[i:i+1])
+# %%
+#! Swithicg a proper kernel even paranoid
+#? sudo sh -c 'echo 1 >/proc/sys/kernel/perf_event_paranoid'
+#! The previos value was 4.
+print('----INFERENCE Flops----')
+print('Note: Never done it before.')
+
+
+input_shape = input_details[0]['shape']
+output_data : np.ndarray = np.zeros(shape=(trX[0].shape[0],))
+high.start_counters([events.PAPI_FP_OPS,])
+for i in range(0, 1):
+    interpreter.set_tensor(input_details[0]['index'], trX[0][i:i+1,:,:])   
+    interpreter.invoke()
+    #output_data[i] = interpreter.get_tensor(output_details[0]['index'])
+    interpreter.get_tensor(output_details[0]['index'])
+#print('%.1fms' % ((time.perf_counter() - start) * 1000))
+flops = high.stop_counters()
+print(f'{flops} flops')
 

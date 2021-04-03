@@ -1,43 +1,43 @@
 #!/usr/bin/python
 # %% [markdown]
-# # # 1
-# # #
-# # LSTM for SoC by Ephrem Chemali 2017
-# In this paper, we showcase how recurrent neural networks with an LSTM cell, a 
-# machine learning technique, can accu-ately estimate SOC and can do so by
-# self-learning the network parameters.
+# # # 2
+# # # 
+# # GRU for SoC by Bin Xiao - 2019
+# 
 
-# Typical dataset used to train the networks is given by
-#  D = {(Ψ 1 , SOC 1 ∗ ), (Ψ 2 , SOC 2 ∗ ), ..., (Ψ N , SOC N)}
-# The vector of inputs is defined as 
-# Ψ k = [V (k), I(k), T (k)], where V (k), I(k), T (k)
+# Data windowing has been used as per: Ψ ={X,Y} where:
+#Here,X_k=[I(k),V(k),T(k)] and Y_k=[SoC(k)], whereI(k),V(k),T(k) and SoC(k) are
+#the current, voltage, temperature and SoC ofthe battery as measured at time
+#step k.
 
-#? A final fully-connected layer performs a linear transformation on the 
-#?hidden state tensor h k to obtain a single estimated SOC value at time step k.
-#?This is done as follows: SOC k = V out h k + b y ,
+# Compared with an LST<-based RNN model,a GRU-based RNN model has a simpler 
+#structure and fewer parameters, thus making model training easier. The GRU 
+#structure is shown in Fig. 1
 
-#* Loss: sumN(0.5*(SoC-SoC*)^2)
-#* Adam optimization: decay rates = b1=0.9 b2=0.999, alpha=10e-4, ?epsilon=10e-8
+#* The architecture consis of Inut layer, GRU hidden, fullt conected Dense
+#*and Output. Dropout applied at hidden layer.
+#* Dense fully connected uses sigmoind activation.
 
-#* Drive cycles: over 100,000 time steps
-#*  1 batch at a time.
-#* Erors metricks: MAE, RMS, STDDEV, MAX error
+#* Loss function standard MSE, I think. By the looks of it.
 
-# Data between 0 10 25C for training. Apperently mostly discharge cycle.
-# Drive Cycles which included HWFET, UDDS, LA92 and US06
-#* The network is trained on up to 8 mixed drive cycles while validation is
-#*performed on 2 discharge test cases. In addition, a third test case, called
-#*the Charging Test Case, which includes a charging profile is used to validate
-#*the networks performance during charging scenarios.
+#* 2 optimizers for that:
+#*  Nadam (Nesterov momentum into the Adam) b1=0.99
+#*Remark 1:The purpose of the pre-training phase is to endow the GRU_RNN model
+#*with the appropriate parametersto capture the inherent features of the 
+#*training samples. The Nadam algorithm uses adaptive learning rates and
+#*approximates the gradient by means of the Nesterov momentum,there by ensuring
+#*fast convergence of the pre-training process.
+#*  AdaMax (Extension to adam)
+#*Remark 2:The purpose of the fine-tuning phase is to further adjust the
+#*parameters to achieve greater accuracy bymeans of the AdaMax algorithm, which
+#*converges to a morestable value.
+#* Combine those two methods: Ensemle ptimizer.
 
-#* LSTM-RNN with 500 nodes. Took 4 hours.
-#* The MAE achieved on each of the first two test cases is 
-#*0.807% and 1.252% (0.00807 and 0.01252)
-#*15000 epoch.
-#? This file used to train only on a FUDS dataset and validate against another
-#?excluded FUDS datasets. In this case, out of 12 - 2 for validation.
-#?Approximately 15~20% of provided data.
-#? Testing performed on any datasets.
+#* Data scaling was performed using Min-Max equation:
+#* x′=(x−min_x)/(max_x−min_x) - values between 0 and 1.
+
+#* Test were applied separetly at 0,30,50C
+#*RMSE,MAX,MAPE,R2
 # %%
 import datetime
 import logging
@@ -111,7 +111,7 @@ logging.debug("\n\n"
     f"Plot figure size set to {mpl.rcParams['figure.figsize']}\n"
     f"Axes grid: {mpl.rcParams['axes.grid']}"
     )
-#! Select GPU for usage. CPU versions ignores it.
+#! Select GPU for usage. CPU versions ignores it
 #!! Learn to check if GPU is occupied or not.
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
@@ -152,10 +152,10 @@ window = WindowGenerator(Data=dataGenerator,
                         label_columns=['SoC(%)'], batch=1,
                         includeTarget=False, normaliseLabal=False,
                         shuffleTraining=False)
-ds_train, xx_train, yy_train = window.train
-ds_valid, xx_valid, yy_valid = window.valid
+_, xx_train, yy_train = window.train
+_, xx_valid, yy_valid = window.valid
 
-# Entire Training set 
+# Entire Training set
 x_train = np.array(xx_train, copy=True, dtype=np.float32)
 y_train = np.array(yy_train, copy=True, dtype=np.float32)
 
@@ -166,74 +166,56 @@ y_valid = np.array(yy_train[16800:25000,:]  , copy=True, dtype=np.float32)
 # For test dataset take the remaining profiles.
 mid = int(xx_valid.shape[0]/2)+350
 x_test_one = np.array(xx_valid[:mid,:,:], copy=True, dtype=np.float32)
-y_test_one = np.array(yy_valid[:mid,:],   copy=True, dtype=np.float32)
+y_test_one = np.array(yy_valid[:mid,:], copy=True, dtype=np.float32)
 x_test_two = np.array(xx_valid[mid:,:,:], copy=True, dtype=np.float32)
-y_test_two = np.array(yy_valid[mid:,:],   copy=True, dtype=np.float32)
+y_test_two = np.array(yy_valid[mid:,:], copy=True, dtype=np.float32)
 # %%
-#! Cross-entropy problem if yo uwant to turn into classification.
-def custom_loss(y_true, y_pred):
-    """ Custom loss based on following formula:
-        sumN(0.5*(SoC-SoC*)^2)
-
-    Args:
-        y_true (tf.Tensor): True output values
-        y_pred (tf.Tensor): Predicted output from model
-
-    Returns:
-        tf.Tensor: The calculated Loss Value
-    """
-    y_pred = tf.convert_to_tensor(y_pred)
-    y_true = tf.cast(y_true, y_pred.dtype)
-    #print(f"True: {y_true[0]}" ) # \nvs Pred: {tf.make_ndarray(y_pred)}")
-    loss = tf.math.divide(
-                        x=tf.keras.backend.square(
-                                x=tf.math.subtract(x=y_true,
-                                                   y=y_pred)
-                            ), 
-                        y=2
-                    )
-    #print("\nInitial Loss: {}".format(loss))    
-    #loss = 
-    #print(  "Summed  Loss: {}\n".format(loss))
-    return tf.keras.backend.sum(loss, axis=1)    
+custom_loss = lambda y_true, y_pred: tf.keras.backend.mean(
+            x=tf.math.squared_difference(
+                    x=tf.cast(x=y_true, dtype=y_pred.dtype),
+                    y=tf.convert_to_tensor(value=y_pred)
+                ),
+            axis=-1,
+            keepdims=False
+        )
 
 file_name : str = os.path.basename(__file__)[:-3]
 model_loc : str = f'Models/{file_name}/{profile}-models/'
-iEpoch = 0
+
+iEpoch : int = 0
+p2     : int = int(mEpoch/3)
+skipCompile1, skipCompile2 = False, False
 try:
     for _, _, files in os.walk(model_loc):
         for file in files:
             if file.endswith('.ch'):
                 iEpoch = int(os.path.splitext(file)[0])
     
-    lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
+    gru_model : tf.keras.models.Sequential = tf.keras.models.load_model(
             f'{model_loc}{iEpoch}',
             compile=False)
     print("Model Identefied. Continue training.")
 except OSError as identifier:
     print("Model Not Found, creating new. {} \n".format(identifier))
-    lstm_model = tf.keras.models.Sequential([
-        # Shape [batch, time, features] => [batch, time, lstm_units]
+    gru_model = tf.keras.models.Sequential([
         tf.keras.layers.InputLayer(input_shape=x_train.shape[-2:],
                                    batch_size=None),
-        tf.keras.layers.LSTM(
-            units=500, activation='tanh', recurrent_activation='sigmoid',
+        tf.keras.layers.GRU(    #?260 by BinXia, times by 2 or 3
+            units=560, activation='tanh', recurrent_activation='sigmoid',
             use_bias=True, kernel_initializer='glorot_uniform',
             recurrent_initializer='orthogonal', bias_initializer='zeros',
-            unit_forget_bias=True, kernel_regularizer=None,
+            kernel_regularizer=None,
             recurrent_regularizer=None, bias_regularizer=None,
             activity_regularizer=None, kernel_constraint=None,
             recurrent_constraint=None, bias_constraint=None, dropout=0.2,
-            recurrent_dropout=0.0, implementation=2, return_sequences=False, #!
-            return_state=False, go_backwards=False, stateful=False,
-            time_major=False, unroll=False#,batch_input_shape=(1, 500, 3)
+            recurrent_dropout=0.0, return_sequences=False, return_state=False,
+            go_backwards=False, stateful=False, unroll=False, time_major=False,
+            reset_after=True
         ),
-        #tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
-        # Shape => [batch, time, features]
         tf.keras.layers.Dense(units=1,
                               activation='sigmoid')
     ])
-prev_model = tf.keras.models.clone_model(lstm_model,
+prev_model = tf.keras.models.clone_model(gru_model,
                                     input_tensors=None, clone_function=None)
 
 checkpoints = tf.keras.callbacks.ModelCheckpoint(
@@ -252,58 +234,59 @@ tensorboard_callback = tf.keras.callbacks.TensorBoard(
     )
 
 nanTerminate = tf.keras.callbacks.TerminateOnNaN()
-
-
-lstm_model.compile(loss=custom_loss,
-        optimizer=tf.optimizers.Adam(learning_rate=0.001,
-                beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
-        metrics=[tf.metrics.MeanAbsoluteError(),
-                    tf.metrics.RootMeanSquaredError(),
-                    tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
-        #run_eagerly=True
-    )
-prev_model.compile(loss=custom_loss,
-        optimizer=tf.optimizers.Adam(learning_rate=0.001,
-                beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
-        metrics=[tf.metrics.MeanAbsoluteError(),
-                    tf.metrics.RootMeanSquaredError(),
-                    tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],            
-    )
 # %%
 i_attempts : int = 0
 n_attempts : int = 3
 skip       : int = 1
-firtstEpoch : bool = True
+firtstEpoch: bool = True
 while iEpoch < mEpoch:
+    if (iEpoch<=p2 and not skipCompile1):
+        gru_model.compile(loss=tf.keras.losses.MeanSquaredError(),
+                optimizer=tf.keras.optimizers.Nadam(learning_rate=0.001,
+                    beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Nadam'
+                    ),
+                metrics=[tf.metrics.MeanAbsoluteError(),
+                         tf.metrics.RootMeanSquaredError(),
+                         tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+            )
+        skipCompile1 = True
+        print("\nOptimizer set: Nadam\n")
+    elif (iEpoch>p2 and not skipCompile2):
+        gru_model.compile(loss=tf.keras.losses.MeanSquaredError(),
+                optimizer=tf.keras.optimizers.Adamax(learning_rate=0.0005,
+                    beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Adamax'
+                    ),
+                metrics=[tf.metrics.MeanAbsoluteError(),
+                         tf.metrics.RootMeanSquaredError(),
+                         tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+            )
+        skipCompile2 = True
+        print("\nOptimizer set: Adamax\n")
     iEpoch+=1
     print(f"Epoch {iEpoch}/{mEpoch}")
     
-    history = lstm_model.fit(x=x_train, y=y_train, epochs=1,
+    history = gru_model.fit(x=x_train, y=y_train, epochs=1,
                         validation_data=(x_valid, y_valid),
                         callbacks=[nanTerminate],
                         batch_size=1, shuffle=True
-                        )#! Initially Batch size 1; 8 is safe to run - 137s
-    # history = lstm_model.fit(x=ds_train, epochs=1,
-    #                     validation_data=ds_valid,
-    #                     callbacks=[checkpoints], batch_size=1
-    #                     )#! Initially Batch size 1; 8 is safe to run - 137s
+                        )
+    
     #? Dealing with NaN state. Give few trials to see if model improves
     if (tf.math.is_nan(history.history['loss'])):
         print('NaN model')
         while i_attempts < n_attempts:
-            #! Hopw abut reducing input dataset. In this case, by half. Keeping
-            #!only middle temperatures.
             print(f'Attempt {i_attempts}')
-            #lstm_model.set_weights(prev_model.get_weights())
-            lstm_model = tf.keras.models.clone_model(prev_model)
-            lstm_model.compile(loss=custom_loss,
-                    optimizer=tf.optimizers.Adam(learning_rate=0.001,
-                            beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
+            gru_model = tf.keras.models.clone_model(prev_model)
+            #! Single compiler selection
+            gru_model.compile(loss=tf.keras.losses.MeanSquaredError(),
+                    optimizer=tf.keras.optimizers.Adamax(learning_rate=0.0005,
+                        beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Adamax'
+                        ),
                     metrics=[tf.metrics.MeanAbsoluteError(),
                             tf.metrics.RootMeanSquaredError(),
                             tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
                 )
-            history = lstm_model.fit(x=x_train[:,:,:], y=y_train[:,:], epochs=1,
+            history = gru_model.fit(x=x_train[:,:,:], y=y_train[:,:], epochs=1,
                             validation_data=None,
                             callbacks=[nanTerminate],
                             batch_size=1, shuffle=True
@@ -317,25 +300,22 @@ while iEpoch < mEpoch:
             print("Model reaced the optimim -- Breaking")
             break
         else:
-            lstm_model.save(filepath=f'{model_loc}{iEpoch}-{i_attempts}',
+            gru_model.save(filepath=f'{model_loc}{iEpoch}-{i_attempts}',
                             overwrite=True, include_optimizer=True,
                             save_format='h5', signatures=None, options=None,
                             save_traces=True
                 )
-            # lstm_model.save_weights(f'{model_loc}weights/{iEpoch}-{i_attempts}')
+            # gru_model.save_weights(f'{model_loc}weights/{iEpoch}-{i_attempts}')
             i_attempts = 0
-            #prev_model.set_weights(lstm_model.get_weights())
-            prev_model = tf.keras.models.clone_model(lstm_model)
+            prev_model = tf.keras.models.clone_model(gru_model)
     else:
-        #lstm_model.save(f'{model_loc}{iEpoch}')
-        lstm_model.save(filepath=f'{model_loc}{iEpoch}',
-                        overwrite=True, include_optimizer=True,
-                        save_format='h5', signatures=None, options=None,
-                        save_traces=True
+        gru_model.save(filepath=f'{model_loc}{iEpoch}',
+                       overwrite=True, include_optimizer=True,
+                       save_format='h5', signatures=None, options=None,
+                       save_traces=True
                 )
-        # lstm_model.save_weights(f'{model_loc}weights/{iEpoch}')
-        #prev_model.set_weights(lstm_model.get_weights())
-        prev_model = tf.keras.models.clone_model(lstm_model)
+        # gru_model.save_weights(f'{model_loc}weights/{iEpoch}')
+        prev_model = tf.keras.models.clone_model(gru_model)
     
     if os.path.exists(f'{model_loc}{iEpoch-1}.ch'):
         os.remove(f'{model_loc}{iEpoch-1}.ch')
@@ -354,7 +334,7 @@ while iEpoch < mEpoch:
     
     #! Run the Evaluate function
     TAIL=y_valid.shape[0]
-    PRED = lstm_model.predict(x_valid,batch_size=1)
+    PRED = gru_model.predict(x_valid,batch_size=1)
     RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
                 y_valid[::skip,]-PRED)))
     vl_test_time = range(0,PRED.shape[0])
@@ -378,14 +358,14 @@ while iEpoch < mEpoch:
                 color='#698856')
     ax2.set_ylabel('Error', fontsize=16, color='#698856')
     ax2.tick_params(axis='y', labelcolor='#698856')
-    ax1.set_title(f"{file_name} LSTM Test - Train dataset. {profile}-{iEpoch}",
+    ax1.set_title(f"{file_name} GRU Test - Train dataset. {profile}-{iEpoch}",
                 fontsize=18)
     ax1.legend(prop={'size': 16})
     ax1.set_ylim([-0.1,1.2])
     ax2.set_ylim([-0.1,1.6])
     fig.tight_layout()  # otherwise the right y-label is slightly clipped
 
-    val_perf = lstm_model.evaluate(x=x_valid,
+    val_perf = gru_model.evaluate(x=x_valid,
                                 y=y_valid,
                                 batch_size=1,
                                 verbose=0)
@@ -400,7 +380,7 @@ while iEpoch < mEpoch:
     fig.savefig(f'{model_loc}{profile}val-{iEpoch}.svg')
 # %%
 TAIL=y_test_one.shape[0]
-PRED = lstm_model.predict(x_test_one, batch_size=1)
+PRED = gru_model.predict(x_test_one, batch_size=1)
 RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
             y_test_one[::skip,]-PRED)))
 vl_test_time = range(0,PRED.shape[0])
@@ -425,10 +405,10 @@ ax2.fill_between(vl_test_time[:TAIL:skip],
 ax2.set_ylabel('Error', fontsize=16, color='#698856')
 ax2.tick_params(axis='y', labelcolor='#698856')
 if profile == 'DST':
-    ax1.set_title(f"{file_name} LSTM Test on US06 - {profile}-trained",
+    ax1.set_title(f"{file_name} GRU Test on US06 - {profile}-trained",
                 fontsize=18)
 else:
-    ax1.set_title(f"{file_name} LSTM Test on DST - {profile}-trained",
+    ax1.set_title(f"{file_name} GRU Test on DST - {profile}-trained",
                 fontsize=18)
                 
 ax1.legend(prop={'size': 16})
@@ -436,7 +416,7 @@ ax1.set_ylim([-0.1,1.2])
 ax2.set_ylim([-0.1,1.6])
 fig.tight_layout()  # otherwise the right y-label is slightly clipped
 
-val_perf = lstm_model.evaluate(x=x_test_one,
+val_perf = gru_model.evaluate(x=x_test_one,
                                 y=y_test_one,
                                 batch_size=1,
                                 verbose=0)
@@ -450,7 +430,7 @@ ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
 fig.savefig(f'{model_loc}{profile}-test_One-{iEpoch}.svg')
 # %%
 TAIL=y_test_two.shape[0]
-PRED = lstm_model.predict(x_test_two, batch_size=1)
+PRED = gru_model.predict(x_test_two, batch_size=1)
 RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
             y_test_two[::skip,]-PRED)))
 vl_test_time = range(0,PRED.shape[0])
@@ -475,10 +455,10 @@ ax2.fill_between(vl_test_time[:TAIL:skip],
 ax2.set_ylabel('Error', fontsize=16, color='#698856')
 ax2.tick_params(axis='y', labelcolor='#698856')
 if profile == 'FUDS':
-    ax1.set_title(f"{file_name} LSTM Test on US06 - {profile}-trained",
+    ax1.set_title(f"{file_name} GRU Test on US06 - {profile}-trained",
                 fontsize=18)
 else:
-    ax1.set_title(f"{file_name} LSTM Test on FUDS - {profile}-trained",
+    ax1.set_title(f"{file_name} GRU Test on FUDS - {profile}-trained",
                 fontsize=18)
 
 ax1.legend(prop={'size': 16})
@@ -486,7 +466,7 @@ ax1.set_ylim([-0.1,1.2])
 ax2.set_ylim([-0.1,1.6])
 fig.tight_layout()  # otherwise the right y-label is slightly clipped
 
-val_perf = lstm_model.evaluate(x=x_test_two,
+val_perf = gru_model.evaluate(x=x_test_two,
                                 y=y_test_two,
                                 batch_size=1,
                                 verbose=0)
@@ -498,12 +478,11 @@ ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
         verticalalignment='top',
         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 fig.savefig(f'{model_loc}{profile}-test_Two-{iEpoch}.svg')
-
 # %%
 # Convert the model to Tensorflow Lite and save.
 with open(f'{model_loc}{profile}.tflite', 'wb') as f:
     f.write(
         tf.lite.TFLiteConverter.from_keras_model(
-                model=lstm_model
+                model=gru_model
             ).convert()
         )

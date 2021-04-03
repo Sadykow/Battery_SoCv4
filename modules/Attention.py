@@ -11,8 +11,8 @@ Cite these works
 "Hierarchical Attention Networks for Document Classification"
 accepted in NAACL 2016
 2. Winata, et al. https://arxiv.org/abs/1805.12307
-"Attention-Based LSTM for Psychological Stress Detection from Spoken Language Using Distant Supervision." 
-accepted in ICASSP 2018
+"Attention-Based LSTM for Psychological Stress Detection from Spoken Language 
+Using Distant Supervision." accepted in ICASSP 2018
 
 Using a context vector to assist the attention
 
@@ -170,7 +170,8 @@ class AttentionWithContext(tf.keras.layers.Layer):
 class Addition(tf.keras.layers.Layer):
   """
   This layer is supposed to add of all activation weight.
-  We split this from AttentionWithContext to help us getting the activation weights
+  We split this from AttentionWithContext to help us getting the activation
+  weights
 
   follows this equation:
 
