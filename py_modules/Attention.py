@@ -166,6 +166,18 @@ class AttentionWithContext(tf.keras.layers.Layer):
   def compute_output_shape(self, input_shape):
     # print(f'ComputeOutputShape x: {input_shape} or type: {type(input_shape)}')
     return (input_shape[0], input_shape[1], input_shape[2])
+  def get_config(self):
+    config = super().get_config().copy()
+    config.update({
+            'W_regularizer': self.W_regularizer,
+            'u_regularizer': self.u_regularizer,
+            'b_regularizer': self.b_regularizer,
+            'W_constraint': self.W_constraint,
+            'u_constraint': self.u_constraint,
+            'b_constraint': self.b_constraint,
+            'bias': self.bias,
+    })
+    return config
 # %%	
 class Addition(tf.keras.layers.Layer):
   """

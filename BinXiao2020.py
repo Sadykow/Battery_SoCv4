@@ -53,7 +53,7 @@ import tensorflow_addons as tfa
 
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
-from extractor.utils import str2bool
+from cy_modules.utils import str2bool
 # %%
 # Extract params
 try:
@@ -378,6 +378,10 @@ while iEpoch < mEpoch:
             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
     fig.savefig(f'{model_loc}{profile}val-{iEpoch}.svg')
+
+    # Cleaning Memory from plots
+    fig.clf()
+    plt.close()
 # %%
 TAIL=y_test_one.shape[0]
 PRED = gru_model.predict(x_test_one, batch_size=1)
@@ -428,6 +432,9 @@ ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
         verticalalignment='top',
         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 fig.savefig(f'{model_loc}{profile}-test_One-{iEpoch}.svg')
+# Cleaning Memory from plots
+fig.clf()
+plt.close()
 # %%
 TAIL=y_test_two.shape[0]
 PRED = gru_model.predict(x_test_two, batch_size=1)
@@ -478,6 +485,9 @@ ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
         verticalalignment='top',
         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 fig.savefig(f'{model_loc}{profile}-test_Two-{iEpoch}.svg')
+# Cleaning Memory from plots
+fig.clf()
+plt.close()
 # %%
 # Convert the model to Tensorflow Lite and save.
 with open(f'{model_loc}{profile}.tflite', 'wb') as f:

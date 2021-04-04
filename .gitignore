@@ -136,3 +136,5 @@ UQ_Endurance
 
 .vscode
 
+cy_modules/utils.html
+cy_modules/utils.pyx

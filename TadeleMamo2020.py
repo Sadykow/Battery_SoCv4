@@ -9,7 +9,7 @@
 # %%
 import datetime
 import logging
-import os  # OS, SYS, argc functions
+import os, sys, getopt    # OS, SYS, argc functions
 from sys import platform  # Get type of OS
 
 import matplotlib as mpl  # Plot functionality
@@ -22,8 +22,46 @@ import tensorflow_probability as tfp
 
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
-from modules.Attention import *
+from py_modules.Attention import *
+from cy_modules.utils import str2bool
+# %%
+# Extract params
+try:
+    opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
+                    ["help", "debug=", "epochs=",
+                     "gpu=", "profile="])
+except getopt.error as err: 
+    # output error, and return with an error code 
+    print (str(err)) 
+    print ('EXEPTION: Arguments requied!')
+    sys.exit(2)
 
+# opts = [('-d', 'False'), ('-e', '50'), ('-g', '0'), ('-p', 'DST')]
+mEpoch  : int = 10
+GPU     : int = 0
+profile : str = 'DST'
+for opt, arg in opts:
+    if opt == '-h':
+        print('HELP: Use following default example.\n'
+              'python *.py --debug False --epochs 50 --gpu 0 --profile DST\n'
+              'TODO: Create a proper help')
+        sys.exit()
+    elif opt in ("-d", "--debug"):
+        if(str2bool(arg)):
+            logging.basicConfig(level=logging.DEBUG,
+                    format='%(asctime)s --> %(levelname)s:%(message)s')
+            logging.warning("Logger DEBUG")
+        else:
+            logging.basicConfig(level=logging.CRITICAL)
+            logging.warning("Logger Critical")
+    elif opt in ("-e", "--epochs"):
+        mEpoch = int(arg)
+    elif opt in ("-g", "--gpu"):
+        #! Another alternative is to use
+        #!:$ export CUDA_VISIBLE_DEVICES=0,1 && python *.py
+        GPU = int(arg)
+    elif opt in ("-p", "--profile"):
+        profile = (arg)
 # %%
 # Define plot sizes
 mpl.rcParams['figure.figsize'] = (8, 6)
@@ -44,7 +82,6 @@ logging.debug("\n\n"
     f"Axes grid: {mpl.rcParams['axes.grid']}"
     )
 #! Select GPU for usage. CPU versions ignores it
-GPU=0
 physical_devices = tf.config.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
@@ -63,8 +100,6 @@ if physical_devices:
                   f"\nLogical GPUs: {len(logical_devices)}")
 #! For numeric stability, set the default floating-point dtype to float64
 tf.keras.backend.set_floatx('float32')
-profile : str = 'DST'
-physical_devices
 # %%
 #! Check OS to change SymLink usage
 if(platform=='win32'):
@@ -106,13 +141,13 @@ y_test_one = np.array(yy_valid[:mid,:], copy=True, dtype=np.float32)
 x_test_two = np.array(xx_valid[mid:,:,:], copy=True, dtype=np.float32)
 y_test_two = np.array(yy_valid[mid:,:], copy=True, dtype=np.float32)
 # %%
-def custom_loss(y_true, y_pred):
-    #! No custom loss used in this implementation
-    #!Used standard MeanAbsolutePercentageError()
-    y_pred = tf.framework.ops.convert_to_tensor_v2_with_dispatch(y_pred)
-    y_true = tf.framework.ops.math_ops.cast(y_true, y_pred.dtype)
-    return tf.keras.backend.mean(
-        tf.ops.math_ops.squared_difference(y_pred, y_true), axis=-1
+custom_loss = lambda y_true, y_pred: tf.keras.backend.mean(
+            x=tf.math.squared_difference(
+                    x=tf.cast(x=y_true, dtype=y_pred.dtype),
+                    y=tf.convert_to_tensor(value=y_pred)
+                ),
+            axis=-1,
+            keepdims=False
         )
 
 file_name : str = os.path.basename(__file__)[:-3]
@@ -151,6 +186,8 @@ except OSError as identifier:
         tf.keras.layers.Dense(units=1,
                             activation='sigmoid')
     ])
+prev_model = tf.keras.models.clone_model(lstm_model,
+                                    input_tensors=None, clone_function=None)
 
 checkpoints = tf.keras.callbacks.ModelCheckpoint(
         filepath =model_loc+f'{profile}-checkpoints/checkpoint',
@@ -169,15 +206,14 @@ tensorboard_callback = tf.keras.callbacks.TensorBoard(
 
 nanTerminate = tf.keras.callbacks.TerminateOnNaN()
 
-# lstm_model.compile(loss=tf.keras.losses.MeanAbsoluteError(),
-#             optimizer=tf.optimizers.Adam(learning_rate=0.001,
-#                     beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
-#             metrics=[tf.metrics.MeanAbsoluteError(),
-#                      tf.metrics.RootMeanSquaredError(),
-#                      #tf.metrics.MeanAbsolutePercentageError(),
-#                      tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
-#             #run_eagerly=True
-#             )
+lstm_model.compile(loss=tf.keras.losses.MeanAbsoluteError(),
+            optimizer=tf.optimizers.Adam(learning_rate=0.001,
+                    beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
+            metrics=[tf.metrics.MeanAbsoluteError(),
+                     tf.metrics.RootMeanSquaredError(),
+                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
+            #run_eagerly=True
+            )
 #!!! Add callback toi stop if anything is NaN
 #!!! ADD REMEMBERING PREV MODEL TO REPEATI TRAINING IF LOSS NaN
 # lstm_model.compile(loss=tf.keras.losses.MeanAbsolutePercentageError(),
@@ -285,7 +321,9 @@ nanTerminate = tf.keras.callbacks.TerminateOnNaN()
 #       seed=43210)
 
 # %%
-mEpoch : int = 1
+i_attempts : int = 0
+n_attempts : int = 3
+skip       : int = 1
 firtstEpoch : bool = True
 while iEpoch < mEpoch:
     iEpoch+=1
@@ -298,9 +336,56 @@ while iEpoch < mEpoch:
                         callbacks=[nanTerminate],
                         batch_size=1, shuffle=True
                         )
-    lstm_model.save(f'{model_loc}{iEpoch}')
-    lstm_model.save_weights(f'{model_loc}weights/{iEpoch}')
-    
+    #? Dealing with NaN state. Give few trials to see if model improves
+    if (tf.math.is_nan(history.history['loss'])):
+        print('NaN model')
+        while i_attempts < n_attempts:
+            #! Hopw abut reducing input dataset. In this case, by half. Keeping
+            #!only middle temperatures.
+            print(f'Attempt {i_attempts}')
+            #lstm_model.set_weights(prev_model.get_weights())
+            lstm_model = tf.keras.models.clone_model(prev_model)
+            lstm_model.compile(loss=custom_loss,
+                    optimizer=tf.optimizers.Adam(learning_rate=0.001,
+                            beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
+                    metrics=[tf.metrics.MeanAbsoluteError(),
+                            tf.metrics.RootMeanSquaredError(),
+                            tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+                )
+            history = lstm_model.fit(x=x_train[:,:,:], y=y_train[:,:], epochs=1,
+                            validation_data=None,
+                            callbacks=[nanTerminate],
+                            batch_size=1, shuffle=True
+                            )
+            if (not tf.math.is_nan(history.history['loss'])):
+                print(f'Attempt {i_attempts} Passed')
+                break
+            i_attempts += 1
+        if (i_attempts == n_attempts) \
+                and (tf.math.is_nan(history.history['loss'])):
+            print("Model reaced the optimim -- Breaking")
+            break
+        else:
+            lstm_model.save(filepath=f'{model_loc}{iEpoch}-{i_attempts}',
+                            overwrite=True, include_optimizer=True,
+                            save_format='h5', signatures=None, options=None,
+                            save_traces=True
+                )
+            # lstm_model.save_weights(f'{model_loc}weights/{iEpoch}-{i_attempts}')
+            i_attempts = 0
+            #prev_model.set_weights(lstm_model.get_weights())
+            prev_model = tf.keras.models.clone_model(lstm_model)
+    else:
+        #lstm_model.save(f'{model_loc}{iEpoch}')
+        lstm_model.save(filepath=f'{model_loc}{iEpoch}',
+                        overwrite=True, include_optimizer=True,
+                        save_format='h5', signatures=None, options=None,
+                        save_traces=True
+                )
+        # lstm_model.save_weights(f'{model_loc}weights/{iEpoch}')
+        #prev_model.set_weights(lstm_model.get_weights())
+        prev_model = tf.keras.models.clone_model(lstm_model)
+
     if os.path.exists(f'{model_loc}{iEpoch-1}.ch'):
         os.remove(f'{model_loc}{iEpoch-1}.ch')
     os.mknod(f'{model_loc}{iEpoch}.ch')
@@ -317,7 +402,6 @@ while iEpoch < mEpoch:
         else:
             hist_df.to_csv(f, index=False, header=False)
     
-    skip=1
     TAIL=y_valid.shape[0]
     PRED = lstm_model.predict(x_valid,batch_size=1)
     RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
@@ -362,6 +446,10 @@ while iEpoch < mEpoch:
             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
     fig.savefig(f'{model_loc}{profile}val-{iEpoch}.svg')
+    
+    # Cleaning Memory from plots
+    fig.clf()
+    plt.close()
 # %%
 TAIL=y_test_one.shape[0]
 PRED = lstm_model.predict(x_test_one, batch_size=1)
@@ -412,6 +500,9 @@ ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
         verticalalignment='top',
         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 fig.savefig(f'{model_loc}{profile}-test_One-{iEpoch}.svg')
+# Cleaning Memory from plots
+fig.clf()
+plt.close()
 # %%
 TAIL=y_test_two.shape[0]
 PRED = lstm_model.predict(x_test_two, batch_size=1)
@@ -462,6 +553,9 @@ ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
         verticalalignment='top',
         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 fig.savefig(f'{model_loc}{profile}-test_Two-{iEpoch}.svg')
+# Cleaning Memory from plots
+fig.clf()
+plt.close()
 # %%
 # Convert the model to Tensorflow Lite and save.
 with open(f'{model_loc}{profile}.tflite', 'wb') as f:

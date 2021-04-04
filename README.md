@@ -66,3 +66,15 @@ PackageNotFoundError: Package not found: '' Packages missing in current linux-ar
 python -m pip install six==1.15.0 numpy==1.19.2 wheel==0.35 h5py==2.10.0 seaborn ipykernel pandas matplotlib scipy xlrd
 '''
 
+# Code utilises C libraries in the c_modules.
+Setup with following command inside directory. Not working yet. Something to do
+with strings in C and Python3. Utf8 and ASCI does not make easy comparison.
+Try encode, perhaps.
+```
+python setup.py build
+```
+# Code utilises Cython libraries in the cy_modules.
+Setup with following command inside directory.
+```
+python setup.py build_ext --inplace
+```

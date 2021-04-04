@@ -53,7 +53,7 @@ import tensorflow_addons as tfa
 
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
-from extractor.utils import str2bool
+from cy_modules.utils import str2bool
 # %%
 # Extract params
 try:
@@ -148,7 +148,8 @@ dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
 # %%
 window = WindowGenerator(Data=dataGenerator,
                         input_width=500, label_width=1, shift=0,
-                        input_columns=['Current(A)', 'Voltage(V)', 'Temperature (C)_1'],
+                        input_columns=['Current(A)', 'Voltage(V)',
+                                                'Temperature (C)_1'],
                         label_columns=['SoC(%)'], batch=1,
                         includeTarget=False, normaliseLabal=False,
                         shuffleTraining=False)
@@ -267,7 +268,7 @@ prev_model.compile(loss=custom_loss,
                 beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
         metrics=[tf.metrics.MeanAbsoluteError(),
                     tf.metrics.RootMeanSquaredError(),
-                    tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],            
+                    tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
     )
 # %%
 i_attempts : int = 0
@@ -398,6 +399,10 @@ while iEpoch < mEpoch:
             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
     fig.savefig(f'{model_loc}{profile}val-{iEpoch}.svg')
+    
+    # Cleaning Memory from plots
+    fig.clf()
+    plt.close()
 # %%
 TAIL=y_test_one.shape[0]
 PRED = lstm_model.predict(x_test_one, batch_size=1)
@@ -448,6 +453,9 @@ ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
         verticalalignment='top',
         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 fig.savefig(f'{model_loc}{profile}-test_One-{iEpoch}.svg')
+# Cleaning Memory from plots
+fig.clf()
+plt.close()
 # %%
 TAIL=y_test_two.shape[0]
 PRED = lstm_model.predict(x_test_two, batch_size=1)
@@ -498,7 +506,9 @@ ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
         verticalalignment='top',
         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 fig.savefig(f'{model_loc}{profile}-test_Two-{iEpoch}.svg')
-
+# Cleaning Memory from plots
+fig.clf()
+plt.close()
 # %%
 # Convert the model to Tensorflow Lite and save.
 with open(f'{model_loc}{profile}.tflite', 'wb') as f:
