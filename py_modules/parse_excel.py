@@ -11,6 +11,17 @@ from . utils import diffSoC
 def Read_Excel_File(path : str,
                     indexes : range, columns :list[str]
                     ) -> pd.DataFrame:
+  """ Reads Excel File with all parameters. Sheet Name universal, columns,
+    type taken from global variables initialization.
+
+  Args:
+      path (str): Path to files with os.walk
+      indexes (range): Step_Index to select from
+      columns (list[str]): List of columns in String format
+
+  Returns:
+      pd.DataFrame: Single file out
+  """
   df : pd.DataFrame = pd.read_excel(io=path,
                       sheet_name=1,
                       header=0, names=None, index_col=None,
@@ -36,6 +47,18 @@ def Read_Excel_File(path : str,
 def ParseExcelData(directory : str,
                     indexes : range, columns : list[str]
               ) -> tuple[list[pd.DataFrame], list[pd.DataFrame]]:
+  """ Parsing Excel data from Battery Testing Machine
+
+  Args:
+      directory (str): Dataset directory location. !! Make sure not other file
+  formats stored. No check has been added.
+      indexes (range): The data indexes to select regions
+      columns (list[str]): List of columns in String format.
+
+  Returns:
+      tuple[list[pd.DataFrame], list[pd.DataFrame]]: Data itself and SoC in the
+  list format to capture absolutely all samples.
+  """
   for _, _, files in os.walk(directory):
     files.sort(key=lambda f: int(f[-13:-5])) # Sort by last dates
     files = [directory + '/' + file for file in files]
@@ -58,8 +81,8 @@ def ParseExcelData(directory : str,
     # with concurrent.futures.ThreadPoolExecutor() as executor:
     #! Running multiprocesses (faster by 34 seconds) 8.61
     with concurrent.futures.ProcessPoolExecutor() as executor:
-      data_df = executor.map(Read_Excel_File, files,
-                    repeat(indexes), repeat(columns))
+      data_df = list(executor.map(Read_Excel_File, files,
+                    repeat(indexes), repeat(columns)))
       data_SoC = [
         pd.DataFrame(
             data={'SoC' : diffSoC(

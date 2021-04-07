@@ -3,14 +3,16 @@
 # Implementation of the data extraction based on 3 previos versions.
 # Combines Data generator in some implementations.
 # %%
-import os, time                   # Moving to folders in FS and timing
+import os, sys, time              # Moving to folders in FS and timing
 import pandas as pd               # Tabled data storage
-import tensorflow.experimental.numpy as tnp
+import numpy as np
 
 from dataclasses import dataclass # Used for making annotations
 from itertools import chain       # Make Chain ranges
 from sklearn.preprocessing import MinMaxScaler
-from extractor.soc_calc import diffSoC
+
+sys.path.append(os.getcwd() + '/..')
+from py_modules.parse_excel import ParseExcelData
 
 c_DST   : range = range(4 ,6 )    # ONLY Charge Cycle
 d_DST   : range = range(6 ,12)    # ONLY Desciarge Cycle
@@ -41,28 +43,28 @@ class DataGenerator():
   float_dtype   : type          # Float variable Type
   int_dtype     : type          # Int variable Type
 
-  train_df : tnp.ndarray       # Training Dataset   80~85%
+  train_df : np.ndarray       # Training Dataset   80~85%
   train_t  : float
-  train_SoC: tnp.ndarray
+  train_SoC: np.ndarray
   tr_ls_df : list[pd.DataFrame] # List of Training Dataset
   tr_ls_SoC: list[pd.DataFrame]
   train_s  : int
   
-  valid_df : tnp.ndarray       # Validating Dataset 15~20%
+  valid_df : np.ndarray       # Validating Dataset 15~20%
   valid_t  : float
-  valid_SoC: tnp.ndarray
+  valid_SoC: np.ndarray
   vl_ls_df : list[pd.DataFrame] # List of Validating Dataset
   vl_ls_SoC: list[pd.DataFrame]
   valid_s  : int
   
-  gener_t  : float             # Time it took to create TNP
+  gener_t  : float             # Time it took to create np
   #testi_df : pd.DataFrame      # Testing Dataset Any Size%
   
   def __init__(self, train_dir : str, valid_dir : str, test_dir : str,
                columns : list[str],
                PROFILE_range : str,
-               float_dtype : type = tnp.float32,
-               int_dtype : type = tnp.int16) -> None:
+               float_dtype : type = np.float32,
+               int_dtype : type = np.int16) -> None:
     """ Data Constructor used to extract Excel files by profiles
 
     Args:
@@ -71,8 +73,8 @@ class DataGenerator():
         test_dir (str): [description]
         columns (list[str]): [description]
         PROFILE_range (str): [description]
-        float_dtype (type, optional): [description]. Defaults to tnp.float32.
-        int_dtype (type, optional): [description]. Defaults to tnp.int16.
+        float_dtype (type, optional): [description]. Defaults to np.float32.
+        int_dtype (type, optional): [description]. Defaults to np.int16.
     """
     # Store the raw data information
     self.train_dir = train_dir
@@ -110,13 +112,15 @@ class DataGenerator():
 
     # Extracting data
     tic : float = time.perf_counter()
-    self.tr_ls_df, self.tr_ls_SoC = self.ParseExcelData(self.train_dir,
-                                                        self.r_profile)
+    self.tr_ls_df, self.tr_ls_SoC = ParseExcelData(self.train_dir,
+                                                        self.r_profile,
+                                                        self.columns)
     self.train_t = time.perf_counter() - tic
     
     tic : float = time.perf_counter()
-    self.vl_ls_df, self.vl_ls_SoC = self.ParseExcelData(self.valid_dir,
-                                                        self.v_profile)
+    self.vl_ls_df, self.vl_ls_SoC = ParseExcelData(self.valid_dir,
+                                                        self.v_profile,
+                                                        self.columns)
     self.valid_t = time.perf_counter() - tic
     
     # Get number of samples
@@ -127,47 +131,47 @@ class DataGenerator():
     for i in range(0, len(self.vl_ls_df)):
       self.valid_s += self.vl_ls_df[i].shape[0]
     
-    # Creating TensorNumpy arrays for all dataset
+    # Creating Numpy arrays for all dataset
     scaller : MinMaxScaler = MinMaxScaler(feature_range=(0,1))
     tic : float = time.perf_counter()
-    self.train_df = tnp.array(val=self.tr_ls_df[0],
+    self.train_df = np.array(object=self.tr_ls_df[0],
                               dtype=self.float_dtype, copy=True)
-    self.train_SoC = tnp.array(val=scaller.fit_transform(self.tr_ls_SoC[0]),
+    self.train_SoC = np.array(object=scaller.fit_transform(self.tr_ls_SoC[0]),
                               dtype=self.float_dtype, copy=True)
-    self.valid_df = tnp.array(val=self.vl_ls_df[0],
+    self.valid_df = np.array(object=self.vl_ls_df[0],
                               dtype=self.float_dtype, copy=True)
-    self.valid_SoC = tnp.array(val=scaller.fit_transform(self.vl_ls_SoC[0]),
+    self.valid_SoC = np.array(object=scaller.fit_transform(self.vl_ls_SoC[0]),
                               dtype=self.float_dtype, copy=True)
     for i in range(1, len(self.tr_ls_df)):
-      self.train_df = tnp.append(
+      self.train_df = np.append(
                               arr=self.train_df,
-                              values=tnp.array(
-                                    val=self.tr_ls_df[i],
+                              values=np.array(
+                                    object=self.tr_ls_df[i],
                                     dtype=self.float_dtype, copy=True
                                   ),
                               axis=0
                             )
-      self.train_SoC = tnp.append(
+      self.train_SoC = np.append(
                               arr=self.train_SoC,
-                              values=tnp.array(
-                                  val=scaller.fit_transform(self.tr_ls_SoC[i]),
+                              values=np.array(
+                                  object=scaller.fit_transform(self.tr_ls_SoC[i]),
                                   dtype=self.float_dtype, copy=True
                                 ),
                               axis=0
                             )
     for i in range(1, len(self.vl_ls_df)):
-      self.valid_df = tnp.append(
+      self.valid_df = np.append(
                               arr=self.valid_df,
-                              values=tnp.array(
-                                    val=self.vl_ls_df[i],
+                              values=np.array(
+                                    object=self.vl_ls_df[i],
                                     dtype=self.float_dtype, copy=True
                                   ),
                               axis=0
                             )
-      self.valid_SoC = tnp.append(
+      self.valid_SoC = np.append(
                               arr=self.valid_SoC,
-                              values=tnp.array(
-                                  val=scaller.fit_transform(self.vl_ls_SoC[i]),
+                              values=np.array(
+                                  object=scaller.fit_transform(self.vl_ls_SoC[i]),
                                   dtype=self.float_dtype, copy=True
                                 ),
                               axis=0
@@ -190,112 +194,17 @@ class DataGenerator():
       f'№ Validation Samples  PD, NP: {self.valid_s}, {self.valid_df.shape[0]}',
       f'Time took to extract Vl: {self.valid_t}',
       f'Data Vl/Tr: {valid_proportion:.2f}% to {train_proportion:.2f}%',
-      f'Time for TNP generator: {self.gener_t}',
-      f'Data Mean: {tnp.mean(self.train_df)}',
-      f'Data STD: {tnp.std(self.train_df)}',
+      f'Time for np generator: {self.gener_t}',
+      f'Data Mean: {np.mean(self.train_df)}',
+      f'Data STD: {np.std(self.train_df)}',
       '\n\n'])
 
-  def ParseExcelData(self, directory : str,
-                    indexes : range,
-              ) -> tuple[list[pd.DataFrame], list[pd.DataFrame]]:
-    """ Parsing Excel data from Battery Testing Machine
-
-    Args:
-        directory (str): Dataset directory location. !! Make sure not other file
-    formats stored. No check has been added.
-        indexes (range): The data indexes to select regions
-
-    Returns:
-        tuple[list[pd.DataFrame], list[pd.DataFrame]]: Returning data itself 
-    and SoC in the list format to capture absolutely all samples.
-    """
-    for _, _, files in os.walk(directory):
-      files.sort(key=lambda f: int(f[-13:-5])) # Sort by last dates
-      # Initialize empty structures
-      data_df : list[pd.DataFrame] = []
-      data_SoC : list[pd.DataFrame] = []
-      # data_df : pd.DataFrame = self.Read_Excel_File(directory + '/' + files[0],
-      #                                               indexes)
-      # data_SoC: pd.DataFrame = pd.DataFrame(
-      #          data={'SoC' : diffSoC(
-      #                     chargeData=(data_df.loc[:,'Charge_Capacity(Ah)']),
-      #                     discargeData=(data_df.loc[:,'Discharge_Capacity(Ah)'])
-      #                     )},
-      #          dtype=self.float_dtype
-      #       )
-      # data_SoC['SoC(%)'] = MinMaxScaler(data_SoC['SoC'])
-
-      for file in files[:]:
-        df : pd.DataFrame = self.Read_Excel_File(directory + '/' + file,
-                                                    indexes)
-        SoC: pd.DataFrame = pd.DataFrame(
-               data={'SoC' : diffSoC(
-                            chargeData=df.loc[:,'Charge_Capacity(Ah)'],
-                            discargeData=df.loc[:,'Discharge_Capacity(Ah)']
-                            )},
-               dtype=self.float_dtype
-            )
-        #SoC['SoC(%)'] = MinMaxScaler(SoC['SoC'])
-
-        #data_df = data_df.append(df.copy(deep=True), ignore_index=True)
-        #data_SoC = data_SoC.append(SoC.copy(deep=True), ignore_index=True)
-        data_df.append(df)
-        data_SoC.append(SoC)
-      return data_df, data_SoC
-
-  def Read_Excel_File(self, path : str, indexes : range) -> pd.DataFrame:
-    """ Reads Excel File with all parameters. Sheet Name universal, columns,
-    type taken from global variables initialization.
-
-    Args:
-        path (str): Path to files with os.walk
-        indexes (range): Step_Index to select from
-
-    Returns:
-        pd.DataFrame: Single File frame.
-    """
-    if(indexes == None):       #!r_DST_FUDS Nasty fix
-      indexes = chain(range(4 , 12), range(18, 25))
-    try:
-      df : pd.DataFrame = pd.read_excel(io=path,
-                        sheet_name='Channel_1-006',
-                        header=0, names=None, index_col=None,
-                        usecols=['Step_Index'] + self.columns,
-                        squeeze=False,
-                        dtype=self.float_dtype,
-                        engine='openpyxl', converters=None, true_values=None,
-                        false_values=None, skiprows=None, nrows=None,
-                        na_values=None, keep_default_na=True, na_filter=True,
-                        verbose=False, parse_dates=False, date_parser=None,
-                        thousands=None, comment=None, skipfooter=0,
-                        convert_float=True, mangle_dupe_cols=True
-                      )
-    except:
-      df : pd.DataFrame = pd.read_excel(io=path,
-                        sheet_name='Channel_1-005',
-                        header=0, names=None, index_col=None,
-                        usecols=['Step_Index'] + self.columns,
-                        squeeze=False,
-                        dtype=self.float_dtype,
-                        engine='openpyxl', converters=None, true_values=None,
-                        false_values=None, skiprows=None, nrows=None,
-                        na_values=None, keep_default_na=True, na_filter=True,
-                        verbose=False, parse_dates=False, date_parser=None,
-                        thousands=None, comment=None, skipfooter=0,
-                        convert_float=True, mangle_dupe_cols=True
-                      )
-    df = df[df['Step_Index'].isin(indexes)]
-    df = df.reset_index(drop=True)
-    df = df.drop(columns=['Step_Index'])
-    df = df[self.columns]   # Order columns in the proper sequence
-    return df
-
   @property
-  def train_list(self) -> tnp.ndarray:
+  def train_list(self) -> np.ndarray:
     return self.tr_ls_df
 
   @property
-  def train(self) -> tnp.ndarray:
+  def train(self) -> np.ndarray:
     """ Training Dataset
 
     Returns:
@@ -304,7 +213,7 @@ class DataGenerator():
     return self.train_df
 
   @property
-  def train_label(self) -> tnp.ndarray:
+  def train_label(self) -> np.ndarray:
     """ Training Dataset
 
     Returns:
@@ -313,11 +222,11 @@ class DataGenerator():
     return self.train_SoC
 
   @property
-  def train_list_label(self) -> tnp.ndarray:
+  def train_list_label(self) -> np.ndarray:
     return self.tr_ls_SoC
 
   @property
-  def valid(self) -> tnp.ndarray:
+  def valid(self) -> np.ndarray:
     """ Validation Dataset
 
     Returns:
@@ -326,11 +235,11 @@ class DataGenerator():
     return self.valid_df
 
   @property
-  def valid_list(self) -> tnp.ndarray:
+  def valid_list(self) -> np.ndarray:
     return self.vl_ls_df
 
   @property
-  def valid_label(self) -> tnp.ndarray:
+  def valid_label(self) -> np.ndarray:
     """ Validation Dataset
 
     Returns:
@@ -339,7 +248,7 @@ class DataGenerator():
     return self.valid_SoC
   
   @property
-  def valid_list_label(self) -> tnp.ndarray:
+  def valid_list_label(self) -> np.ndarray:
     """ Validation Dataset
 
     Returns:
