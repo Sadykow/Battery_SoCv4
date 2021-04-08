@@ -36,7 +36,7 @@ except getopt.error as err:
     print ('EXEPTION: Arguments requied!')
     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '50'), ('-g', '0'), ('-p', 'DST')]
+# opts = [('-d', 'False'), ('-e', '1'), ('-g', '0'), ('-p', 'DST')]
 mEpoch  : int = 10
 GPU     : int = 0
 profile : str = 'DST'
@@ -169,7 +169,7 @@ except OSError as identifier:
         # Shape [batch, time, features] => [batch, time, lstm_units]
         tf.keras.layers.InputLayer(input_shape=x_train.shape[-2:]),
         tf.keras.layers.LSTM(
-            units=500, activation='tanh', recurrent_activation='sigmoid',
+            units=520, activation='tanh', recurrent_activation='sigmoid',
             use_bias=True, kernel_initializer='glorot_uniform',
             recurrent_initializer='orthogonal', bias_initializer='zeros',
             unit_forget_bias=True, kernel_regularizer=None,

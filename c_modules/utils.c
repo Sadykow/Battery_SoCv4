@@ -16,9 +16,6 @@ bool arr_comp(int8_t i, int8_t lowers[], int8_t size) {
     return true;
 }
 
-/**
- * Use chars converted to an integer to compare with expected trues.
-*/
 bool str2bool(int8_t v[], int8_t size) {
     int8_t lowers[size];
 
@@ -35,3 +32,11 @@ bool str2bool(int8_t v[], int8_t size) {
     return false;
 }
 
+// float *diffSoC(float *chargeData, float *discargeData){
+//     int i;
+//     size_t n = sizeof(chargeData) / sizeof(float);
+//     float *res = (float *) malloc(sizeof(float) * n);
+//     for(i = 0; i<n;i++)
+//         res[i] = round((chargeData[i] - discargeData[i])*100)/100;
+//     return res;
+// }

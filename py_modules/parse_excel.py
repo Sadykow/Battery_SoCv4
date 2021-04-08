@@ -85,10 +85,10 @@ def ParseExcelData(directory : str,
                     repeat(indexes), repeat(columns)))
       data_SoC = [
         pd.DataFrame(
-            data={'SoC' : diffSoC(
-                chargeData=df.loc[:,'Charge_Capacity(Ah)'],
-                discargeData=df.loc[:,'Discharge_Capacity(Ah)']
-                )},
-            dtype=float32)
+          data={'SoC' : diffSoC(
+              chargeData=df.loc[:,'Charge_Capacity(Ah)'].to_numpy(dtype=float32),
+              discargeData=df.loc[:,'Discharge_Capacity(Ah)'].to_numpy(dtype=float32)
+              )},
+          dtype=float32)
                 for df in data_df]
       return data_df, data_SoC

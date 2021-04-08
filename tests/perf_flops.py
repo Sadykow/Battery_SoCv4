@@ -1,7 +1,3 @@
-#!/usr/bin/python
-# %% [markdown]
-# TFLite converter and performance measurer
-# 
 # %%
 import os                       # OS, SYS, argc functions
 import pandas as pd             # File read
@@ -9,26 +5,20 @@ import matplotlib as mpl        # Plot functionality
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
-import tflite_runtime.interpreter as tflite
+import tensorflow as tf
+import tensorflow_addons as tfa
 
 import platform        # System for deligates, not the platform string
 import time
 
-# Flops counter
-from pypapi import events, papi_high as high
-# %%
+from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2_as_graph
+
+
 # Define plot sizes
 mpl.rcParams['figure.figsize'] = (8, 6)
 mpl.rcParams['axes.grid'] = False
 
-# Set Delegates
-EDGETPU_SHARED_LIB = {
-  'Linux': 'libedgetpu.so.1',
-  'Darwin': 'libedgetpu.1.dylib',
-  'Windows': 'edgetpu.dll'
-}[platform.system()]
 
-# %%
 profile : str = 'DST'
 # Getting Data from excel files.
 float_dtype : type = np.float32
@@ -109,37 +99,6 @@ def Read_Excel_File(path : str, profile : range,
     df = df[columns]   # Order columns in the proper sequence
     return df
 
-#? Getting Validation/Testing data in one column
-# for _, _, files in os.walk(valid_dir):
-#     files.sort(key=lambda f: int(f[-13:-5])) # Sort by last dates
-#     # Initialize empty structures
-#     valid_df : pd.DataFrame = Read_Excel_File(valid_dir + '/' + files[0],
-#                                 range(5,19), columns)
-#     valid_df : pd.DataFrame = pd.DataFrame(
-#             data={'SoC' : diffSoC(
-#                         chargeData=(valid_df.loc[:,'Charge_Capacity(Ah)']),
-#                         discargeData=(valid_df.loc[:,'Discharge_Capacity(Ah)'])
-#                         )},
-#             dtype=float_dtype
-#         )
-#     #data_SoC['SoC(%)'] = applyMinMax(data_SoC['SoC'])
-#     #i : int = 1
-#     for file in files[1:]:
-#         df : pd.DataFrame = Read_Excel_File(valid_dir + '/' + file,
-#                                     range(5,19), columns)
-#         df: pd.DataFrame = pd.DataFrame(
-#                 data={'SoC' : diffSoC(
-#                             chargeData=df.loc[:,'Charge_Capacity(Ah)'],
-#                             discargeData=df.loc[:,'Discharge_Capacity(Ah)']
-#                             )},
-#                 dtype=float_dtype
-#             )
-#         #SoC['SoC(%)'] = applyMinMax(SoC['SoC'])
-
-#         # train_df[f'batch_{i}'] = df.copy(deep=True)
-#         # i += 1
-#         valid_df = valid_df.append(df.copy(deep=True), ignore_index=True)
-#? Getting training data and separated file by batch
 for _, _, files in os.walk(valid_dir):
     files.sort(key=lambda f: int(f[-13:-5])) # Sort by last dates
     # Initialize empty structures
@@ -158,7 +117,8 @@ for _, _, files in os.walk(valid_dir):
         X = X[['Current(A)', 'Voltage(V)', 'Temperature (C)_1']]
         train_X.append(X)
         train_Y.append(Y)
-# %%
+
+
 look_back : int = 32
 scaler_MM : MinMaxScaler = MinMaxScaler(feature_range=(0, 1))
 scaler_SS : StandardScaler = StandardScaler()
@@ -213,61 +173,50 @@ for i in range(0, len(train_X)):
     sample_size += train_X[i].shape[0]
 
 trX, trY = create_Batch_dataset(train_X, train_Y, look_back)
-
 # %%
-author : str = 'WeiZhang2020'#'BinXiao2020' 'TadeleMamo2020' 'Chemali2017'
+author : str = 'BinXiao2020'#'WeiZhang2020' 'TadeleMamo2020' 'Chemali2017'
 profile: str = 'DST'#'d_DST' 'US06' 'FUDS'
+version: str = '50'
+model_h5_file : str = f'../Models/{author}/{profile}-models/{version}'
 
-model_file : str = f'Models/{author}/{profile}-models/{profile}.tflite'
-model_file, *device = model_file.split('@')
-interpreter = tflite.Interpreter(
-      model_path=model_file,
-      experimental_delegates=[
-          tflite.load_delegate(EDGETPU_SHARED_LIB,
-                               {'device': device[0]} if device else {})
-      ])
-interpreter.allocate_tensors()
+# session  = tf.compat.v1.Session()
+# graph = tf.compat.v1.get_default_graph()
 
-# Get input and output tensors.
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
+# with graph.as_default():
+#     with session.as_default():
+#         model = tf.keras.models.load_model(model_h5_file, compile=False)
+#         model.summary()
+#         model.compile(loss=tf.keras.losses.MeanAbsoluteError(),
+#             optimizer=tf.optimizers.Adam(learning_rate=0.001,
+#                     beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
+#             metrics=[tf.metrics.MeanAbsoluteError(),
+#                      tf.metrics.RootMeanSquaredError(),
+#                      tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
+#             )
+#         run_meta = tf.compat.v1.RunMetadata()
+#         opts = tf.compat.v1.profiler.ProfileOptionBuilder.float_operation()
 
+#         flops = tf.compat.v1.profiler.profile(graph=graph,
+#                             run_meta=run_meta, cmd='op', options=opts
+#                             )
+#         print('The v1FLOPs is: {}'.format(flops.total_float_ops), flush=True)
 # %%
-print('----INFERENCE TIME----')
-print('Note: The first inference on Edge TPU is slow because it includes',
-    'loading the model into Edge TPU memory.')
-for _ in range(5):
-    # Test the mode
-    input_shape = input_details[0]['shape']
-    output_data : np.ndarray = np.zeros(shape=(trX[0].shape[0],))
-    start = time.perf_counter()
-    for i in range(0, 1):
-        interpreter.set_tensor(input_details[0]['index'], trX[0][i:i+1,:,:])   
-        interpreter.invoke()
-        #output_data[i] = interpreter.get_tensor(output_details[0]['index'])
-        interpreter.get_tensor(output_details[0]['index'])
-    print('%.1fms' % ((time.perf_counter() - start) * 1000))
-    #print('Time took: {}'.format(time.perf_counter() - start))
-    
-    # The function `get_tensor()` returns a copy of the tensor data.
-    # Use `tensor()` in order to get a pointer to the tensor.    
-    print(output_data[i:i+1])
+def get_flops(model):
+    concrete = tf.function(lambda inputs: model(inputs))
+    concrete_func = concrete.get_concrete_function(
+            [tf.TensorSpec([1, *inputs.shape[1:]]) for inputs in model.inputs]    
+        )
+    _, graph_def = convert_variables_to_constants_v2_as_graph(concrete_func)
+    with tf.Graph().as_default() as graph:
+        tf.graph_util.import_graph_def(graph_def, name='')
+        run_meta = tf.compat.v1.RunMetadata()
+        opts = tf.compat.v1.profiler.ProfileOptionBuilder.float_operation()
+        flops = tf.compat.v1.profiler.profile(graph=graph, run_meta=run_meta,
+                cmd='op', options=opts
+            )
+        return flops.total_float_ops
+
+lstm_model = tf.keras.models.load_model(model_h5_file, compile=False)
+lstm_model.summary()
+print('The FLOPs is: {}'.format(get_flops(lstm_model)), flush=True)
 # %%
-# #! Swithicg a proper kernel even paranoid
-# #? sudo sh -c 'echo 1 >/proc/sys/kernel/perf_event_paranoid'
-# #! The previos value was 4.
-# print('----INFERENCE Flops----')
-# print('Note: Never done it before.')
-
-
-# input_shape = input_details[0]['shape']
-# output_data : np.ndarray = np.zeros(shape=(trX[0].shape[0],))
-# high.start_counters([events.PAPI_FP_OPS,])
-# for i in range(0, 1):
-#     interpreter.set_tensor(input_details[0]['index'], trX[0][i:i+1,:,:])   
-#     interpreter.invoke()
-#     #output_data[i] = interpreter.get_tensor(output_details[0]['index'])
-#     interpreter.get_tensor(output_details[0]['index'])
-# #print('%.1fms' % ((time.perf_counter() - start) * 1000))
-# flops = high.stop_counters()
-# print(f'{flops} flops')

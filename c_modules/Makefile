@@ -4,7 +4,7 @@ all: $(TARGETS)
 
 LIBS=../c_modules/utils.c
 DIRS=-I../c_modules -L../c_modules
-FLAGS=-std=gnu99 -Wall -Werror -g
+FLAGS=-std=gnu99 -Wall -g #-Werror
 
 clean:
 	for f in $(TARGETS); do \
@@ -15,4 +15,4 @@ clean:
 rebuild: clean all
 
 test: test.c
-	gcc $(FLAGS) $@.c -o $@ $(DIRS) $(LIBS)
+	gcc $(FLAGS) $@.c -o $@ $(DIRS) $(LIBS) -lm
