@@ -54,6 +54,7 @@ import tensorflow_addons as tfa
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
 from cy_modules.utils import str2bool
+from py_modules.plotting import predicting_plot
 # %%
 # Extract params
 try:
@@ -201,6 +202,7 @@ def custom_loss(y_true, y_pred):
 file_name : str = os.path.basename(__file__)[:-3]
 model_loc : str = f'Models/{file_name}/{profile}-models/'
 iEpoch = 0
+firstLog : bool = True
 try:
     for _, _, files in os.walk(model_loc):
         for file in files:
@@ -210,6 +212,7 @@ try:
     lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
             f'{model_loc}{iEpoch}',
             compile=False)
+    firstLog = False
     print("Model Identefied. Continue training.")
 except OSError as identifier:
     print("Model Not Found, creating new. {} \n".format(identifier))
@@ -234,6 +237,7 @@ except OSError as identifier:
         tf.keras.layers.Dense(units=1,
                               activation='sigmoid')
     ])
+    firstLog = True
 prev_model = tf.keras.models.clone_model(lstm_model,
                                     input_tensors=None, clone_function=None)
 
@@ -273,8 +277,6 @@ prev_model.compile(loss=custom_loss,
 # %%
 i_attempts : int = 0
 n_attempts : int = 3
-skip       : int = 1
-firtstEpoch : bool = True
 while iEpoch < mEpoch:
     iEpoch+=1
     print(f"Epoch {iEpoch}/{mEpoch}")
@@ -347,171 +349,204 @@ while iEpoch < mEpoch:
     hist_df = pd.DataFrame(history.history)
     # or save to csv:
     with open(f'{model_loc}history-{profile}.csv', mode='a') as f:
-        if(firtstEpoch):
+        if(firstLog):
             hist_df.to_csv(f, index=False)
-            firtstEpoch = False
+            firstLog = False
         else:
             hist_df.to_csv(f, index=False, header=False)
     
     #! Run the Evaluate function
-    TAIL=y_valid.shape[0]
-    PRED = lstm_model.predict(x_valid,batch_size=1)
+    #! Replace with tf.metric function.
+    PRED = lstm_model.predict(x_valid, batch_size=1)
     RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-                y_valid[::skip,]-PRED)))
-    vl_test_time = range(0,PRED.shape[0])
-    fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
-    ax1.plot(vl_test_time[:TAIL:skip], y_valid[::skip,],
-            label="True", color='#0000ff')
-    ax1.plot(vl_test_time[:TAIL:skip],
-            PRED,
-            label="Recursive prediction", color='#ff0000')
-
-    ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
-    ax1.set_xlabel("Time Slice (s)", fontsize=16)
-    ax1.set_ylabel("SoC (%)", fontsize=16)
-
-    ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-    ax2.plot(vl_test_time[:TAIL:skip],
-            RMS,
-            label="RMS error", color='#698856')
-    ax2.fill_between(vl_test_time[:TAIL:skip],
-            RMS[:,0],
-                color='#698856')
-    ax2.set_ylabel('Error', fontsize=16, color='#698856')
-    ax2.tick_params(axis='y', labelcolor='#698856')
-    ax1.set_title(f"{file_name} LSTM Test - Train dataset. {profile}-{iEpoch}",
-                fontsize=18)
-    ax1.legend(prop={'size': 16})
-    ax1.set_ylim([-0.1,1.2])
-    ax2.set_ylim([-0.1,1.6])
-    fig.tight_layout()  # otherwise the right y-label is slightly clipped
-
-    val_perf = lstm_model.evaluate(x=x_valid,
-                                y=y_valid,
-                                batch_size=1,
-                                verbose=0)
-    textstr = '\n'.join((
-        r'$Loss =%.2f$' % (val_perf[0], ),
-        r'$MAE =%.2f$' % (val_perf[1], ),
-        r'$RMSE=%.2f$' % (val_perf[2], )))
-    ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
-            verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-
-    fig.savefig(f'{model_loc}{profile}val-{iEpoch}.svg')
-    
-    # Cleaning Memory from plots
-    fig.clf()
-    plt.close()
+                y_valid[::,]-PRED)))
+    PERF = lstm_model.evaluate(x=x_valid,
+                               y=y_valid,
+                               batch_size=1,
+                               verbose=0)
+    # otherwise the right y-label is slightly clipped
+    predicting_plot(profile=profile, file_name='Model №1',
+                    model_loc=model_loc,
+                    model_type='LSTM Test - Train dataset',
+                    iEpoch=f'val-{iEpoch}',
+                    Y=y_valid,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=PERF,
+                    TAIL=y_valid.shape[0],
+                    save_plot=True)
+    if(PERF[-2] <=0.024): # Check thr RMSE
+        print("RMS droped around 2.4%. Breaking the training")
+        break
 # %%
-TAIL=y_test_one.shape[0]
-PRED = lstm_model.predict(x_test_one, batch_size=1)
-RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-            y_test_one[::skip,]-PRED)))
-vl_test_time = range(0,PRED.shape[0])
-fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
-ax1.plot(vl_test_time[:TAIL:skip], y_test_one[::skip,-1],
-        label="True", color='#0000ff')
-ax1.plot(vl_test_time[:TAIL:skip],
-        PRED,
-        label="Recursive prediction", color='#ff0000')
+# TAIL=y_test_one.shape[0]
+# PRED = lstm_model.predict(x_test_one, batch_size=1)
+# RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+#             y_test_one[::skip,]-PRED)))
+# vl_test_time = range(0,PRED.shape[0])
+# fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
+# ax1.plot(vl_test_time[:TAIL:skip], y_test_one[::skip,-1],
+#         label="True", color='#0000ff')
+# ax1.plot(vl_test_time[:TAIL:skip],
+#         PRED,
+#         label="Recursive prediction", color='#ff0000')
 
-ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
-ax1.set_xlabel("Time Slice (s)", fontsize=16)
-ax1.set_ylabel("SoC (%)", fontsize=16)
+# ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
+# ax1.set_xlabel("Time Slice (s)", fontsize=16)
+# ax1.set_ylabel("SoC (%)", fontsize=16)
 
-ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-ax2.plot(vl_test_time[:TAIL:skip],
-        RMS,
-        label="RMS error", color='#698856')
-ax2.fill_between(vl_test_time[:TAIL:skip],
-        RMS[:,0],
-            color='#698856')
-ax2.set_ylabel('Error', fontsize=16, color='#698856')
-ax2.tick_params(axis='y', labelcolor='#698856')
-if profile == 'DST':
-    ax1.set_title(f"{file_name} LSTM Test on US06 - {profile}-trained",
-                fontsize=18)
-else:
-    ax1.set_title(f"{file_name} LSTM Test on DST - {profile}-trained",
-                fontsize=18)
+# ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+# ax2.plot(vl_test_time[:TAIL:skip],
+#         RMS,
+#         label="RMS error", color='#698856')
+# ax2.fill_between(vl_test_time[:TAIL:skip],
+#         RMS[:,0],
+#             color='#698856')
+# ax2.set_ylabel('Error', fontsize=16, color='#698856')
+# ax2.tick_params(axis='y', labelcolor='#698856')
+# if profile == 'DST':
+#     ax1.set_title(f"{file_name} LSTM Test on US06 - {profile}-trained",
+#                 fontsize=18)
+# else:
+#     ax1.set_title(f"{file_name} LSTM Test on DST - {profile}-trained",
+#                 fontsize=18)
                 
-ax1.legend(prop={'size': 16})
-ax1.set_ylim([-0.1,1.2])
-ax2.set_ylim([-0.1,1.6])
-fig.tight_layout()  # otherwise the right y-label is slightly clipped
+# ax1.legend(prop={'size': 16})
+# ax1.set_ylim([-0.1,1.2])
+# ax2.set_ylim([-0.1,1.6])
+# fig.tight_layout()  # otherwise the right y-label is slightly clipped
 
-val_perf = lstm_model.evaluate(x=x_test_one,
-                                y=y_test_one,
-                                batch_size=1,
-                                verbose=0)
-textstr = '\n'.join((
-    r'$Loss =%.2f$' % (val_perf[0], ),
-    r'$MAE =%.2f$' % (val_perf[1], ),
-    r'$RMSE=%.2f$' % (val_perf[2], )))
-ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
-        verticalalignment='top',
-        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-fig.savefig(f'{model_loc}{profile}-test_One-{iEpoch}.svg')
+# val_perf = lstm_model.evaluate(x=x_test_one,
+#                                 y=y_test_one,
+#                                 batch_size=1,
+#                                 verbose=0)
+# textstr = '\n'.join((
+#     r'$Loss =%.2f$' % (val_perf[0], ),
+#     r'$MAE =%.2f$' % (val_perf[1], ),
+#     r'$RMSE=%.2f$' % (val_perf[2], )))
+# ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
+#         verticalalignment='top',
+#         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+# fig.savefig(f'{model_loc}{profile}-test_One-{iEpoch}.svg')
 # Cleaning Memory from plots
-fig.clf()
-plt.close()
-# %%
-TAIL=y_test_two.shape[0]
-PRED = lstm_model.predict(x_test_two, batch_size=1)
-RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-            y_test_two[::skip,]-PRED)))
-vl_test_time = range(0,PRED.shape[0])
-fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
-ax1.plot(vl_test_time[:TAIL:skip], y_test_two[::skip,-1],
-        label="True", color='#0000ff')
-ax1.plot(vl_test_time[:TAIL:skip],
-        PRED,
-        label="Recursive prediction", color='#ff0000')
-
-ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
-ax1.set_xlabel("Time Slice (s)", fontsize=16)
-ax1.set_ylabel("SoC (%)", fontsize=16)
-
-ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-ax2.plot(vl_test_time[:TAIL:skip],
-        RMS,
-        label="RMS error", color='#698856')
-ax2.fill_between(vl_test_time[:TAIL:skip],
-        RMS[:,0],
-            color='#698856')
-ax2.set_ylabel('Error', fontsize=16, color='#698856')
-ax2.tick_params(axis='y', labelcolor='#698856')
-if profile == 'FUDS':
-    ax1.set_title(f"{file_name} LSTM Test on US06 - {profile}-trained",
-                fontsize=18)
+# fig.clf()
+# plt.close()
+PRED = lstm_model.predict(x_test_one, batch_size=1)
+RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_one[::,]-PRED)))
+if profile == 'DST':
+    predicting_plot(profile=profile, file_name='Model №1',
+                    model_loc=model_loc,
+                    model_type='LSTM Test on US06', iEpoch=f'Test One-{iEpoch}',
+                    Y=y_test_one,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=lstm_model.evaluate(
+                                    x=x_test_one,
+                                    y=y_test_one,
+                                    batch_size=1,
+                                    verbose=0),
+                    TAIL=y_test_one.shape[0],
+                    save_plot=True)
 else:
-    ax1.set_title(f"{file_name} LSTM Test on FUDS - {profile}-trained",
-                fontsize=18)
+    predicting_plot(profile=profile, file_name='Model №1',
+                    model_loc=model_loc,
+                    model_type='LSTM Test on DST', iEpoch=f'Test One-{iEpoch}',
+                    Y=y_test_one,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=lstm_model.evaluate(
+                                    x=x_test_one,
+                                    y=y_test_one,
+                                    batch_size=1,
+                                    verbose=0),
+                    TAIL=y_test_one.shape[0],
+                    save_plot=True)
+# %%
+# TAIL=y_test_two.shape[0]
+# PRED = lstm_model.predict(x_test_two, batch_size=1)
+# RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+#             y_test_two[::skip,]-PRED)))
+# vl_test_time = range(0,PRED.shape[0])
+# fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
+# ax1.plot(vl_test_time[:TAIL:skip], y_test_two[::skip,-1],
+#         label="True", color='#0000ff')
+# ax1.plot(vl_test_time[:TAIL:skip],
+#         PRED,
+#         label="Recursive prediction", color='#ff0000')
 
-ax1.legend(prop={'size': 16})
-ax1.set_ylim([-0.1,1.2])
-ax2.set_ylim([-0.1,1.6])
-fig.tight_layout()  # otherwise the right y-label is slightly clipped
+# ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
+# ax1.set_xlabel("Time Slice (s)", fontsize=16)
+# ax1.set_ylabel("SoC (%)", fontsize=16)
 
-val_perf = lstm_model.evaluate(x=x_test_two,
-                                y=y_test_two,
-                                batch_size=1,
-                                verbose=0)
-textstr = '\n'.join((
-    r'$Loss =%.2f$' % (val_perf[0], ),
-    r'$MAE =%.2f$' % (val_perf[1], ),
-    r'$RMSE=%.2f$' % (val_perf[2], )))
-ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
-        verticalalignment='top',
-        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-fig.savefig(f'{model_loc}{profile}-test_Two-{iEpoch}.svg')
-# Cleaning Memory from plots
-fig.clf()
-plt.close()
+# ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+# ax2.plot(vl_test_time[:TAIL:skip],
+#         RMS,
+#         label="RMS error", color='#698856')
+# ax2.fill_between(vl_test_time[:TAIL:skip],
+#         RMS[:,0],
+#             color='#698856')
+# ax2.set_ylabel('Error', fontsize=16, color='#698856')
+# ax2.tick_params(axis='y', labelcolor='#698856')
+# if profile == 'FUDS':
+#     ax1.set_title(f"{file_name} LSTM Test on US06 - {profile}-trained",
+#                 fontsize=18)
+# else:
+#     ax1.set_title(f"{file_name} LSTM Test on FUDS - {profile}-trained",
+#                 fontsize=18)
+
+# ax1.legend(prop={'size': 16})
+# ax1.set_ylim([-0.1,1.2])
+# ax2.set_ylim([-0.1,1.6])
+# fig.tight_layout()  # otherwise the right y-label is slightly clipped
+
+# val_perf = lstm_model.evaluate(x=x_test_two,
+#                                 y=y_test_two,
+#                                 batch_size=1,
+#                                 verbose=0)
+# textstr = '\n'.join((
+#     r'$Loss =%.2f$' % (val_perf[0], ),
+#     r'$MAE =%.2f$' % (val_perf[1], ),
+#     r'$RMSE=%.2f$' % (val_perf[2], )))
+# ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
+#         verticalalignment='top',
+#         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+# fig.savefig(f'{model_loc}{profile}-test_Two-{iEpoch}.svg')
+# # Cleaning Memory from plots
+# fig.clf()
+# plt.close()
+PRED = lstm_model.predict(x_test_two, batch_size=1)
+RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,]-PRED)))
+if profile == 'FUDS':
+    predicting_plot(profile=profile, file_name='Model №1',
+                    model_loc=model_loc,
+                    model_type='LSTM Test on US06', iEpoch=f'Test Two-{iEpoch}',
+                    Y=y_test_two,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=lstm_model.evaluate(
+                                    x=x_test_two,
+                                    y=y_test_two,
+                                    batch_size=1,
+                                    verbose=0),
+                    TAIL=y_test_two.shape[0],
+                    save_plot=True)
+else:
+    predicting_plot(profile=profile, file_name='Model №1',
+                    model_loc=model_loc,
+                    model_type='LSTM Test on FUDS', iEpoch=f'Test Two-{iEpoch}',
+                    Y=y_test_two,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=lstm_model.evaluate(
+                                    x=x_test_two,
+                                    y=y_test_two,
+                                    batch_size=1,
+                                    verbose=0),
+                    TAIL=y_test_two.shape[0],
+                    save_plot=True)
 # %%
 # Convert the model to Tensorflow Lite and save.
-with open(f'{model_loc}{profile}.tflite', 'wb') as f:
+with open(f'{model_loc}Model-№1-{profile}.tflite', 'wb') as f:
     f.write(
         tf.lite.TFLiteConverter.from_keras_model(
                 model=lstm_model

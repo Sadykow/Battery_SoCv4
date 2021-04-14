@@ -3,7 +3,8 @@
 # Using data from Data Generator - creates Windows to use.
 # Used to separate huge code ammounts to separate files.
 # %%
-import os, time
+import os
+from time import perf_counter
 from matplotlib.pyplot import axis
 from numpy.core.fromnumeric import ndim
 import pandas as pd             # Tabled data storage
@@ -19,6 +20,7 @@ from extractor.DataGenerator import DataGenerator
 from sklearn.preprocessing import MinMaxScaler
 from extractor.soc_calc import diffSoC
 
+from numba import jit, vectorize
 class WindowGenerator():
   Data : DataGenerator          # Data object containing Parsed data
 
@@ -149,30 +151,32 @@ class WindowGenerator():
         '\n\n'])
   
   @tf.autograph.experimental.do_not_convert
-  def make_dataset_from_array(self, inputs : tnp.ndarray,
-                                    labels : tnp.ndarray
+  def make_dataset_from_array(self, inputs : np.ndarray,
+                                    labels : np.ndarray
               ) -> tf.raw_ops.MapDataset:
 
     input_length : int = len(self.input_columns)    
-    tic : float = time.perf_counter()    
-    if self.normaliseInput: # Normalise Inputs      
-      data : tnp.ndarray = tnp.divide(
-                            x1=tnp.subtract(
-                                  x1=tnp.copy(a=inputs[:,:input_length]),
-                                  x2=tnp.mean(a=inputs[:,:input_length], axis=0,
-                                              dtype=self.float_dtype,
-                                              keepdims=False)
+    tic : float = perf_counter()    
+    if self.normaliseInput: # Normalise Inputs
+      MEAN = np.mean(a=self.Data.train[:,:input_length], axis=0,
+                                      dtype=self.float_dtype,
+                                      keepdims=False)
+      STD = np.std(a=self.Data.train[:,:input_length], axis=0,
+                                    keepdims=False)
+      data : np.ndarray = np.divide(
+                            np.subtract(
+                                  np.copy(a=inputs[:,:input_length]),
+                                  MEAN
                                 ),
-                            x2=tnp.std(a=inputs[:,:input_length], axis=0,
-                                       keepdims=False)
+                            STD
                           )
     else:
-      data : tnp.ndarray = tnp.copy(a=inputs[:,:input_length])
+      data : np.ndarray = np.copy(a=inputs[:,:input_length],
+                                  order='K', subok=False)
     
-    data = tnp.append(arr=data,
+    data = np.append(arr=data,
                       values=labels,
                       axis=1)
-
     ds : tf.raw_ops.BatchDataset = \
           tf.keras.preprocessing.timeseries_dataset_from_array(
             data=data, targets=None,
@@ -183,15 +187,15 @@ class WindowGenerator():
         )
 
     ds : tf.raw_ops.MapDataset = ds.map(self.split_window)
-    x : tnp.ndarray = tnp.asarray(list(ds.map(
+    x : np.ndarray = np.asarray(list(ds.map(
                                 lambda x, _: x[0,:,:]
                               ).as_numpy_iterator()
                           ))
-    y : tnp.ndarray = tnp.asarray(list(ds.map(
+    y : np.ndarray = np.asarray(list(ds.map(
                                 lambda _, y: y[0,0]
                               ).as_numpy_iterator()
                           ))
-    print(f"\n\nData windowing took: {(time.perf_counter() - tic):.2f} seconds")
+    print(f"\n\nData windowing took: {(perf_counter() - tic):.2f} seconds")
     return ds, x, y
 
   @tf.autograph.experimental.do_not_convert
@@ -204,9 +208,12 @@ class WindowGenerator():
     dataY : list[np.ndarray] = []
     
     input_length : int = len(self.input_columns)
-    MEAN = np.mean(a=self.Data.train_df[:input_length])
-    STD = np.std(a=self.Data.train_df[:input_length])
-    tic : float = time.perf_counter()
+    MEAN = np.mean(a=self.Data.train[:,:input_length], axis=0,
+                                          dtype=self.float_dtype,
+                                          keepdims=False)
+    STD = np.std(a=self.Data.train[:,:input_length], axis=0,
+                                   keepdims=False)
+    tic : float = perf_counter()
     for i in range(0, batch):
         d_len : int = X[i].shape[0]-look_back
         dataX.append(np.zeros(shape=(d_len, look_back, input_length),
@@ -214,12 +221,20 @@ class WindowGenerator():
         dataY.append(np.zeros(shape=(d_len,), dtype=self.float_dtype))
         for j in range(0, d_len):
             if self.normaliseInput: #! Spmething wrong here
-              dataX[i][j,:,:] = (X[i][self.input_columns].to_numpy()[j:(j+look_back), :]-MEAN)/STD
+              # dataX[i][j,:,:] = (X[i][self.input_columns].to_numpy()[j:(j+look_back), :]-MEAN)/STD
+              dataX[i][j,:,:] =np.divide(
+                                np.subtract(
+                                      np.copy(a=X[i][self.input_columns].to_numpy()[j:(j+look_back), :]),
+                                      MEAN
+                                    ),
+                                STD
+                              )
             else:
               dataX[i][j,:,:] = X[i][self.input_columns].to_numpy()[j:(j+look_back), :]
-            dataY[i][j]     = Y[i].to_numpy()[j+look_back,]
+            #dataY[i][j]     = Y[i][j+look_back,]
+            dataY[i][j]     = Y[i][j+look_back-1,]
 
-    print(f"\n\nData windowing took: {(time.perf_counter() - tic):.2f} seconds")
+    print(f"\n\nData windowing took: {(perf_counter() - tic):.2f} seconds")
     return dataX, dataY
 
   @tf.autograph.experimental.do_not_convert
@@ -256,7 +271,7 @@ class WindowGenerator():
   def make_quickData(self, inputs : pd.DataFrame,
                            labels : pd.DataFrame
                 ) -> tuple[tf.raw_ops.BatchDataset, tnp.ndarray, tnp.ndarray]:
-    tic : float = time.perf_counter()
+    tic : float = perf_counter()
     if self.normaliseInput: # Normalise Inputs
       data : pd.DataFrame = (inputs[:-self.input_width]-self.Data.get_Mean[0][self.input_columns])/self.Data.get_STD[0][self.input_columns]
     else:
@@ -283,13 +298,13 @@ class WindowGenerator():
                                 lambda _, y: y[0]
                               ).as_numpy_iterator()
                           ))
-    print(f"\n\nData windowing took: {(time.perf_counter() - tic):.2f} seconds")
+    print(f"\n\nData windowing took: {(perf_counter() - tic):.2f} seconds")
     return ds, x, y
   
   @tf.autograph.experimental.do_not_convert
   def ParseFullData(self, dir : str
       ) -> tuple[pd.DataFrame, tf.raw_ops.MapDataset, tnp.ndarray, tnp.ndarray]:
-    tic : float = time.perf_counter()
+    tic : float = perf_counter()
     # Parsing file by file
     if self.includeTarget:
       data_x = tnp.empty(shape=(1,
@@ -537,7 +552,7 @@ class WindowGenerator():
                                  values=bat_y,
                                  axis=0)
 
-      print(f"\n\nData Generation: {(time.perf_counter() - tic):.2f} seconds")
+      print(f"\n\nData Generation: {(perf_counter() - tic):.2f} seconds")
       if self.batch > 1:
         print("Returning Batched Datasets")
         return data_df, data_ds, batched_x, batched_y

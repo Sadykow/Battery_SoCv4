@@ -136,11 +136,13 @@ class DataGenerator():
     tic : float = time.perf_counter()
     self.train_df = np.array(object=self.tr_ls_df[0],
                               dtype=self.float_dtype, copy=True)
-    self.train_SoC = np.array(object=scaller.fit_transform(self.tr_ls_SoC[0]),
+    self.tr_ls_SoC[0] = scaller.fit_transform(self.tr_ls_SoC[0])
+    self.train_SoC = np.array(object=self.tr_ls_SoC[0],
                               dtype=self.float_dtype, copy=True)
     self.valid_df = np.array(object=self.vl_ls_df[0],
                               dtype=self.float_dtype, copy=True)
-    self.valid_SoC = np.array(object=scaller.fit_transform(self.vl_ls_SoC[0]),
+    self.vl_ls_SoC[0] = scaller.fit_transform(self.vl_ls_SoC[0])
+    self.valid_SoC = np.array(object=self.vl_ls_SoC[0],
                               dtype=self.float_dtype, copy=True)
     for i in range(1, len(self.tr_ls_df)):
       self.train_df = np.append(
@@ -151,10 +153,11 @@ class DataGenerator():
                                   ),
                               axis=0
                             )
+      self.tr_ls_SoC[i] = scaller.fit_transform(self.tr_ls_SoC[i])
       self.train_SoC = np.append(
                               arr=self.train_SoC,
                               values=np.array(
-                                  object=scaller.fit_transform(self.tr_ls_SoC[i]),
+                                  object=self.tr_ls_SoC[i],
                                   dtype=self.float_dtype, copy=True
                                 ),
                               axis=0
@@ -168,10 +171,11 @@ class DataGenerator():
                                   ),
                               axis=0
                             )
+      self.vl_ls_SoC[i] = scaller.fit_transform(self.vl_ls_SoC[i])
       self.valid_SoC = np.append(
                               arr=self.valid_SoC,
                               values=np.array(
-                                  object=scaller.fit_transform(self.vl_ls_SoC[i]),
+                                  object=self.vl_ls_SoC[i],
                                   dtype=self.float_dtype, copy=True
                                 ),
                               axis=0

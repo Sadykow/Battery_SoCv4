@@ -44,6 +44,9 @@ def Read_Excel_File(path : str,
   df = df[columns]   # Order columns in the proper sequence
   return df
 
+#! def Read_CSV_File(path : str) -> pd.DataFrame:
+#!require implementation in all variations.
+
 def ParseExcelData(directory : str,
                     indexes : range, columns : list[str]
               ) -> tuple[list[pd.DataFrame], list[pd.DataFrame]]:
@@ -86,8 +89,8 @@ def ParseExcelData(directory : str,
       data_SoC = [
         pd.DataFrame(
           data={'SoC' : diffSoC(
-              chargeData=df.loc[:,'Charge_Capacity(Ah)'].to_numpy(dtype=float32),
-              discargeData=df.loc[:,'Discharge_Capacity(Ah)'].to_numpy(dtype=float32)
+              df.loc[:,'Charge_Capacity(Ah)'].to_numpy(dtype=float32),
+              df.loc[:,'Discharge_Capacity(Ah)'].to_numpy(dtype=float32)
               )},
           dtype=float32)
                 for df in data_df]

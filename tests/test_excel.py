@@ -9,6 +9,7 @@ import numpy as np
 sys.path.append(os.getcwd() + '/..')
 from py_modules.parse_excel import ParseExcelData
 from py_modules.utils import diffSoC as py_diffSoC # For testing
+from py_modules.utils import Locate_Best_Epoch
 
 from py_modules.parse_excel import Read_Excel_File
 from cy_modules.utils import diffSoC as cy_diffSoC # For testing
@@ -55,4 +56,10 @@ if __name__=="__main__":
           f'Minumum: {np.min(times)}\n'
           f'Maximum: {np.max(times)}\n\n'
           f'Mean: {np.mean(times)}\n')
+# %%
+    tic : float = time.perf_counter()
+    epoch : int = Locate_Best_Epoch(
+                file_path='../Models/Chemali2017/FUDS-models/history-FUDS.csv'
+            )
+    print(f"Locating best epoch with Py took: {time.perf_counter() - tic}s")
 # %%
