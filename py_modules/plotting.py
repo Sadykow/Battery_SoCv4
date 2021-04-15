@@ -5,7 +5,7 @@ def predicting_plot(profile : str, file_name : str, model_loc : str,
                     model_type : str,  iEpoch : str,
                     Y : ndarray, PRED : ndarray, RMS : ndarray,
                     val_perf : ndarray, TAIL : int,
-                    save_plot : bool = False) -> None:
+                    save_plot : bool = False, RMS_plot : bool = True) -> None:
   """ Plot generator which is used for reporting results of the training for
   the article of Journal Article - Analysis.
 
@@ -37,21 +37,22 @@ def predicting_plot(profile : str, file_name : str, model_loc : str,
   ax1.set_ylabel("SoC (%)", fontsize=32)
   
   # instantiate a second axes that shares the same x-axis
-  ax2 = ax1.twinx()
-  ax2.plot(test_time[:TAIL:],
+  if RMS_plot:
+    ax2 = ax1.twinx()
+    ax2.plot(test_time[:TAIL:],
           RMS,
           label="RMS error", color='#698856')
-  ax2.fill_between(test_time[:TAIL:],
+    ax2.fill_between(test_time[:TAIL:],
           RMS[:,0],
-              color='#698856')
-  ax2.set_ylabel('Error', fontsize=32, color='#698856')
-  ax2.tick_params(axis='y', labelcolor='#698856')
+          color='#698856')
+    ax2.set_ylabel('Error', fontsize=32, color='#698856')
+    ax2.tick_params(axis='y', labelcolor='#698856')
+    ax2.set_ylim([-0.1,1.6])
   ax1.set_title(
       f"{file_name} {model_type}. {profile}-trained",
       fontsize=36)
   ax1.legend(prop={'size': 32})
   ax1.set_ylim([-0.1,1.2])
-  ax2.set_ylim([-0.1,1.6])
   fig.tight_layout()
 
   # Put the text box with performance results.

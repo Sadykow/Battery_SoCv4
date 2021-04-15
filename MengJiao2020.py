@@ -45,19 +45,83 @@
 
 # 400 Epochs until RMSE = 0.150 or MAE = 0.0076
 # %%
-import os, io
-from pprint import pp
-import numpy as np
-import pandas as pd
-import tensorflow as tf
-import tensorflow_addons as tfa
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
-import matplotlib.pyplot as plt
+import datetime
+import logging
+import os, sys, getopt    # OS, SYS, argc functions
+from sys import platform  # Get type of OS
 
-# Configurate GPUs
+import matplotlib as mpl  # Plot functionality
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd  # File read
+import tensorflow as tf  # Tensorflow and Numpy replacement
+import tensorflow_addons as tfa
+
+from extractor.DataGenerator import *
+from extractor.WindowGenerator import WindowGenerator
+from cy_modules.utils import str2bool
+from py_modules.plotting import predicting_plot
+
+#from sklearn.preprocessing import MinMaxScaler, StandardScaler
+# %%
+# Extract params
+try:
+    opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
+                    ["help", "debug=", "epochs=",
+                     "gpu=", "profile="])
+except getopt.error as err: 
+    # output error, and return with an error code 
+    print (str(err)) 
+    print ('EXEPTION: Arguments requied!')
+    sys.exit(2)
+
+# opts = [('-d', 'False'), ('-e', '50'), ('-g', '0'), ('-p', 'DST')]
+mEpoch  : int = 10
+GPU     : int = 0
+profile : str = 'DST'
+for opt, arg in opts:
+    if opt == '-h':
+        print('HELP: Use following default example.')
+        print('python *.py --debug False --epochs 50 --gpu 0 --profile DST')
+        print('TODO: Create a proper help')
+        sys.exit()
+    elif opt in ("-d", "--debug"):
+        if(str2bool(arg)):
+            logging.basicConfig(level=logging.DEBUG,
+                    format='%(asctime)s --> %(levelname)s:%(message)s')
+            logging.warning("Logger DEBUG")
+        else:
+            logging.basicConfig(level=logging.CRITICAL)
+            logging.warning("Logger Critical")
+    elif opt in ("-e", "--epochs"):
+        mEpoch = int(arg)
+    elif opt in ("-g", "--gpu"):
+        #! Another alternative is to use
+        #!:$ export CUDA_VISIBLE_DEVICES=0,1 && python *.py
+        GPU = int(arg)
+    elif opt in ("-p", "--profile"):
+        profile = (arg)
+# %%
 # Define plot sizes
-#! Select GPU for usage. CPU versions ignores it
-GPU=0
+mpl.rcParams['figure.figsize'] = (8, 6)
+mpl.rcParams['axes.grid'] = False
+
+# Configurage logger and print basics
+logging.basicConfig(level=logging.CRITICAL,        
+    format='%(asctime)s --> %(levelname)s:%(message)s')
+logging.warning("Logger enabled")
+
+logging.debug("\n\n"
+    f"MatPlotLib version: {mpl.__version__}\n"
+    f"Pandas     version: {pd.__version__}\n"
+    f"Tensorflow version: {tf.version.VERSION}\n"
+    )
+logging.debug("\n\n"
+    f"Plot figure size set to {mpl.rcParams['figure.figsize']}\n"
+    f"Axes grid: {mpl.rcParams['axes.grid']}"
+    )
+#! Select GPU for usage. CPU versions ignores it.
+#!! Learn to check if GPU is occupied or not.
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
@@ -68,114 +132,114 @@ if physical_devices:
     #if GPU == 1:
     tf.config.experimental.set_memory_growth(
                             physical_devices[GPU], True)
-    print("GPU found and memory growth enabled") 
+    logging.info("GPU found and memory growth enabled") 
     
     logical_devices = tf.config.experimental.list_logical_devices('GPU')
-    print("GPU found") 
-    print(f"\nPhysical GPUs: {len(physical_devices)}"
-          f"\nLogical GPUs: {len(logical_devices)}")
+    logging.info("GPU found") 
+    logging.debug(f"\nPhysical GPUs: {len(physical_devices)}"
+                  f"\nLogical GPUs: {len(logical_devices)}")
 #! For numeric stability, set the default floating-point dtype to float64
 tf.keras.backend.set_floatx('float32')
 # %%
 # Getting Data from excel files.
-float_dtype : type = np.float32
-train_dir : str = 'Data/A123_Matt_Set'
-valid_dir : str = 'Data/A123_Matt_Val'
-columns   : list[str] = [
-                        'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
-                        'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
-                    ]
+# float_dtype : type = np.float32
+# train_dir : str = 'Data/A123_Matt_Set'
+# valid_dir : str = 'Data/A123_Matt_Val'
+# columns   : list[str] = [
+#                         'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
+#                         'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
+#                     ]
 
-def Read_Excel_File(path : str, profile : range,
-                    columns : list[str]) -> pd.DataFrame:
-    """ Reads Excel File with all parameters. Sheet Name universal, columns,
-    type taken from global variables initialization.
+# def Read_Excel_File(path : str, profile : range,
+#                     columns : list[str]) -> pd.DataFrame:
+#     """ Reads Excel File with all parameters. Sheet Name universal, columns,
+#     type taken from global variables initialization.
 
-    Args:
-        path (str): Path to files with os.walk
+#     Args:
+#         path (str): Path to files with os.walk
 
-    Returns:
-        pd.DataFrame: Single File frame.
-    """
-    try:
-      df : pd.DataFrame = pd.read_excel(io=path,
-                        sheet_name='Channel_1-006',
-                        header=0, names=None, index_col=None,
-                        usecols=['Step_Index'] + columns,
-                        squeeze=False,
-                        dtype=float_dtype,
-                        engine='openpyxl', converters=None, true_values=None,
-                        false_values=None, skiprows=None, nrows=None,
-                        na_values=None, keep_default_na=True, na_filter=True,
-                        verbose=False, parse_dates=False, date_parser=None,
-                        thousands=None, comment=None, skipfooter=0,
-                        convert_float=True, mangle_dupe_cols=True
-                      )
-    except:
-      df : pd.DataFrame = pd.read_excel(io=path,
-                        sheet_name='Channel_1-005',
-                        header=0, names=None, index_col=None,
-                        usecols=['Step_Index'] + columns,
-                        squeeze=False,
-                        dtype=float_dtype,
-                        engine='openpyxl', converters=None, true_values=None,
-                        false_values=None, skiprows=None, nrows=None,
-                        na_values=None, keep_default_na=True, na_filter=True,
-                        verbose=False, parse_dates=False, date_parser=None,
-                        thousands=None, comment=None, skipfooter=0,
-                        convert_float=True, mangle_dupe_cols=True
-                      )
-    df = df[df['Step_Index'].isin(profile)]
-    df = df.reset_index(drop=True)
-    df = df.drop(columns=['Step_Index'])
-    df = df[columns]   # Order columns in the proper sequence
-    return df
+#     Returns:
+#         pd.DataFrame: Single File frame.
+#     """
+#     try:
+#       df : pd.DataFrame = pd.read_excel(io=path,
+#                         sheet_name='Channel_1-006',
+#                         header=0, names=None, index_col=None,
+#                         usecols=['Step_Index'] + columns,
+#                         squeeze=False,
+#                         dtype=float_dtype,
+#                         engine='openpyxl', converters=None, true_values=None,
+#                         false_values=None, skiprows=None, nrows=None,
+#                         na_values=None, keep_default_na=True, na_filter=True,
+#                         verbose=False, parse_dates=False, date_parser=None,
+#                         thousands=None, comment=None, skipfooter=0,
+#                         convert_float=True, mangle_dupe_cols=True
+#                       )
+#     except:
+#       df : pd.DataFrame = pd.read_excel(io=path,
+#                         sheet_name='Channel_1-005',
+#                         header=0, names=None, index_col=None,
+#                         usecols=['Step_Index'] + columns,
+#                         squeeze=False,
+#                         dtype=float_dtype,
+#                         engine='openpyxl', converters=None, true_values=None,
+#                         false_values=None, skiprows=None, nrows=None,
+#                         na_values=None, keep_default_na=True, na_filter=True,
+#                         verbose=False, parse_dates=False, date_parser=None,
+#                         thousands=None, comment=None, skipfooter=0,
+#                         convert_float=True, mangle_dupe_cols=True
+#                       )
+#     df = df[df['Step_Index'].isin(profile)]
+#     df = df.reset_index(drop=True)
+#     df = df.drop(columns=['Step_Index'])
+#     df = df[columns]   # Order columns in the proper sequence
+#     return df
 
-def diffSoC(chargeData   : pd.Series,
-            discargeData : pd.Series) -> pd.Series:
-    """ Return SoC based on differnece of Charge and Discharge Data.
-    Data in range of 0 to 1.
-    Args:
-        chargeData (pd.Series): Charge Data Series
-        discargeData (pd.Series): Discharge Data Series
+# def diffSoC(chargeData   : pd.Series,
+#             discargeData : pd.Series) -> pd.Series:
+#     """ Return SoC based on differnece of Charge and Discharge Data.
+#     Data in range of 0 to 1.
+#     Args:
+#         chargeData (pd.Series): Charge Data Series
+#         discargeData (pd.Series): Discharge Data Series
 
-    Raises:
-        ValueError: If any of data has negative
-        ValueError: If the data trend is negative. (end-beg)<0.
+#     Raises:
+#         ValueError: If any of data has negative
+#         ValueError: If the data trend is negative. (end-beg)<0.
 
-    Returns:
-        pd.Series: Ceil data with 2 decimal places only.
-    """
-    # Raise error
-    if((any(chargeData) < 0)
-        |(any(discargeData) < 0)):
-        raise ValueError("Parser: Charge/Discharge data contains negative.")
-    return np.round((chargeData - discargeData)*100)/100
+#     Returns:
+#         pd.Series: Ceil data with 2 decimal places only.
+#     """
+#     # Raise error
+#     if((any(chargeData) < 0)
+#         |(any(discargeData) < 0)):
+#         raise ValueError("Parser: Charge/Discharge data contains negative.")
+#     return np.round((chargeData - discargeData)*100)/100
 
-#? Getting training data and separated file by batch
-for _, _, files in os.walk(train_dir):
-    files.sort(key=lambda f: int(f[-13:-5])) # Sort by last dates
-    # Initialize empty structures
-    train_X : list[pd.DataFrame] = []
-    train_Y : list[pd.DataFrame] = []
-    for file in files[:]:
-        X : pd.DataFrame = Read_Excel_File(train_dir + '/' + file,
-                                    range(22,25), columns) #! or 21
-        Y : pd.DataFrame = pd.DataFrame(
-                data={'SoC' : diffSoC(
-                            chargeData=X.loc[:,'Charge_Capacity(Ah)'],
-                            discargeData=X.loc[:,'Discharge_Capacity(Ah)']
-                            )},
-                dtype=float_dtype
-            )
-        X = X[['Current(A)', 'Voltage(V)']]
-        train_X.append(X)
-        train_Y.append(Y)
-# %%
-look_back : int = 1
-scaler_MM : MinMaxScaler    = MinMaxScaler(feature_range=(0, 1))
-scaler_CC : MinMaxScaler    = MinMaxScaler(feature_range=(0, 1))
-scaler_VV : StandardScaler  = StandardScaler()
+# #? Getting training data and separated file by batch
+# for _, _, files in os.walk(train_dir):
+#     files.sort(key=lambda f: int(f[-13:-5])) # Sort by last dates
+#     # Initialize empty structures
+#     train_X : list[pd.DataFrame] = []
+#     train_Y : list[pd.DataFrame] = []
+#     for file in files[:]:
+#         X : pd.DataFrame = Read_Excel_File(train_dir + '/' + file,
+#                                     range(22,25), columns) #! or 21
+#         Y : pd.DataFrame = pd.DataFrame(
+#                 data={'SoC' : diffSoC(
+#                             chargeData=X.loc[:,'Charge_Capacity(Ah)'],
+#                             discargeData=X.loc[:,'Discharge_Capacity(Ah)']
+#                             )},
+#                 dtype=float_dtype
+#             )
+#         X = X[['Current(A)', 'Voltage(V)']]
+#         train_X.append(X)
+#         train_Y.append(Y)
+# # %%
+# look_back : int = 1
+# scaler_MM : MinMaxScaler    = MinMaxScaler(feature_range=(0, 1))
+# scaler_CC : MinMaxScaler    = MinMaxScaler(feature_range=(0, 1))
+# scaler_VV : StandardScaler  = StandardScaler()
 def roundup(x : float, factor : int = 10) -> int:
     """ Round up to a factor. Uses it to create hidden neurons, or Buffer size.
     TODO: Make it a smarter rounder.
@@ -196,73 +260,69 @@ def roundup(x : float, factor : int = 10) -> int:
         print("Factor of {} not implemented.".format(factor))
         return None
 
-def create_Batch_dataset(X : list[np.ndarray], Y : list[np.ndarray],
-                    look_back : int = 1
-                    ) -> tuple[np.ndarray, np.ndarray]:
+# def create_Batch_dataset(X : list[np.ndarray], Y : list[np.ndarray],
+#                     look_back : int = 1
+#                     ) -> tuple[np.ndarray, np.ndarray]:
     
-    batch : int = len(X)
-    dataX : list[np.ndarray] = []
-    dataY : list[np.ndarray] = []
+#     batch : int = len(X)
+#     dataX : list[np.ndarray] = []
+#     dataY : list[np.ndarray] = []
     
-    for i in range(0, batch):
-        d_len : int = X[i].shape[0]-look_back
-        dataX.append(np.zeros(shape=(d_len, look_back, X[i].shape[1]),
-                    dtype=float_dtype))
-        dataY.append(np.zeros(shape=(d_len,), dtype=float_dtype))    
-        for j in range(0, d_len):
-            #dataX[i, j, :, :] = dataset[i:(i+look_back), j:j+1]
-            #dataY[i, j]       = dataset[i + look_back, j:j+1]
-            dataX[i][j,:,:] = X[i][j:(j+look_back), :]  
-            dataY[i][j]     = Y[i][j+look_back,]
-    return dataX, dataY
+#     for i in range(0, batch):
+#         d_len : int = X[i].shape[0]-look_back
+#         dataX.append(np.zeros(shape=(d_len, look_back, X[i].shape[1]),
+#                     dtype=float_dtype))
+#         dataY.append(np.zeros(shape=(d_len,), dtype=float_dtype))    
+#         for j in range(0, d_len):
+#             #dataX[i, j, :, :] = dataset[i:(i+look_back), j:j+1]
+#             #dataY[i, j]       = dataset[i + look_back, j:j+1]
+#             dataX[i][j,:,:] = X[i][j:(j+look_back), :]  
+#             dataY[i][j]     = Y[i][j+look_back,]
+#     return dataX, dataY
 
-sample_size : int = 0
-for i in range(0, len(train_X)):
-    #! Scale better with STD on voltage
-    #train_X[i].iloc[:,0] = scaler_CC.fit_transform(np.expand_dims(train_X[i]['Current(A)'], axis=1))
-    #train_X[i].iloc[:,1] = scaler_VV.fit_transform(np.expand_dims(train_X[i]['Voltage(V)'], axis=1))    
-    train_Y[i] = scaler_MM.fit_transform(train_Y[i])
-    train_X[i] = train_X[i].to_numpy()
-    sample_size += train_X[i].shape[0]
+# sample_size : int = 0
+# for i in range(0, len(train_X)):
+#     #! Scale better with STD on voltage
+#     #train_X[i].iloc[:,0] = scaler_CC.fit_transform(np.expand_dims(train_X[i]['Current(A)'], axis=1))
+#     #train_X[i].iloc[:,1] = scaler_VV.fit_transform(np.expand_dims(train_X[i]['Voltage(V)'], axis=1))    
+#     train_Y[i] = scaler_MM.fit_transform(train_Y[i])
+#     train_X[i] = train_X[i].to_numpy()
+#     sample_size += train_X[i].shape[0]
     
 
-trX, trY = create_Batch_dataset(train_X, train_Y, look_back)
+# trX, trY = create_Batch_dataset(train_X, train_Y, look_back)
+# %%
+#! Check OS to change SymLink usage
+if(platform=='win32'):
+    Data    : str = 'DataWin\\'
+else:
+    Data    : str = 'Data/'
+dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
+                              valid_dir=f'{Data}A123_Matt_Val',
+                              test_dir=f'{Data}A123_Matt_Test',
+                              columns=[
+                                'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
+                                'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
+                                ],
+                              PROFILE_range = profile)
+# %%
+look_back : int = 1
+window = WindowGenerator(Data=dataGenerator,
+                        input_width=look_back, label_width=1, shift=1,
+                        input_columns=['Current(A)', 'Voltage(V)',
+                                                'Temperature (C)_1'],
+                        label_columns=['SoC(%)'], batch=1,
+                        includeTarget=False, normaliseLabal=False,
+                        shuffleTraining=False)
+# Entire Training set
+x_train, y_train = window.train
 
-h_nodes : int = roundup(sample_size / (6 * ((look_back * 1)+1)))
-print(f"The number of hidden nodes is {h_nodes}.")
-h_nodes = 30
-model = tf.keras.models.Sequential([
-    tf.keras.layers.InputLayer(batch_input_shape=(1, look_back, 2)),
-    tf.keras.layers.GRU(units=h_nodes, activation='tanh',
-        recurrent_activation='sigmoid', use_bias=True,
-        kernel_initializer='glorot_uniform', recurrent_initializer='orthogonal',
-        bias_initializer='zeros', kernel_regularizer=None,
-        recurrent_regularizer=None, bias_regularizer=None,
-        activity_regularizer=None, kernel_constraint=None,
-        recurrent_constraint=None, bias_constraint=None, dropout=0,
-        recurrent_dropout=0, return_sequences=True,
-        return_state=False,
-        go_backwards=False, stateful=True, unroll=False, time_major=False,
-        reset_after=True
-        ),
-    tf.keras.layers.GRU(units=h_nodes, activation='tanh',
-        recurrent_activation='sigmoid', use_bias=True,
-        kernel_initializer='glorot_uniform', recurrent_initializer='orthogonal',
-        bias_initializer='zeros', kernel_regularizer=None,
-        recurrent_regularizer=None, bias_regularizer=None,
-        activity_regularizer=None, kernel_constraint=None,
-        recurrent_constraint=None, bias_constraint=None, dropout=0,
-        recurrent_dropout=0, return_sequences=False,
-        return_state=False,
-        go_backwards=False, stateful=True, unroll=False, time_major=False,
-        reset_after=True
-        ),
-    tf.keras.layers.Dense(units=1, activation=None)
-])
-# model : tf.keras.models.Sequential = tf.keras.models.load_model(
-#             'Models/Stateful/MengJiao-shortTest',
-#             compile=False)
-print(model.summary())
+# For validation use same training
+x_valid = x_train[2]
+y_valid = y_train[2]
+
+# For test dataset take the remaining profiles.
+(x_test_one, x_test_two), (y_test_one, y_test_two) = window.valid
 # %%
 #! Test with golbal
 def custom_loss(y_true : tf.Tensor, y_pred : tf.Tensor) -> tf.Tensor:
@@ -271,101 +331,219 @@ def custom_loss(y_true : tf.Tensor, y_pred : tf.Tensor) -> tf.Tensor:
     #tf.print(y_pred, output_stream='file://pp-temp.txt')
     #tf.print(y_true, output_stream='file://tt-temp.txt')
     return (tf.math.squared_difference(x=y_pred, y=y_true))/2
-    
 
-model.compile(loss=custom_loss, optimizer=
+# sample_size : int = y_train[4].shape[0]
+# h_nodes : int = roundup(sample_size / (15 * ((look_back * 1)+1)))
+# print(f"The number of hidden nodes is {h_nodes}.")
+h_nodes = 60#120-onDST #! 60 Nodes gives a nice results.
+
+file_name : str = os.path.basename(__file__)[:-3]
+model_loc : str = f'Models/{file_name}/{profile}-models/'
+iEpoch = 0
+firstLog : bool = True
+try:
+    for _, _, files in os.walk(model_loc):
+        for file in files:
+            if file.endswith('.ch'):
+                iEpoch = int(os.path.splitext(file)[0])
+    
+    gru_model : tf.keras.models.Sequential = tf.keras.models.load_model(
+            f'{model_loc}{iEpoch}',
+            compile=False)
+    firstLog = False
+    print("Model Identefied. Continue training.")
+except OSError as identifier:
+    gru_model = tf.keras.models.Sequential([
+        tf.keras.layers.InputLayer(batch_input_shape=(1, look_back, 3)),
+        tf.keras.layers.GRU(units=h_nodes, activation='tanh',
+            recurrent_activation='sigmoid', use_bias=True,
+            kernel_initializer='glorot_uniform', recurrent_initializer='orthogonal',
+            bias_initializer='zeros', kernel_regularizer=None,
+            recurrent_regularizer=None, bias_regularizer=None,
+            activity_regularizer=None, kernel_constraint=None,
+            recurrent_constraint=None, bias_constraint=None, dropout=0,
+            recurrent_dropout=0, return_sequences=True,
+            return_state=False,
+            go_backwards=False, stateful=True, unroll=False, time_major=False,
+            reset_after=True
+            ),
+        tf.keras.layers.GRU(units=h_nodes, activation='tanh',
+            recurrent_activation='sigmoid', use_bias=True,
+            kernel_initializer='glorot_uniform', recurrent_initializer='orthogonal',
+            bias_initializer='zeros', kernel_regularizer=None,
+            recurrent_regularizer=None, bias_regularizer=None,
+            activity_regularizer=None, kernel_constraint=None,
+            recurrent_constraint=None, bias_constraint=None, dropout=0,
+            recurrent_dropout=0, return_sequences=False,
+            return_state=False,
+            go_backwards=False, stateful=True, unroll=False, time_major=False,
+            reset_after=True
+            ),
+        tf.keras.layers.Dense(units=1, activation='sigmoid')
+    ])
+    firstLog = True
+prev_model = tf.keras.models.clone_model(gru_model,
+                                    input_tensors=None, clone_function=None)
+
+checkpoints = tf.keras.callbacks.ModelCheckpoint(
+    filepath =model_loc+f'{profile}-checkpoints/checkpoint',
+    monitor='val_loss', verbose=0,
+    save_best_only=False, save_weights_only=False,
+    mode='auto', save_freq='epoch', options=None,
+)
+
+tensorboard_callback = tf.keras.callbacks.TensorBoard(
+        log_dir=model_loc+
+            f'tensorboard/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}',
+        histogram_freq=1, write_graph=True, write_images=False,
+        update_freq='epoch', profile_batch=2, embeddings_freq=0,
+        embeddings_metadata=None
+    )
+
+nanTerminate = tf.keras.callbacks.TerminateOnNaN()
+
+gru_model.compile(loss=tf.keras.losses.MeanAbsoluteError(), optimizer=
                     tf.keras.optimizers.SGD(
-                    learning_rate=0.01, momentum=0.3, #! Put learning rate to 0
+                    learning_rate=0.001, momentum=0.3, #! Put learning rate to 0
                     nesterov=False, name='SGDwM'),
               metrics=[tf.metrics.MeanAbsoluteError(),
                        tf.metrics.RootMeanSquaredError(),
                        tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
             )
-min_rmse = 100
-#histories = []
-firtstEpoch : bool = True
-
-# plt.figure()
-# plt.plot(trX[0][:,0,0])
-# plt.plot(trX[0][:,0,1])
-# plt.show()
+prev_model.compile(loss=tf.keras.losses.MeanAbsoluteError(), optimizer=
+                    tf.keras.optimizers.SGD(
+                    learning_rate=0.001, momentum=0.3, #! Put learning rate to 0
+                    nesterov=False, name='SGDwM'),
+              metrics=[tf.metrics.MeanAbsoluteError(),
+                       tf.metrics.RootMeanSquaredError(),
+                       tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+            )
 
 # %%
-epochs : int = 500
-#trYY = np.zeros(shape=trY[0].shape)
-for i in range(1,epochs+1):
+i_attempts : int = 0
+n_attempts : int = 3
+while iEpoch < mEpoch:
+    iEpoch+=1
+    print(f"Epoch {iEpoch}/{mEpoch}")
     # with open("pp-temp.txt", "w") as file:
     #     file.write('')
-    print(f'Epoch {i}/{epochs}')
 #! Fit one sample - PRedict next one like model() - read all through file output
 #!and hope this makes a good simulation of how online learning will go.
-
-    history = model.fit(trX[0], trY[0], epochs=1, batch_size=1,
-                    verbose=1, shuffle=False,
-                    #validation_data=(trX[0], trY[0]), validation_batch_size=1
-                    )
+    for (x,y) in zip(x_train[:], y_train[:]):
+        history = gru_model.fit(x, y, epochs=1,
+                        #validation_data=(x_valid, y_valid),
+                        callbacks=[nanTerminate],
+                        batch_size=1, shuffle=False
+                        )
 #! In Mamo methods implement Callback to reset model after 500 steps and then 
 #!step by one sample for next epoch to capture shift in data. Hell method, but
 #!might be more effective that batching 12 together.
-    # plt.figure()
-    model.reset_states()
-    # plt.plot(model.predict(trX[0][1000:4000,:,:], batch_size=1))
-    # plt.plot(trY[0][1000:4000])
-    plt.plot(model.predict(trX[0][:,:,:], batch_size=1))
-    plt.plot(trY[0][:])
-    plt.show()
-    #model.reset_states()    
-#model.save('Models/Stateful/MengJiao-shortTestLONG2')
+    
+        gru_model.reset_states()
+    PERF = gru_model.evaluate(x=x_valid,
+                               y=y_valid,
+                               batch_size=1,
+                               verbose=0)
+    gru_model.reset_states()
+    
+    # Saving model
+    gru_model.save(filepath=f'{model_loc}{iEpoch}',
+                overwrite=True, include_optimizer=True,
+                save_format='h5', signatures=None, options=None,
+                save_traces=True
+        )
+    prev_model = tf.keras.models.clone_model(gru_model)
+
+    if os.path.exists(f'{model_loc}{iEpoch-1}.ch'):
+        os.remove(f'{model_loc}{iEpoch-1}.ch')
+    os.mknod(f'{model_loc}{iEpoch}.ch')
+    
+    # Saving history variable
+    # convert the history.history dict to a pandas DataFrame:     
+    hist_df = pd.DataFrame(history.history)
+    hist_df['vall_loss'] = PERF[0]
+    hist_df['val_mean_absolute_error'] = PERF[1]
+    hist_df['val_root_mean_squared_error'] = PERF[2]
+    hist_df['val_r_square'] = PERF[3]
+    # or save to csv:
+    with open(f'{model_loc}history-{profile}.csv', mode='a') as f:
+        if(firstLog):
+            hist_df.to_csv(f, index=False)
+            firstLog = False
+        else:
+            hist_df.to_csv(f, index=False, header=False)
+    
+    #! Run the Evaluate function
+    #! Replace with tf.metric function.
+    PRED = gru_model.predict(x_valid, batch_size=1)
+    gru_model.reset_states()
+    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+                y_valid[::,]-PRED)))
+    # otherwise the right y-label is slightly clipped
+    predicting_plot(profile=profile, file_name='Model №4',
+                    model_loc=model_loc,
+                    model_type='GRU Test - Train dataset',
+                    iEpoch=f'val-{iEpoch}',
+                    Y=y_valid,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=PERF,
+                    TAIL=y_valid.shape[0],
+                    save_plot=True,
+                    RMS_plot=False) #! Saving memory from high errors.
+    if(PERF[-2] <=0.024): # Check thr RMSE
+        print("RMS droped around 2.4%. Breaking the training")
+        break
 # %%
-tr_pred = np.zeros(shape=(7094,))
-i = 0
-with open("pp-temp.txt", "r") as file1:
-    for line in file1.readlines():
-        tr_pred[i] = float(line.split('[[')[1].split(']]\n')[0])
-        i += 1
+# tr_pred = np.zeros(shape=(7094,))
+# i = 0
+# with open("pp-temp.txt", "r") as file1:
+#     for line in file1.readlines():
+#         tr_pred[i] = float(line.split('[[')[1].split(']]\n')[0])
+#         i += 1
 
-plt.plot(tr_pred)
-plt.plot(trY[0])
+# plt.plot(tr_pred)
+# plt.plot(trY[0])
 # %%
-def smooth(y, box_pts: int) -> np.array:
-    """ Smoothing data using numpy convolve. Based on the size of the
-    averaging box, data gets smoothed.
-    Here it used in following form:
-    y = V/(maxV-minV)
-    box_pts = 500
+# def smooth(y, box_pts: int) -> np.array:
+#     """ Smoothing data using numpy convolve. Based on the size of the
+#     averaging box, data gets smoothed.
+#     Here it used in following form:
+#     y = V/(maxV-minV)
+#     box_pts = 500
 
-    Args:
-        y (pd.Series): A data which requires to be soothed.
-        box_pts (int): Number of points to move averaging box
+#     Args:
+#         y (pd.Series): A data which requires to be soothed.
+#         box_pts (int): Number of points to move averaging box
 
-    Returns:
-        np.array: Smoothed data array
-    """
-    box = np.ones(box_pts)/box_pts
-    y_smooth = np.convolve(y, box, mode='same')
-    return y_smooth
-# 5 seconds timestep
-plt.figure()
-plt.plot(train_X[0][:,1])
-plt.plot(smooth(train_X[0][:,1], 150))
-#plt.xlim([0, 7000])
-plt.ylim([2.5, 3.7])
-plt.xlabel('TimeSteps (s)')
-plt.ylabel('Voltage (V)')
-plt.grid()
-plt.show()
+#     Returns:
+#         np.array: Smoothed data array
+#     """
+#     box = np.ones(box_pts)/box_pts
+#     y_smooth = np.convolve(y, box, mode='same')
+#     return y_smooth
+# # 5 seconds timestep
+# plt.figure()
+# plt.plot(train_X[0][:,1])
+# plt.plot(smooth(train_X[0][:,1], 150))
+# #plt.xlim([0, 7000])
+# plt.ylim([2.5, 3.7])
+# plt.xlabel('TimeSteps (s)')
+# plt.ylabel('Voltage (V)')
+# plt.grid()
+# plt.show()
 # %%
 # Plot
-import seaborn as sns
-train_X[0]['Time (s)'] = np.linspace(0,7095*5,7095)
-g = sns.relplot(x='Time (s)', y='Temperature (C)_1', kind="line",
-                data=train_X[0], size=11, color='k')
-#plt.xlim(-100, 40000)
-#plt.ylim(2.25, 3.75)
-g.fig.autofmt_xdate()
-fir = g.fig
-fir.savefig('../1-Voltage.svg', transparent=True)
-# tr_pred = np.zeros(shape=(7094,))
+# import seaborn as sns
+# train_X[0]['Time (s)'] = np.linspace(0,7095*5,7095)
+# g = sns.relplot(x='Time (s)', y='Temperature (C)_1', kind="line",
+#                 data=train_X[0], size=11, color='k')
+# #plt.xlim(-100, 40000)
+# #plt.ylim(2.25, 3.75)
+# g.fig.autofmt_xdate()
+# fir = g.fig
+# fir.savefig('../1-Voltage.svg', transparent=True)
+# # tr_pred = np.zeros(shape=(7094,))
 # i = 0
 # with open("tt-temp.txt", "r") as file1:
 #     for line in file1.readlines():

@@ -2,15 +2,7 @@
 # %% [markdown]
 # # # 1
 # # #
-# # LSTM for SoC by GatethJavid 2020
-# This version hjad no specification on technique used. Although, by the type
-#and details in the second article published in Feb2021 - it is a stateless
-#windowing technique.
-
-#? This file used to train only on a FUDS dataset and validate against another
-#?excluded FUDS datasets. In this case, out of 12 - 2 for validation.
-#?Approximately 15~20% of provided data.
-#? Testing performed on any datasets.
+# # LSTM for SoH by Wei Zhang
 # %%
 import datetime
 import logging
@@ -21,13 +13,12 @@ import matplotlib as mpl  # Plot functionality
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd  # File read
-import tensorflow as tf
+import tensorflow as tf  # Tensorflow and Numpy replacement
 import tensorflow_addons as tfa
 from tqdm import tqdm, trange
 
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
-from py_modules.RobustAdam import RobustAdam
 from cy_modules.utils import str2bool
 from py_modules.plotting import predicting_plot
 # %%
@@ -42,7 +33,7 @@ except getopt.error as err:
     print ('EXEPTION: Arguments requied!')
     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '2'), ('-g', '0'), ('-p', 'DST')]
+# opts = [('-d', 'False'), ('-e', '5'), ('-g', '0'), ('-p', 'DST')]
 mEpoch  : int = 10
 GPU     : int = 0
 profile : str = 'DST'
@@ -63,6 +54,8 @@ for opt, arg in opts:
     elif opt in ("-e", "--epochs"):
         mEpoch = int(arg)
     elif opt in ("-g", "--gpu"):
+        #! Another alternative is to use
+        #!:$ export CUDA_VISIBLE_DEVICES=0,1 && python *.py
         GPU = int(arg)
     elif opt in ("-p", "--profile"):
         profile = (arg)
@@ -85,7 +78,8 @@ logging.debug("\n\n"
     f"Plot figure size set to {mpl.rcParams['figure.figsize']}\n"
     f"Axes grid: {mpl.rcParams['axes.grid']}"
     )
-#! Select GPU for usage. CPU versions ignores it
+#! Select GPU for usage. CPU versions ignores it.
+#!! Learn to check if GPU is occupied or not.
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
@@ -140,14 +134,10 @@ y_valid = np.array(yy_train[16800:25000,:]  , copy=True, dtype=np.float32)
 # For test dataset take the remaining profiles.
 mid = int(xx_valid.shape[0]/2)+350
 x_test_one = np.array(xx_valid[:mid,:,:], copy=True, dtype=np.float32)
-y_test_one = np.array(yy_valid[:mid,:], copy=True, dtype=np.float32)
+y_test_one = np.array(yy_valid[:mid,:],   copy=True, dtype=np.float32)
 x_test_two = np.array(xx_valid[mid:,:,:], copy=True, dtype=np.float32)
-y_test_two = np.array(yy_valid[mid:,:], copy=True, dtype=np.float32)
+y_test_two = np.array(yy_valid[mid:,:],   copy=True, dtype=np.float32)
 # %%
-# def custom_loss(y_true, y_pred):
-#     y_pred = tf.convert_to_tensor(y_pred)
-#     y_true = tf.cast(y_true, y_pred.dtype)
-#     return tf.sqrt(tf.reduce_mean(tf.square(tf.subtract(y_true, y_pred)), axis=0))
 #? Root Mean Squared Error loss function
 custom_loss = lambda y_true, y_pred: tf.sqrt(
             x=tf.reduce_mean(
@@ -164,48 +154,69 @@ custom_loss = lambda y_true, y_pred: tf.sqrt(
         )
 file_name : str = os.path.basename(__file__)[:-3]
 model_loc : str = f'Models/{file_name}/{profile}-models/'
-iEpoch    : int = 0
-firstLog  : bool= True
+iEpoch = 0
+firstLog : bool = True
 try:
     for _, _, files in os.walk(model_loc):
         for file in files:
             if file.endswith('.ch'):
                 iEpoch = int(os.path.splitext(file)[0])
     
-    gru_model : tf.keras.models.Sequential = tf.keras.models.load_model(
+    lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
             f'{model_loc}{iEpoch}',
             compile=False)
     firstLog = False
     print("Model Identefied. Continue training.")
 except OSError as identifier:
     print("Model Not Found, creating new. {} \n".format(identifier))
-    gru_model = tf.keras.models.Sequential([
-        tf.keras.layers.InputLayer(input_shape=x_train.shape[-2:]),
-        tf.keras.layers.GRU(
-            units=500, activation='tanh', recurrent_activation='sigmoid',
+    lstm_model = tf.keras.models.Sequential([
+        # Shape [batch, time, features] => [batch, time, lstm_units]
+        tf.keras.layers.InputLayer(input_shape=x_train.shape[-2:],
+                                   batch_size=None),
+        tf.keras.layers.LSTM(
+            units=200, activation='tanh', recurrent_activation='sigmoid',
             use_bias=True, kernel_initializer='glorot_uniform',
             recurrent_initializer='orthogonal', bias_initializer='zeros',
-            kernel_regularizer=None,
+            unit_forget_bias=True, kernel_regularizer=None,
+            recurrent_regularizer=None, bias_regularizer=None,
+            activity_regularizer=None, kernel_constraint=None,
+            recurrent_constraint=None, bias_constraint=None, dropout=0.3,
+            recurrent_dropout=0.0, implementation=2, return_sequences=True, #!
+            return_state=False, go_backwards=False, stateful=False,
+            time_major=False, unroll=False#,batch_input_shape=(1, 500, 3)
+        ),
+        tf.keras.layers.LSTM(
+            units=200, activation='tanh', recurrent_activation='sigmoid',
+            use_bias=True, kernel_initializer='glorot_uniform',
+            recurrent_initializer='orthogonal', bias_initializer='zeros',
+            unit_forget_bias=True, kernel_regularizer=None,
             recurrent_regularizer=None, bias_regularizer=None,
             activity_regularizer=None, kernel_constraint=None,
             recurrent_constraint=None, bias_constraint=None, dropout=0.2,
-            recurrent_dropout=0.0, return_sequences=False, return_state=False,
-            go_backwards=False, stateful=False, unroll=False, time_major=False,
-            reset_after=True
+            recurrent_dropout=0.0, implementation=2, return_sequences=False, #!
+            return_state=False, go_backwards=False, stateful=False,
+            time_major=False, unroll=False#,batch_input_shape=(1, 500, 3)
         ),
+        tf.keras.layers.Dense(units=100, activation='relu', use_bias=True,
+            kernel_initializer='glorot_uniform', bias_initializer='zeros',
+            kernel_regularizer=None, bias_regularizer=None,
+            activity_regularizer=None, kernel_constraint=None,
+            bias_constraint=None),
+        #tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+        # Shape => [batch, time, features]
         tf.keras.layers.Dense(units=1,
                               activation='sigmoid')
     ])
     firstLog = True
-prev_model = tf.keras.models.clone_model(gru_model,
+prev_model = tf.keras.models.clone_model(lstm_model,
                                     input_tensors=None, clone_function=None)
 
 checkpoints = tf.keras.callbacks.ModelCheckpoint(
-        filepath =model_loc+f'{profile}-checkpoints/checkpoint',
-        monitor='val_loss', verbose=0,
-        save_best_only=False, save_weights_only=False,
-        mode='auto', save_freq='epoch', options=None,
-    )
+    filepath =model_loc+f'{profile}-checkpoints/checkpoint',
+    monitor='val_loss', verbose=0,
+    save_best_only=False, save_weights_only=False,
+    mode='auto', save_freq='epoch', options=None,
+)
 
 tensorboard_callback = tf.keras.callbacks.TensorBoard(
         log_dir=model_loc+
@@ -214,128 +225,113 @@ tensorboard_callback = tf.keras.callbacks.TensorBoard(
         update_freq='epoch', profile_batch=2, embeddings_freq=0,
         embeddings_metadata=None
     )
-# gru_model.compile(loss=custom_loss,
-#             optimizer=RobustAdam(learning_rate = 0.001,
-#                  beta_1 = 0.9, beta_2 = 0.999, beta_3 = 0.999, epsilon = 1e-7,
-#                  cost = custom_loss),
-#             metrics=[tf.metrics.MeanAbsoluteError(),
-#                      tf.metrics.RootMeanSquaredError(),
-#                      tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float64)],
-#             #run_eagerly=True
-#             )
-# %%
-# loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-# def loss(model, x, y, training):
-#     # training=training is needed only if there are layers with different
-#     # behavior during training versus inference (e.g. Dropout).
-#     y_ = model(x, training=training)
-#     return custom_loss(y_true=y, y_pred=y_)
 
+nanTerminate = tf.keras.callbacks.TerminateOnNaN()
+
+
+# lstm_model.compile(loss=custom_loss,
+#         optimizer=tf.optimizers.Adam(learning_rate=0.001,
+#                 beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
+#         metrics=[tf.metrics.MeanAbsoluteError(),
+#                     tf.metrics.RootMeanSquaredError(),
+#                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
+#         #run_eagerly=True
+#     )
+# prev_model.compile(loss=custom_loss,
+#         optimizer=tf.optimizers.Adam(learning_rate=0.001,
+#                 beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
+#         metrics=[tf.metrics.MeanAbsoluteError(),
+#                     tf.metrics.RootMeanSquaredError(),
+#                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
+#     )
+# %%
 MAE = tf.metrics.MeanAbsoluteError()
 RMSE = tf.metrics.RootMeanSquaredError()
 RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
-# RSquare = tfa.metrics.RSquare()
+
+optimiser=tf.optimizers.Adam(learning_rate=0.0001,
+                beta_1=0.9, beta_2=0.999, epsilon=10e-08)
 
 while iEpoch < mEpoch:
     iEpoch+=1
+    i : int = 0
+    epoch_loss = np.zeros(shape=(y_train.shape[0],))
+    epoch_mae = np.zeros(shape=(y_train.shape[0],))
+    epoch_rmse = np.zeros(shape=(y_train.shape[0],))
+    epoch_rsquare = np.zeros(shape=(y_train.shape[0],))
     pbar = tqdm(total=y_train.shape[0])
-    optimiser = RobustAdam(lr_rate = 0.001,
-                beta_1 = 0.9, beta_2 = 0.999, beta_3 = 0.999, epsilon = 1e-7,
-                _is_first=True)
-
-    with tf.GradientTape() as tape:
-        # Run the forward pass of the layer.
-        logits = gru_model(x_train[:1,:,:], training=True)
-        # Compute the loss value 
-        loss_value = custom_loss(y_true=y_train[:1], y_pred=logits)
-        # 
-        grads = tape.gradient(loss_value, gru_model.trainable_variables)
-    optimiser.apply_gradients(zip(grads, gru_model.trainable_variables),
-                                experimental_aggregate_gradients=True)
-    # Get matrics
-    MAE.update_state(y_true=y_train[:1], y_pred=logits)
-    RMSE.update_state(y_true=y_train[:1], y_pred=logits)
-    RSquare.update_state(y_true=y_train[:1], y_pred=logits)
-    # Progress Bar
-    pbar.update(1)
-    pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
-                         f'loss: {loss_value[0]:.4e} - '
-                         f'mae: {MAE.result():.4e} - '
-                         f'rmse: {RMSE.result():.4e} - '
-                         f'rsquare: {RSquare.result():04f}'
-                        )
-
-    optimiser = RobustAdam(lr_rate = 0.001,
-                beta_1 = 0.9, beta_2 = 0.999, beta_3 = 0.999, epsilon = 1e-7,
-                _is_first=False)
-    
-    for x, y in zip(np.expand_dims(x_train[1:,:,:], axis=1), y_train[1:]):
+    for x, y in zip(np.expand_dims(x_train[:,:,:], axis=1), y_train[:]):
         with tf.GradientTape() as tape:
             # Run the forward pass of the layer.
-            logits = gru_model(x, training=True)
+            logits = lstm_model(x, training=True)
             # Compute the loss value 
             loss_value = custom_loss(y_true=y, y_pred=logits)
             # 
-            grads = tape.gradient(loss_value, gru_model.trainable_variables)
-        optimiser.apply_gradients(zip(grads, gru_model.trainable_variables),
+            grads = tape.gradient(loss_value, lstm_model.trainable_variables)
+        optimiser.apply_gradients(zip(grads, lstm_model.trainable_variables),
                                     experimental_aggregate_gradients=True)
         # Get matrics
         MAE.update_state(y_true=y_train[:1], y_pred=logits)
         RMSE.update_state(y_true=y_train[:1], y_pred=logits)
         RSquare.update_state(y_true=y_train[:1], y_pred=logits)
-
-        # Progress Bar
-        pbar.update(1)
-        pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
-                             f'loss: {loss_value[0]:.4e} - '
-                             f'mae: {MAE.result():.4e} - '
-                             f'rmse: {RMSE.result():.4e} - '
-                             f'rsquare: {RSquare.result():04f}'
-                            )  
-        
-    # Evaluation
-    PRED = np.zeros(shape=(y_valid.shape[0],))
-    epoch_loss = np.zeros(shape=(y_valid.shape[0],))
-    epoch_mae = np.zeros(shape=(y_valid.shape[0],))
-    epoch_rmse = np.zeros(shape=(y_valid.shape[0],))
-    epoch_rsquare = np.zeros(shape=(y_valid.shape[0],))
-    
-    for i in trange(0, len(y_valid)):
-        with tf.GradientTape() as tape:
-            y_pred = gru_model(x_valid[i:i+1,:,:], training=False)
-        MAE.update_state(y_valid[i], y_pred)
-        RMSE.update_state(y_valid[i], y_pred)
-        RSquare.update_state(y_valid[i:i+1], np.array(y_pred[0]))
-        PRED[i] = y_pred
-        epoch_loss[i] = custom_loss(y_valid[i], y_pred)
+        epoch_loss[i] = loss_value
         epoch_mae[i] = MAE.result()
         epoch_rmse[i] = RMSE.result()
         epoch_rsquare[i] = RSquare.result()
         
-    print(f'val_loss: {np.mean(epoch_loss)}')
-    print(f'val_mae: {np.mean(epoch_mae)}')
-    print(f'val_rmse: {np.mean(epoch_rmse)}')
-    print(f'val_rsquare: {np.mean(epoch_rsquare)}')
+        # Progress Bar
+        pbar.update(1)
+        pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
+                             f'loss: {epoch_loss[i]:.4e} - '
+                             f'mae: {epoch_mae[i]:.4e} - '
+                             f'rmse: {epoch_rmse[i]:.4e} - '
+                             f'rsquare: {epoch_rsquare[i]:04f}'
+                            )
+        i+=1
+
+    # Evaluation
+    PRED = np.zeros(shape=(y_valid.shape[0],))
+    epoch_val_loss = np.zeros(shape=(y_valid.shape[0],))
+    epoch_val_mae = np.zeros(shape=(y_valid.shape[0],))
+    epoch_val_rmse = np.zeros(shape=(y_valid.shape[0],))
+    epoch_val_rsquare = np.zeros(shape=(y_valid.shape[0],))
     
-    gru_model.save(filepath=f'{model_loc}{iEpoch}',
+    for i in trange(0, len(y_valid)):
+        with tf.GradientTape() as tape:
+            y_pred = lstm_model(x_valid[i:i+1,:,:], training=False)
+        MAE.update_state(y_valid[i], y_pred)
+        RMSE.update_state(y_valid[i], y_pred)
+        RSquare.update_state(y_valid[i:i+1], np.array(y_pred[0]))
+        PRED[i] = y_pred
+        epoch_val_loss[i] = custom_loss(y_valid[i], y_pred)
+        epoch_val_mae[i] = MAE.result()
+        epoch_val_rmse[i] = RMSE.result()
+        epoch_val_rsquare[i] = RSquare.result()
+        
+    print(f'val_loss: {np.mean(epoch_val_loss)}')
+    print(f'val_mae: {np.mean(epoch_val_mae)}')
+    print(f'val_rmse: {np.mean(epoch_val_rmse)}')
+    print(f'val_rsquare: {np.mean(epoch_val_rsquare)}')
+
+    lstm_model.save(filepath=f'{model_loc}{iEpoch}',
                         overwrite=True, include_optimizer=True,
                         save_format='h5', signatures=None, options=None,
                         save_traces=True
                 )
-    prev_model = tf.keras.models.clone_model(gru_model)
+    prev_model = tf.keras.models.clone_model(lstm_model)
 
     if os.path.exists(f'{model_loc}{iEpoch-1}.ch'):
         os.remove(f'{model_loc}{iEpoch-1}.ch')
     os.mknod(f'{model_loc}{iEpoch}.ch')
-    
+
     # Saving history variable
     # convert the history.history dict to a pandas DataFrame:
     hist_df = pd.DataFrame(data={
             'loss' : [loss_value],
-            'val_loss' : [np.mean(epoch_loss)],
-            'val_mean_absolute_error' : [np.mean(epoch_mae)],
-            'val_root_mean_squared_error' : [np.mean(epoch_rmse)],
-            'val_r_square' : [np.mean(epoch_rsquare)],
+            'val_loss' : [np.mean(epoch_val_loss)],
+            'val_mean_absolute_error' : [np.mean(epoch_val_mae)],
+            'val_root_mean_squared_error' : [np.mean(epoch_val_rmse)],
+            'val_r_square' : [np.mean(epoch_val_rsquare)],
         })
     # or save to csv:
     with open(f'{model_loc}history-{profile}.csv', mode='a') as f:
@@ -347,14 +343,13 @@ while iEpoch < mEpoch:
     
     RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
                 y_valid[::,]-PRED)))
-    PERF = np.array([np.mean(epoch_loss), np.mean(epoch_mae),
-                     np.mean(epoch_rmse), np.mean(epoch_rsquare)],
+    PERF = np.array([np.mean(epoch_val_loss), np.mean(epoch_val_mae),
+                     np.mean(epoch_val_rmse), np.mean(epoch_val_rsquare)],
                      dtype=np.float32)
-
     # otherwise the right y-label is slightly clipped
-    predicting_plot(profile=profile, file_name='Model №5',
+    predicting_plot(profile=profile, file_name='Model №7',
                     model_loc=model_loc,
-                    model_type='GRU Stateless - Train dataset',
+                    model_type='LSTM Test - Train dataset',
                     iEpoch=f'val-{iEpoch}',
                     Y=y_valid,
                     PRED=PRED,
