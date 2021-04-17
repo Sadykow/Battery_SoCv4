@@ -235,41 +235,43 @@ MAE = tf.metrics.MeanAbsoluteError()
 RMSE = tf.metrics.RootMeanSquaredError()
 RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
 # RSquare = tfa.metrics.RSquare()
-
+optimiser = RobustAdam(lr_rate = 0.001,
+            beta_1 = 0.9, beta_2 = 0.999, beta_3 = 0.999, epsilon = 1e-7,
+            _is_first=False)
 while iEpoch < mEpoch:
     iEpoch+=1
     pbar = tqdm(total=y_train.shape[0])
-    optimiser = RobustAdam(lr_rate = 0.001,
-                beta_1 = 0.9, beta_2 = 0.999, beta_3 = 0.999, epsilon = 1e-7,
-                _is_first=True)
+    # optimiser = RobustAdam(lr_rate = 0.001,
+    #             beta_1 = 0.9, beta_2 = 0.999, beta_3 = 0.999, epsilon = 1e-7,
+    #             _is_first=True)
 
-    with tf.GradientTape() as tape:
-        # Run the forward pass of the layer.
-        logits = gru_model(x_train[:1,:,:], training=True)
-        # Compute the loss value 
-        loss_value = custom_loss(y_true=y_train[:1], y_pred=logits)
-        # 
-        grads = tape.gradient(loss_value, gru_model.trainable_variables)
-    optimiser.apply_gradients(zip(grads, gru_model.trainable_variables),
-                                experimental_aggregate_gradients=True)
-    # Get matrics
-    MAE.update_state(y_true=y_train[:1], y_pred=logits)
-    RMSE.update_state(y_true=y_train[:1], y_pred=logits)
-    RSquare.update_state(y_true=y_train[:1], y_pred=logits)
-    # Progress Bar
-    pbar.update(1)
-    pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
-                         f'loss: {loss_value[0]:.4e} - '
-                         f'mae: {MAE.result():.4e} - '
-                         f'rmse: {RMSE.result():.4e} - '
-                         f'rsquare: {RSquare.result():04f}'
-                        )
+    # with tf.GradientTape() as tape:
+    #     # Run the forward pass of the layer.
+    #     logits = gru_model(x_train[:1,:,:], training=True)
+    #     # Compute the loss value 
+    #     loss_value = custom_loss(y_true=y_train[:1], y_pred=logits)
+    #     # 
+    #     grads = tape.gradient(loss_value, gru_model.trainable_variables)
+    # optimiser.apply_gradients(zip(grads, gru_model.trainable_variables),
+    #                             experimental_aggregate_gradients=True)
+    # # Get matrics
+    # MAE.update_state(y_true=y_train[:1], y_pred=logits)
+    # RMSE.update_state(y_true=y_train[:1], y_pred=logits)
+    # RSquare.update_state(y_true=y_train[:1], y_pred=logits)
+    # # Progress Bar
+    # pbar.update(1)
+    # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
+    #                      f'loss: {loss_value[0]:.4e} - '
+    #                      f'mae: {MAE.result():.4e} - '
+    #                      f'rmse: {RMSE.result():.4e} - '
+    #                      f'rsquare: {RSquare.result():04f}'
+    #                     )
 
-    optimiser = RobustAdam(lr_rate = 0.001,
-                beta_1 = 0.9, beta_2 = 0.999, beta_3 = 0.999, epsilon = 1e-7,
-                _is_first=False)
+    # optimiser = RobustAdam(lr_rate = 0.001,
+    #             beta_1 = 0.9, beta_2 = 0.999, beta_3 = 0.999, epsilon = 1e-7,
+    #             _is_first=False)
     
-    for x, y in zip(np.expand_dims(x_train[1:,:,:], axis=1), y_train[1:]):
+    for x, y in zip(np.expand_dims(x_train[:,:,:], axis=1), y_train[:]):
         with tf.GradientTape() as tape:
             # Run the forward pass of the layer.
             logits = gru_model(x, training=True)
