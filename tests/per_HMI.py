@@ -318,29 +318,7 @@ for axT in axTs.flat:
 #! 3) Try on single line with constant current.
 #! 4) Plot single.
 #! 5) Get everythin else
-# %%
-data_dir    : str = '../Data/'
-dataGenerator = DataGenerator(train_dir=f'{data_dir}A123_Matt_Set',
-                              valid_dir=f'{data_dir}A123_Matt_Val',
-                              test_dir=f'{data_dir}A123_Matt_Test',
-                              columns=[
-                                'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
-                                'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
-                                ],
-                              PROFILE_range = profile)
-MEAN = np.mean(a=dataGenerator.train[:,:3], axis=0,
-                                    dtype=float_dtype,
-                                    keepdims=False)
-STD = np.std(a=dataGenerator.train[:,:3], axis=0,
-                            keepdims=False)
-# !! Compare with original
-normalised_training = np.divide(
-    np.subtract(
-            np.copy(a=dataGenerator.train_list[0].iloc[:,:3]),
-            MEAN
-        ),
-    STD
-    )
+
 # %%
 #? Model №1 - Chemali2017    - DST  - 1
 #?                           - US06 - 50
@@ -386,7 +364,29 @@ try:
     print("Model Identefied.")
 except OSError as identifier:
     print("Model Not Found, Check the path. {} \n".format(identifier))
-
+# %%
+data_dir    : str = '../Data/'
+dataGenerator = DataGenerator(train_dir=f'{data_dir}A123_Matt_Set',
+                              valid_dir=f'{data_dir}A123_Matt_Val',
+                              test_dir=f'{data_dir}A123_Matt_Test',
+                              columns=[
+                                'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
+                                'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
+                                ],
+                              PROFILE_range = profile)
+MEAN = np.mean(a=dataGenerator.train[:,:3], axis=0,
+                                    dtype=float_dtype,
+                                    keepdims=False)
+STD = np.std(a=dataGenerator.train[:,:3], axis=0,
+                            keepdims=False)
+# !! Compare with original
+normalised_training = np.divide(
+    np.subtract(
+            np.copy(a=dataGenerator.train_list[0].iloc[:,:3]),
+            MEAN
+        ),
+    STD
+    )
 
 #? Given: 28408 samples, 1s => 7.89h
 #?                       10s => +-48min
