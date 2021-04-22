@@ -116,8 +116,7 @@ tic : int = perf_counter()
 with open(bms_dir+bms_file) as file_object:
     # store file data in object
     lines = file_object.readlines()
-    c_lines = 0
-    
+    c_lines = 0   
     for line in lines[:]:
         record = line.replace(':', ' : ').replace(',', '').replace('{','').replace('}','').replace('[','').replace(']','').split()
         #print(record)
@@ -306,6 +305,18 @@ for axT in axTs.flat:
                              'Sensor 5', 'Sensor 6', 'Sensor 7', 'Sensor 8',
                              'Sensor 9', 'Sensor10', 'Sensor11', 'Sensor12'])
     i += 1
+# %%
+# Saving data to csv
+# i = 0
+# for i in range(0, len(BMSsV)):
+#     with open(f'parsed/Voltage-BMS-{i}.csv',mode='a') as f:
+#         pd.DataFrame(data=BMSsV[i][1:],
+#         columns=['VSens1','VSens2','VSens3','VSens4','VSens5',
+#                 'VSens6','VSens7','VSens8','VSens9','VSens10']).to_csv(f, index=False)
+#     with open(f'parsed/Temperature-BMS-{i}.csv',mode='a') as f:
+#         pd.DataFrame(data=BMSsT[i][1:],
+#         columns=['TSens1','TSens2','TSens3','TSens4','TSens5','TSens6',
+#                 'TSens7','TSens8','TSens9','TSens10','TSens11','TSens12']).to_csv(f, index=False)
 # %%
 # plt.plot(Data['Current(A)']/3) # 10A - 3 parallel by 2 bricks.
 # 6 parallels inside single brick

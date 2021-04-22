@@ -8,6 +8,9 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import tensorflow as tf
 import tensorflow_addons as tfa
 
+sys.path.append(os.getcwd() + '/..')
+from py_modules.Attention import *
+
 import platform        # System for deligates, not the platform string
 import time
 
@@ -174,9 +177,9 @@ for i in range(0, len(train_X)):
 
 trX, trY = create_Batch_dataset(train_X, train_Y, look_back)
 # %%
-author : str = 'BinXiao2020'#'WeiZhang2020' 'TadeleMamo2020' 'Chemali2017'
-profile: str = 'DST'#'d_DST' 'US06' 'FUDS'
-version: str = '50'
+author : str = 'TadeleMamo2020'#'BinXiao2020'#'WeiZhang2020' 'TadeleMamo2020' 'Chemali2017'
+profile: str = 'US06'#'d_DST' 'US06' 'FUDS'
+version: str = '25'
 model_h5_file : str = f'../Models/{author}/{profile}-models/{version}'
 
 # session  = tf.compat.v1.Session()
@@ -216,7 +219,15 @@ def get_flops(model):
             )
         return flops.total_float_ops
 
-lstm_model = tf.keras.models.load_model(model_h5_file, compile=False)
-lstm_model.summary()
-print('The FLOPs is: {}'.format(get_flops(lstm_model)), flush=True)
+# lstm_model = tf.keras.models.load_model(model_h5_file, compile=False)
+model : tf.keras.models.Sequential = tf.keras.models.load_model(
+        model_h5_file,
+        compile=False,
+        custom_objects={"RSquare": tfa.metrics.RSquare,
+                        "AttentionWithContext": AttentionWithContext,
+                        "Addition": Addition,
+                        }
+        )
+model.summary()
+print('The FLOPs is: {}'.format(get_flops(model)), flush=True)
 # %%
