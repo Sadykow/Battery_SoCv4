@@ -57,9 +57,9 @@ def predicting_plot(profile : str, file_name : str, model_loc : str,
 
   # Put the text box with performance results.
   textstr = '\n'.join((
-      r'$Loss =%.2f$' % (val_perf[0], ),
-      r'$MAE =%.2f$'  % (val_perf[1], ),
-      r'$RMSE=%.2f$'  % (val_perf[2], )))
+      r'$MAE =%.2f%$'  % (val_perf[1]*100, ),
+      r'$RMSE=%.2f%$'  % (val_perf[2]*100, ),
+      r'$R^2 =%.2f%$'  % (val_perf[3]*100, )))
   ax1.text(0.65, 0.80, textstr, transform=ax1.transAxes, fontsize=30,
           verticalalignment='top',
           bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
