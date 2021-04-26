@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # %% [markdown]
 # Using 3 devices run evaluation of the model
-import threading
+import os, sys, threading
 
 import tensorflow as tf  # Tensorflow and Numpy replacement
 import tensorflow_addons as tfa
@@ -11,6 +11,7 @@ from numpy import ndarray
 sys.path.append(os.getcwd() + '/..')
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
+from py_modules.Attention import *
 # %%
 physical_devices = tf.config.experimental.list_physical_devices()
 print(f'Available devices: {physical_devices}')
@@ -46,25 +47,41 @@ for g in dataGenerators:
     X.append(x)
     Y.append(y)
     
-
-# US06_window = WindowGenerator(Data=US06_Generator,
-#                         input_width=500, label_width=1, shift=0,
-#                         input_columns=['Current(A)', 'Voltage(V)',
-#                                                 'Temperature (C)_1'],
-#                         label_columns=['SoC(%)'], batch=1,
-#                         includeTarget=False, normaliseLabal=False,
-#                         shuffleTraining=False)
-# FUDS_window = WindowGenerator(Data=FUDS_Generator,
-#                         input_width=500, label_width=1, shift=0,
-#                         input_columns=['Current(A)', 'Voltage(V)',
-#                                                 'Temperature (C)_1'],
-#                         label_columns=['SoC(%)'], batch=1,
-#                         includeTarget=False, normaliseLabal=False,
-#                         shuffleTraining=False)
-# _, DSTx_train, DSTy_train = DST_window.train
-# _, US06x_train, US06y_train = US06_window.train
-# _, FUDSx_train, FUDSy_train = FUDS_window.train
 # %%
+# """ sumN(0.5*(SoC-SoC*)^2) """
+# chemali_loss = lambda y_true, y_pred: tf.keras.backend.sum(
+#         x=tf.math.divide(
+#                 x=tf.keras.backend.square(
+#                         x=tf.math.subtract(
+#                                 x=tf.cast(y_true, y_pred.dtype),
+#                                 y=tf.convert_to_tensor(y_pred)
+#                             )
+#                     ),
+#                 y=2
+#             ),
+#         axis=1
+#     )
+def chemali_loss(y_true, y_pred):
+    """ Custom loss based on following formula:
+        sumN(0.5*(SoC-SoC*)^2)
+
+    Args:
+        y_true (tf.Tensor): True output values
+        y_pred (tf.Tensor): Predicted output from model
+
+    Returns:
+        tf.Tensor: The calculated Loss Value
+    """
+    y_pred = tf.convert_to_tensor(y_pred)
+    y_true = tf.cast(y_true, y_pred.dtype)
+    loss = tf.math.divide(
+                        x=tf.keras.backend.square(
+                                x=tf.math.subtract(x=y_true,
+                                                   y=y_pred)
+                            ), 
+                        y=2
+                    )
+    return tf.keras.backend.sum(loss, axis=1)   
 #? Model №1 - Chemali2017    - DST  - 1
 #?                           - US06 - 50
 #?                           - FUDS - 48
@@ -77,7 +94,7 @@ for g in dataGenerators:
 # author  : str = 'BinXiao2020'
 # iEpochs  : list = [50, 21, 48]
 
-#? Model №3 - TadeleMamo2020 - DST  - ?
+#? Model №3 - TadeleMamo2020 - DST  - 4
 #?                           - US06 - 25
 #?                           - FUDS - 10
 # author  : str = 'TadeleMamo2020'
@@ -89,8 +106,15 @@ for g in dataGenerators:
 # author  : str = 'WeiZhang2020'
 # iEpochs  : list = [9, None, 3]
 
-author  : str = 'BinXiao2020'#'TadeleMamo2020'#'WeiZhang2020'#Chemali2017
-iEpochs  : list = [50, 21, 48]
+# author  : str = 'Chemali2017'
+# iEpochs  : list = [1 , 50, 48]
+
+# author  : str = 'BinXiao2020'
+# iEpochs  : list = [50, 21, 48]
+
+author  : str = 'TadeleMamo2020'#'TadeleMamo2020'#'WeiZhang2020'#Chemali2017
+iEpochs  : list = [4 , 25, 10]
+
 models_loc : list = [f'../Models/{author}/DST-models/',
                      f'../Models/{author}/US06-models/',
                      f'../Models/{author}/FUDS-models/']
@@ -101,26 +125,46 @@ for i in range(3):
                 f'{models_loc[i]}{iEpochs[i]}',
                 compile=False,
                 custom_objects={"RSquare": tfa.metrics.RSquare,
-                                # "AttentionWithContext": AttentionWithContext,
-                                # "Addition": Addition,
+                                "AttentionWithContext": AttentionWithContext,
+                                "Addition": Addition,
                                 }
                 )
         )
-    models[i].compile(
-            loss=tf.keras.losses.MeanSquaredError(),
-            optimizer=tf.keras.optimizers.Adamax(learning_rate=0.0005,
-                beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Adamax'
-                ),
+    #! 1) Chemali compile
+    # models[i].compile(loss=chemali_loss,
+    #         optimizer=tf.optimizers.Adam(learning_rate=0.001,
+    #                 beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
+    #         metrics=[tf.metrics.MeanAbsoluteError(),
+    #                     tf.metrics.RootMeanSquaredError(),
+    #                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+    #     )
+    #! 2) Xiao
+    # models[i].compile(
+    #         loss=tf.keras.losses.MeanSquaredError(),
+    #         optimizer=tf.keras.optimizers.Adamax(learning_rate=0.0005,
+    #             beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Adamax'
+    #             ),
+    #         metrics=[tf.metrics.MeanAbsoluteError(),
+    #                     tf.metrics.RootMeanSquaredError(),
+    #                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+    #     )
+    #! 3) Mamo
+    models[i].compile(loss=tf.keras.losses.MeanAbsoluteError(),
+            optimizer=tf.optimizers.Adam(learning_rate=0.001,
+                    beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
             metrics=[tf.metrics.MeanAbsoluteError(),
-                        tf.metrics.RootMeanSquaredError(),
-                        tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+                     tf.metrics.RootMeanSquaredError(),
+                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
         )
-
 # %%
 #! Performing multipthreaded approach
 devices : list = ['/cpu:0','/gpu:0','/gpu:1']
-treads  : list = []
-results : list = [None]*3
+cpu_thread : threading.Thread = None
+gpu_threads  : list = [threading.Thread]*2
+
+use_cpu : bool = False
+cpu_results : list = [None]
+gpu_US_FUDS_results : list = [None]*2
 
 def worker_evaluate(model, devise : str,
                     X:ndarray, Y:ndarray,
@@ -132,109 +176,108 @@ def worker_evaluate(model, devise : str,
                               sample_weight=None, steps=None, callbacks=None,
                               max_queue_size=10, workers=1,
                               use_multiprocessing=False, return_dict=False)
-
-# Initialising threads
-# for i in range(3):
-#     treads.append(
-#             threading.Thread(target=worker_evaluate,
-#                              args=[models[0], devices[i],
-#                                    X[i][:,:,:], Y[i][:,:],
-#                                    results, i])
-#         )
-# GPUs only DST
-for i in range(1, 3):
-    treads.append(
-            threading.Thread(target=worker_evaluate,
-                             args=[models[0], devices[i],
-                                   X[i][:,:,:], Y[i][:,:],
-                                   results, i])
-        )
-    treads[i-1].start()
+#? models[0] -- DST
+#? models[1] -- US06
+#? models[2] -- FUDS
+if use_cpu: # Use CPU?: models[0] -->> DST : ignore do on GPU
+    cpu_tread = threading.Thread(target=worker_evaluate,
+                                args=[models[0], devices[0],
+                                    X[0][:,:,:], Y[0][:,:],
+                                    cpu_results, 0])
+# GPU DST model based
+for i in range(0, len(gpu_threads)):
+    gpu_threads[i] = threading.Thread(target=worker_evaluate,
+                             args=[models[0], devices[i+1],
+                                   X[i+1][:,:,:], Y[i+1][:,:],
+                                   gpu_US_FUDS_results, i])
+    gpu_threads[i].start()
+        
 #! Use CPU thread as a daemon d.setDaemon(True)
 #!https://www.bogotobogo.com/python/Multithread/python_multithreading_Daemon_join_method_threads.php
 # Joining threads
-for thread in treads:
+if use_cpu:
+    cpu_tread.setDaemon(True)
+    cpu_tread.start()
+
+for thread in gpu_threads:
     thread.join()
-##
-for i in range(1, len(results)):
-    print(f'results of {profiles[i]} on model DST trained:\n'
-          f'\tMAE: {results[i][1]*100}%\n'
-          f'\tRMSE:{results[i][2]*100}%\n'
-          f'\tR2:  {results[i][3]*100}%\n')
-#%%
-# GPU US06 based
-treads  : list = []
-results : list = [None]*3
-for i in range(1, 3):
-    treads.append(
-            threading.Thread(target=worker_evaluate,
-                             args=[models[1], devices[i],
-                                   X[i][:,:,:], Y[i][:,:],
-                                   results, i])
-        )
-    treads[i-1].start()
+
+for i in range(0, len(gpu_US_FUDS_results)):
+    print(f'1st stage - results of DST trained model {profiles[i+1]} data:\n'
+          f'\tMAE: {gpu_US_FUDS_results[i][1]*100}%\n'
+          f'\tRMSE:{gpu_US_FUDS_results[i][2]*100}%\n'
+          f'\tR2:  {gpu_US_FUDS_results[i][3]*100}%\n')
+
+# %% GPU US06 model based
+for i in range(0, len(gpu_threads)):
+    gpu_threads[i] = threading.Thread(target=worker_evaluate,
+                             args=[models[1], devices[i+1],
+                                   X[i+1][:,:,:], Y[i+1][:,:],
+                                   gpu_US_FUDS_results, i])
+    gpu_threads[i].start()
 
 # Joining threads
-for thread in treads:
+for thread in gpu_threads:
     thread.join()
 
-for i in range(1, len(results)):
-    print(f'results of {profiles[i]} on model US06 trained:\n'
-          f'\tMAE: {results[i][1]*100}%\n'
-          f'\tRMSE:{results[i][2]*100}%\n'
-          f'\tR2:  {results[i][3]*100}%\n')
+for i in range(0, len(gpu_US_FUDS_results)):
+    print(f'2nd stage - results of US06 trained model {profiles[i+1]} data:\n'
+          f'\tMAE: {gpu_US_FUDS_results[i][1]*100}%\n'
+          f'\tRMSE:{gpu_US_FUDS_results[i][2]*100}%\n'
+          f'\tR2:  {gpu_US_FUDS_results[i][3]*100}%\n')
 
-# GPU FUDS based
-treads  : list = []
-results : list = [None]*3
-for i in range(1, 3):
-    treads.append(
-            threading.Thread(target=worker_evaluate,
-                             args=[models[2], devices[i],
-                                   X[i][:,:,:], Y[i][:,:],
-                                   results, i])
-        )
-    treads[i-1].start()
+# %% GPU FUDS model based
+for i in range(0, len(gpu_threads)):
+    gpu_threads[i] = threading.Thread(target=worker_evaluate,
+                             args=[models[2], devices[i+1],
+                                   X[i+1][:,:,:], Y[i+1][:,:],
+                                   gpu_US_FUDS_results, i])
+    gpu_threads[i].start()
 
 # Joining threads
-for thread in treads:
+for thread in gpu_threads:
     thread.join()
 
-for i in range(1, len(results)):
-    print(f'results of {profiles[i]} on model FUDS trained:\n'
-          f'\tMAE: {results[i][1]*100}%\n'
-          f'\tRMSE:{results[i][2]*100}%\n'
-          f'\tR2:  {results[i][3]*100}%\n')
+for i in range(0, len(gpu_US_FUDS_results)):
+    print(f'3rd stage - results of FUDS trained model {profiles[i+1]} data:\n'
+          f'\tMAE: {gpu_US_FUDS_results[i][1]*100}%\n'
+          f'\tRMSE:{gpu_US_FUDS_results[i][2]*100}%\n'
+          f'\tR2:  {gpu_US_FUDS_results[i][3]*100}%\n')
 
-# GPU remaining
-results : list = [None]*3
-tr1 = threading.Thread(target=worker_evaluate,
-                       args=[models[0], devices[1],
-                            X[0][:,:,:], Y[0][:,:],
-                            results, 0])
-tr2 = threading.Thread(target=worker_evaluate,
-                       args=[models[1], devices[2],
-                            X[0][:,:,:], Y[0][:,:],
-                            results, 1])
-tr1.start()
-tr2.start()
-tr1.join()
-tr2.join()
+# %% GPU remaining US06 - DST and FUDS - DST
+for i in range(0, len(gpu_threads)):
+    gpu_threads[i] = threading.Thread(target=worker_evaluate,
+                             args=[models[i+1], devices[i+1],
+                                   X[0][:,:,:], Y[0][:,:],
+                                   gpu_US_FUDS_results, i])
+    gpu_threads[i].start()
 
-print(f'results of DST trained on DST:\n'
-        f'\tMAE: {results[0][1]*100}%\n'
-        f'\tRMSE:{results[0][2]*100}%\n'
-        f'\tR2:  {results[0][3]*100}%\n')
-print(f'results of US06 trained on DST:\n'
-        f'\tMAE: {results[1][1]*100}%\n'
-        f'\tRMSE:{results[1][2]*100}%\n'
-        f'\tR2:  {results[1][3]*100}%\n')
+for thread in gpu_threads:
+    thread.join()
 
-# Complete the last remaining
-worker_evaluate(models[2], devices[1],
-                    X[0][:,:,:], Y[0][:,:],
-                    results, 2)
-print(f'results of FUDS trained on DST:\n'
-        f'\tMAE: {results[2][1]*100}%\n'
-        f'\tRMSE:{results[2][2]*100}%\n'
-        f'\tR2:  {results[2][3]*100}%\n')
+for i in range(0, len(gpu_US_FUDS_results)):
+    print(f'4th stage - results of {profiles[i+1]} trained model DST data:\n'
+          f'\tMAE: {gpu_US_FUDS_results[i][1]*100}%\n'
+          f'\tRMSE:{gpu_US_FUDS_results[i][2]*100}%\n'
+          f'\tR2:  {gpu_US_FUDS_results[i][3]*100}%\n')
+
+# %% Complete the last remaining
+if use_cpu:
+    while(cpu_tread.is_alive()):
+        pass
+    print(f'results of DST trained model {profiles[0]} data:\n'
+            f'\tMAE: {cpu_results[0][1]*100}%\n'
+            f'\tRMSE:{cpu_results[0][2]*100}%\n'
+            f'\tR2:  {cpu_results[0][3]*100}%\n')
+else: #! Complete on GPU last part
+    cpu_tread = threading.Thread(target=worker_evaluate,
+                                args=[models[0], devices[1],
+                                    X[0][:,:,:], Y[0][:,:],
+                                    cpu_results, 0])
+    cpu_tread.start()
+    cpu_tread.join()
+    print(f'results of DST trained model {profiles[0]} data:\n'
+            f'\tMAE: {cpu_results[0][1]*100}%\n'
+            f'\tRMSE:{cpu_results[0][2]*100}%\n'
+            f'\tR2:  {cpu_results[0][3]*100}%\n')
+# %%
