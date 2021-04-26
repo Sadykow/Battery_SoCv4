@@ -214,15 +214,21 @@ tensorboard_callback = tf.keras.callbacks.TensorBoard(
     )
 nanTerminate = tf.keras.callbacks.TerminateOnNaN()
 
-# tf.keras.optimizers.Adam()
-# tf.optimizers.Adamax
-gru_model.compile(loss=tf.losses.MeanAbsoluteError(),#custom_loss,
-            optimizer=RobustAdam(learning_rate = 0.01,
-                 beta_1 = 0.9, beta_2 = 0.999, beta_3 = 0.999, epsilon = 1e-7),
-            metrics=[tf.metrics.MeanAbsoluteError(),
-                     tf.metrics.RootMeanSquaredError(),
-                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
-            )
+# gru_model.compile(loss=tf.losses.MeanAbsoluteError(),#custom_loss,
+#             optimizer=RobustAdam(),
+#             metrics=[tf.metrics.MeanAbsoluteError(),
+#                      tf.metrics.RootMeanSquaredError(),
+#                      tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+#             )
+# gru_model.fit(x=x_valid, y=y_valid,
+#                     epochs=1,
+#                     validation_data=None,
+#                     callbacks=[nanTerminate],
+#                     batch_size=1, shuffle=True
+#                     )
+# plt.plot(gru_model.predict(x_valid, batch_size=1))
+# plt.plot(y_valid)
+
 # prev_model.compile(loss=custom_loss,
 #             optimizer=RobustAdam(lr_rate = 0.001,
 #                  beta_1 = 0.9, beta_2 = 0.999, beta_3 = 0.999, epsilon = 1e-7),
@@ -230,170 +236,194 @@ gru_model.compile(loss=tf.losses.MeanAbsoluteError(),#custom_loss,
 #                      tf.metrics.RootMeanSquaredError(),
 #                      tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
 #             )
-gru_model.fit(x=x_train[16800:25000,:,:], y=y_train[16800:25000,:],
-                    epochs=1,
-                    validation_data=None,
-                    callbacks=[nanTerminate],
-                    batch_size=1, shuffle=True
-                    )
-plt.plot(gru_model.predict(x_valid, batch_size=1))
-plt.plot(y_valid)
 # %%
-i_attempts : int = 0
-n_attempts : int = 3
-while iEpoch < mEpoch:
-    iEpoch+=1
-    print(f"Epoch {iEpoch}/{mEpoch}")
+# i_attempts : int = 0
+# n_attempts : int = 3
+# while iEpoch < mEpoch:
+#     iEpoch+=1
+#     print(f"Epoch {iEpoch}/{mEpoch}")
     
-    history = gru_model.fit(x=x_train[16800:25000,:,:], y=y_train[16800:25000,:],
-                        epochs=1,
-                        validation_data=(x_valid, y_valid),
-                        callbacks=[nanTerminate],
-                        batch_size=1, shuffle=True
+#     history = gru_model.fit(x=x_train[16800:25000,:,:], y=y_train[16800:25000,:],
+#                         epochs=1,
+#                         validation_data=(x_valid, y_valid),
+#                         callbacks=[nanTerminate],
+#                         batch_size=1, shuffle=True
+#                         )
+#     if (tf.math.is_nan(history.history['loss'])):
+#         print('NaN model')
+#         while i_attempts < n_attempts:
+#             #! Hopw abut reducing input dataset. In this case, by half. Keeping
+#             #!only middle temperatures.
+#             print(f'Attempt {i_attempts}')
+#             gru_model = tf.keras.models.clone_model(prev_model)
+#             gru_model.compile(loss=custom_loss,
+#                     optimizer=tf.optimizers.Adam(learning_rate=0.001,
+#                             beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
+#                     metrics=[tf.metrics.MeanAbsoluteError(),
+#                             tf.metrics.RootMeanSquaredError(),
+#                             tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+#                 )
+#             history = gru_model.fit(x=x_train[:,:,:], y=y_train[:,:], epochs=1,
+#                             validation_data=None,
+#                             callbacks=[nanTerminate],
+#                             batch_size=1, shuffle=True
+#                             )
+#             if (not tf.math.is_nan(history.history['loss'])):
+#                 print(f'Attempt {i_attempts} Passed')
+#                 break
+#             i_attempts += 1
+#         if (i_attempts == n_attempts) \
+#                 and (tf.math.is_nan(history.history['loss'])):
+#             print("Model reaced the optimim -- Breaking")
+#             break
+#         else:
+#             gru_model.save(filepath=f'{model_loc}{iEpoch}-{i_attempts}',
+#                             overwrite=True, include_optimizer=True,
+#                             save_format='h5', signatures=None, options=None,
+#                             save_traces=True
+#                 )
+#             i_attempts = 0
+#             prev_model = tf.keras.models.clone_model(gru_model)
+#     else:
+#         gru_model.save(filepath=f'{model_loc}{iEpoch}',
+#                         overwrite=True, include_optimizer=True,
+#                         save_format='h5', signatures=None, options=None,
+#                         save_traces=True
+#                 )
+#         prev_model = tf.keras.models.clone_model(gru_model)
+    
+#     if os.path.exists(f'{model_loc}{iEpoch-1}.ch'):
+#         os.remove(f'{model_loc}{iEpoch-1}.ch')
+#     os.mknod(f'{model_loc}{iEpoch}.ch')
+    
+#     # Saving history variable
+#     # convert the history.history dict to a pandas DataFrame:     
+#     hist_df = pd.DataFrame(history.history)
+#     # or save to csv:
+#     with open(f'{model_loc}history-{profile}.csv', mode='a') as f:
+#         if(firstLog):
+#             hist_df.to_csv(f, index=False)
+#             firstLog = False
+#         else:
+#             hist_df.to_csv(f, index=False, header=False)
+    
+#     #! Run the Evaluate function
+#     #! Replace with tf.metric function.
+#     PRED = gru_model.predict(x_valid, batch_size=1)
+#     RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+#                 y_valid[::,]-PRED)))
+#     PERF = gru_model.evaluate(x=x_valid,
+#                                y=y_valid,
+#                                batch_size=1,
+#                                verbose=0)
+#     # otherwise the right y-label is slightly clipped
+#     predicting_plot(profile=profile, file_name='Model №5',
+#                     model_loc=model_loc,
+#                     model_type='GRU Test - Train dataset',
+#                     iEpoch=f'val-{iEpoch}',
+#                     Y=y_valid,
+#                     PRED=PRED,
+#                     RMS=RMS,
+#                     val_perf=PERF,
+#                     TAIL=y_valid.shape[0],
+#                     save_plot=True, RMS_plot=False)
+#     if(PERF[-2] <=0.024): # Check thr RMSE
+#         print("RMS droped around 2.4%. Breaking the training")
+#         break
+
+# PRED = gru_model.predict(x_test_one, batch_size=1)
+# RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_one[::,]-PRED)))
+# if profile == 'DST':
+#     predicting_plot(profile=profile, file_name='Model №5',
+#                     model_loc=model_loc,
+#                     model_type='GRU Test on US06', iEpoch=f'Test One-{iEpoch}',
+#                     Y=y_test_one,
+#                     PRED=PRED,
+#                     RMS=RMS,
+#                     val_perf=gru_model.evaluate(
+#                                     x=x_test_one,
+#                                     y=y_test_one,
+#                                     batch_size=1,
+#                                     verbose=0),
+#                     TAIL=y_test_one.shape[0],
+#                     save_plot=True)
+# else:
+#     predicting_plot(profile=profile, file_name='Model №5',
+#                     model_loc=model_loc,
+#                     model_type='GRU Test on DST', iEpoch=f'Test One-{iEpoch}',
+#                     Y=y_test_one,
+#                     PRED=PRED,
+#                     RMS=RMS,
+#                     val_perf=gru_model.evaluate(
+#                                     x=x_test_one,
+#                                     y=y_test_one,
+#                                     batch_size=1,
+#                                     verbose=0),
+#                     TAIL=y_test_one.shape[0],
+#                     save_plot=True)
+
+# PRED = gru_model.predict(x_test_two, batch_size=1)
+# RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,]-PRED)))
+# if profile == 'FUDS':
+#     predicting_plot(profile=profile, file_name='Model №5',
+#                     model_loc=model_loc,
+#                     model_type='GRU Test on US06', iEpoch=f'Test Two-{iEpoch}',
+#                     Y=y_test_two,
+#                     PRED=PRED,
+#                     RMS=RMS,
+#                     val_perf=gru_model.evaluate(
+#                                     x=x_test_two,
+#                                     y=y_test_two,
+#                                     batch_size=1,
+#                                     verbose=0),
+#                     TAIL=y_test_two.shape[0],
+#                     save_plot=True)
+# else:
+#     predicting_plot(profile=profile, file_name='Model №5',
+#                     model_loc=model_loc,
+#                     model_type='GRU Test on FUDS', iEpoch=f'Test Two-{iEpoch}',
+#                     Y=y_test_two,
+#                     PRED=PRED,
+#                     RMS=RMS,
+#                     val_perf=gru_model.evaluate(
+#                                     x=x_test_two,
+#                                     y=y_test_two,
+#                                     batch_size=1,
+#                                     verbose=0),
+#                     TAIL=y_test_two.shape[0],
+#                     save_plot=True)
+# %%
+MAE = tf.metrics.MeanAbsoluteError()
+RMSE = tf.metrics.RootMeanSquaredError()
+RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
+optimiser = RobustAdam()
+pbar = tqdm(total=y_valid.shape[0])
+for x, y in zip(np.expand_dims(x_valid, axis=1), y_valid):
+    with tf.GradientTape() as tape:
+        # Run the forward pass of the layer.
+        logits = gru_model(x, training=True)
+        # Compute the loss value 
+        loss_value = custom_loss(y_true=y, y_pred=logits)
+        
+        grads = tape.gradient(loss_value, gru_model.trainable_variables)
+    # optimiser.update_labels()
+    optimiser.apply_gradients(zip(grads, gru_model.trainable_variables),
+                                experimental_aggregate_gradients=True)
+    # Get matrics
+    MAE.update_state(y_true=y_train[:1], y_pred=logits)
+    RMSE.update_state(y_true=y_train[:1], y_pred=logits)
+    RSquare.update_state(y_true=y_train[:1], y_pred=logits)
+
+    # Progress Bar
+    pbar.update(1)
+    pbar.set_description(f' :: '
+                         f'loss: {loss_value[0]:.4e} - '
+                         f'mae: {MAE.result():.4e} - '
+                         f'rmse: {RMSE.result():.4e} - '
+                         f'rsquare: {RSquare.result():04f}'
                         )
-    if (tf.math.is_nan(history.history['loss'])):
-        print('NaN model')
-        while i_attempts < n_attempts:
-            #! Hopw abut reducing input dataset. In this case, by half. Keeping
-            #!only middle temperatures.
-            print(f'Attempt {i_attempts}')
-            gru_model = tf.keras.models.clone_model(prev_model)
-            gru_model.compile(loss=custom_loss,
-                    optimizer=tf.optimizers.Adam(learning_rate=0.001,
-                            beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
-                    metrics=[tf.metrics.MeanAbsoluteError(),
-                            tf.metrics.RootMeanSquaredError(),
-                            tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
-                )
-            history = gru_model.fit(x=x_train[:,:,:], y=y_train[:,:], epochs=1,
-                            validation_data=None,
-                            callbacks=[nanTerminate],
-                            batch_size=1, shuffle=True
-                            )
-            if (not tf.math.is_nan(history.history['loss'])):
-                print(f'Attempt {i_attempts} Passed')
-                break
-            i_attempts += 1
-        if (i_attempts == n_attempts) \
-                and (tf.math.is_nan(history.history['loss'])):
-            print("Model reaced the optimim -- Breaking")
-            break
-        else:
-            gru_model.save(filepath=f'{model_loc}{iEpoch}-{i_attempts}',
-                            overwrite=True, include_optimizer=True,
-                            save_format='h5', signatures=None, options=None,
-                            save_traces=True
-                )
-            i_attempts = 0
-            prev_model = tf.keras.models.clone_model(gru_model)
-    else:
-        gru_model.save(filepath=f'{model_loc}{iEpoch}',
-                        overwrite=True, include_optimizer=True,
-                        save_format='h5', signatures=None, options=None,
-                        save_traces=True
-                )
-        prev_model = tf.keras.models.clone_model(gru_model)
-    
-    if os.path.exists(f'{model_loc}{iEpoch-1}.ch'):
-        os.remove(f'{model_loc}{iEpoch-1}.ch')
-    os.mknod(f'{model_loc}{iEpoch}.ch')
-    
-    # Saving history variable
-    # convert the history.history dict to a pandas DataFrame:     
-    hist_df = pd.DataFrame(history.history)
-    # or save to csv:
-    with open(f'{model_loc}history-{profile}.csv', mode='a') as f:
-        if(firstLog):
-            hist_df.to_csv(f, index=False)
-            firstLog = False
-        else:
-            hist_df.to_csv(f, index=False, header=False)
-    
-    #! Run the Evaluate function
-    #! Replace with tf.metric function.
-    PRED = gru_model.predict(x_valid, batch_size=1)
-    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-                y_valid[::,]-PRED)))
-    PERF = gru_model.evaluate(x=x_valid,
-                               y=y_valid,
-                               batch_size=1,
-                               verbose=0)
-    # otherwise the right y-label is slightly clipped
-    predicting_plot(profile=profile, file_name='Model №5',
-                    model_loc=model_loc,
-                    model_type='GRU Test - Train dataset',
-                    iEpoch=f'val-{iEpoch}',
-                    Y=y_valid,
-                    PRED=PRED,
-                    RMS=RMS,
-                    val_perf=PERF,
-                    TAIL=y_valid.shape[0],
-                    save_plot=True, RMS_plot=False)
-    if(PERF[-2] <=0.024): # Check thr RMSE
-        print("RMS droped around 2.4%. Breaking the training")
-        break
-
-PRED = gru_model.predict(x_test_one, batch_size=1)
-RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_one[::,]-PRED)))
-if profile == 'DST':
-    predicting_plot(profile=profile, file_name='Model №5',
-                    model_loc=model_loc,
-                    model_type='GRU Test on US06', iEpoch=f'Test One-{iEpoch}',
-                    Y=y_test_one,
-                    PRED=PRED,
-                    RMS=RMS,
-                    val_perf=gru_model.evaluate(
-                                    x=x_test_one,
-                                    y=y_test_one,
-                                    batch_size=1,
-                                    verbose=0),
-                    TAIL=y_test_one.shape[0],
-                    save_plot=True)
-else:
-    predicting_plot(profile=profile, file_name='Model №5',
-                    model_loc=model_loc,
-                    model_type='GRU Test on DST', iEpoch=f'Test One-{iEpoch}',
-                    Y=y_test_one,
-                    PRED=PRED,
-                    RMS=RMS,
-                    val_perf=gru_model.evaluate(
-                                    x=x_test_one,
-                                    y=y_test_one,
-                                    batch_size=1,
-                                    verbose=0),
-                    TAIL=y_test_one.shape[0],
-                    save_plot=True)
-
-PRED = gru_model.predict(x_test_two, batch_size=1)
-RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,]-PRED)))
-if profile == 'FUDS':
-    predicting_plot(profile=profile, file_name='Model №5',
-                    model_loc=model_loc,
-                    model_type='GRU Test on US06', iEpoch=f'Test Two-{iEpoch}',
-                    Y=y_test_two,
-                    PRED=PRED,
-                    RMS=RMS,
-                    val_perf=gru_model.evaluate(
-                                    x=x_test_two,
-                                    y=y_test_two,
-                                    batch_size=1,
-                                    verbose=0),
-                    TAIL=y_test_two.shape[0],
-                    save_plot=True)
-else:
-    predicting_plot(profile=profile, file_name='Model №5',
-                    model_loc=model_loc,
-                    model_type='GRU Test on FUDS', iEpoch=f'Test Two-{iEpoch}',
-                    Y=y_test_two,
-                    PRED=PRED,
-                    RMS=RMS,
-                    val_perf=gru_model.evaluate(
-                                    x=x_test_two,
-                                    y=y_test_two,
-                                    batch_size=1,
-                                    verbose=0),
-                    TAIL=y_test_two.shape[0],
-                    save_plot=True)
+plt.plot(gru_model(x_valid, training=False))
+plt.plot(y_valid)
 # %%
 # loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 # def loss(model, x, y, training):
