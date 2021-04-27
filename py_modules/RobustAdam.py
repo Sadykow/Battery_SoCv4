@@ -2,6 +2,7 @@ from tensorflow.python.ops import state_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import control_flow_ops
+from tensorflow.python.keras import backend
 #from tensorflow.python.util.tf_export import keras_export
 import tensorflow as tf
 from numpy import float32
@@ -19,8 +20,6 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
   i_init : int = 0
   t : int = 0
 
-  loss = lambda var : tf.sqrt(tf.reduce_mean(tf.square(var), axis=0))
-      
   def __init__(self, name : str ='RobustAdam',
                 learning_rate: tf.float32 = 0.001,
                 beta_1 : tf.float32 = 0.9,
@@ -37,7 +36,68 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
     self._set_hyper('beta_3', beta_3)
     self.epsilon = epsilon # or backend_config.epsilon()
     self._is_first = _is_first
-              
+  
+  def mse_loss(self, y_true, y_pred):
+    """Computes the mean squared error between labels and predictions.
+
+    After computing the squared distance between the inputs, the mean value over
+    the last dimension is returned.
+
+    `loss = mean(square(y_true - y_pred), axis=-1)`
+
+    Standalone usage:
+
+    >>> y_true = np.random.randint(0, 2, size=(2, 3))
+    >>> y_pred = np.random.random(size=(2, 3))
+    >>> loss = tf.keras.losses.mean_squared_error(y_true, y_pred)
+    >>> assert loss.shape == (2,)
+    >>> assert np.array_equal(
+    ...     loss.numpy(), np.mean(np.square(y_true - y_pred), axis=-1))
+
+    Args:
+      y_true: Ground truth values. shape = `[batch_size, d0, .. dN]`.
+      y_pred: The predicted values. shape = `[batch_size, d0, .. dN]`.
+
+    Returns:
+      Mean squared error values. shape = `[batch_size, d0, .. dN-1]`.
+    """
+    y_pred = ops.convert_to_tensor_v2_with_dispatch(y_pred)
+    y_true = math_ops.cast(y_true, y_pred.dtype)
+    return backend.mean(math_ops.squared_difference(y_pred, y_true), axis=-1)[0]
+
+  def rmse_loss(self, y_true, y_pred):
+    """Computes the mean squared error between labels and predictions.
+    #? Root Mean Squared Error loss function
+    After computing the squared distance between the inputs, the mean value over
+    the last dimension is returned.
+
+    `loss = mean(square(y_true - y_pred), axis=-1)`
+
+    Standalone usage:
+
+    >>> y_true = np.random.randint(0, 2, size=(2, 3))
+    >>> y_pred = np.random.random(size=(2, 3))
+    >>> loss = tf.keras.losses.mean_squared_error(y_true, y_pred)
+    >>> assert loss.shape == (2,)
+    >>> assert np.array_equal(
+    ...     loss.numpy(), np.mean(np.square(y_true - y_pred), axis=-1))
+
+    Args:
+      y_true: Ground truth values. shape = `[batch_size, d0, .. dN]`.
+      y_pred: The predicted values. shape = `[batch_size, d0, .. dN]`.
+
+    Returns:
+      Mean squared error values. shape = `[batch_size, d0, .. dN-1]`.
+    """
+    y_pred = ops.convert_to_tensor_v2_with_dispatch(y_pred)
+    y_true = math_ops.cast(y_true, y_pred.dtype)
+    return backend.sqrt(
+        x=backend.mean(
+            x=math_ops.squared_difference(x=y_pred, y=y_true),
+            axis=-1,
+            keepdims=False
+          )
+      )[0]
   
   def _create_slots(self, var_list : list[tf.Variable]):
     """ For each model variable, create the optimizer variable associated

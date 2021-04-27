@@ -111,9 +111,17 @@ if(platform=='win32'):
     Data    : str = 'DataWin\\'
 else:
     Data    : str = 'Data/'
-dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
-                              valid_dir=f'{Data}A123_Matt_Val',
-                              test_dir=f'{Data}A123_Matt_Test',
+# dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
+#                               valid_dir=f'{Data}A123_Matt_Val',
+#                               test_dir=f'{Data}A123_Matt_Test',
+#                               columns=[
+#                                 'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
+#                                 'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
+#                                 ],
+#                               PROFILE_range = profile)
+dataGenerator = DataGenerator(train_dir=f'{Data}A123__Test',
+                              valid_dir=f'{Data}A123__Test',
+                              test_dir=f'{Data}A123__Test',
                               columns=[
                                 'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
                                 'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
@@ -128,38 +136,24 @@ window = WindowGenerator(Data=dataGenerator,
                         includeTarget=False, normaliseLabal=False,
                         shuffleTraining=False)
 ds_train, xx_train, yy_train = window.train
-ds_valid, xx_valid, yy_valid = window.valid
+# ds_valid, xx_valid, yy_valid = window.valid
 
 # Entire Training set 
 x_train = np.array(xx_train, copy=True, dtype=np.float32)
 y_train = np.array(yy_train, copy=True, dtype=np.float32)
 
 # For validation use same training
-x_valid = np.array(xx_train[16800:25000,:,:], copy=True, dtype=np.float32)
-y_valid = np.array(yy_train[16800:25000,:]  , copy=True, dtype=np.float32)
+# x_valid = np.array(xx_train[16800:25000,:,:], copy=True, dtype=np.float32)
+# y_valid = np.array(yy_train[16800:25000,:]  , copy=True, dtype=np.float32)
 
 # For test dataset take the remaining profiles.
-mid = int(xx_valid.shape[0]/2)+350
-x_test_one = np.array(xx_valid[:mid,:,:], copy=True, dtype=np.float32)
-y_test_one = np.array(yy_valid[:mid,:], copy=True, dtype=np.float32)
-x_test_two = np.array(xx_valid[mid:,:,:], copy=True, dtype=np.float32)
-y_test_two = np.array(yy_valid[mid:,:], copy=True, dtype=np.float32)
+# mid = int(xx_valid.shape[0]/2)+350
+# x_test_one = np.array(xx_valid[:mid,:,:], copy=True, dtype=np.float32)
+# y_test_one = np.array(yy_valid[:mid,:], copy=True, dtype=np.float32)
+# x_test_two = np.array(xx_valid[mid:,:,:], copy=True, dtype=np.float32)
+# y_test_two = np.array(yy_valid[mid:,:], copy=True, dtype=np.float32)
 # %%
 #return tf.sqrt(tf.reduce_mean(tf.square(tf.subtract(y_true, y_pred)), axis=0))
-#? Root Mean Squared Error loss function
-custom_loss = lambda y_true, y_pred: tf.sqrt(
-            x=tf.reduce_mean(
-                    input_tensor=tf.square(
-                            x=tf.subtract(
-                                x=tf.cast(x=y_true, dtype=y_pred.dtype),
-                                y=tf.convert_to_tensor(value=y_pred)
-
-                            )
-                        ),
-                    axis=0,
-                    keepdims=False
-                )
-        )
 file_name : str = os.path.basename(__file__)[:-3]
 model_loc : str = f'Models/{file_name}/{profile}-models/'
 iEpoch    : int = 0
@@ -195,39 +189,38 @@ except OSError as identifier:
                               activation='sigmoid')
     ])
     firstLog = True
-prev_model = tf.keras.models.clone_model(gru_model,
-                                    input_tensors=None, clone_function=None)
+# prev_model = tf.keras.models.clone_model(gru_model,
+#                                     input_tensors=None, clone_function=None)
 
-checkpoints = tf.keras.callbacks.ModelCheckpoint(
-        filepath =model_loc+f'{profile}-checkpoints/checkpoint',
-        monitor='val_loss', verbose=0,
-        save_best_only=False, save_weights_only=False,
-        mode='auto', save_freq='epoch', options=None,
-    )
+# checkpoints = tf.keras.callbacks.ModelCheckpoint(
+#         filepath =model_loc+f'{profile}-checkpoints/checkpoint',
+#         monitor='val_loss', verbose=0,
+#         save_best_only=False, save_weights_only=False,
+#         mode='auto', save_freq='epoch', options=None,
+#     )
 
-tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=model_loc+
-            f'tensorboard/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}',
-        histogram_freq=1, write_graph=True, write_images=False,
-        update_freq='epoch', profile_batch=2, embeddings_freq=0,
-        embeddings_metadata=None
-    )
-nanTerminate = tf.keras.callbacks.TerminateOnNaN()
+# tensorboard_callback = tf.keras.callbacks.TensorBoard(
+#         log_dir=model_loc+
+#             f'tensorboard/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}',
+#         histogram_freq=1, write_graph=True, write_images=False,
+#         update_freq='epoch', profile_batch=2, embeddings_freq=0,
+#         embeddings_metadata=None
+#     )
+# nanTerminate = tf.keras.callbacks.TerminateOnNaN()
 
 # gru_model.compile(loss=tf.losses.MeanAbsoluteError(),#custom_loss,
 #             optimizer=RobustAdam(),
 #             metrics=[tf.metrics.MeanAbsoluteError(),
 #                      tf.metrics.RootMeanSquaredError(),
-#                      tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+#                     #  tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
+#                      ]
 #             )
-# gru_model.fit(x=x_valid, y=y_valid,
+# gru_model.fit(x=x_train, y=y_train,
 #                     epochs=1,
-#                     validation_data=None,
-#                     callbacks=[nanTerminate],
 #                     batch_size=1, shuffle=True
 #                     )
-# plt.plot(gru_model.predict(x_valid, batch_size=1))
-# plt.plot(y_valid)
+# plt.plot(gru_model.predict(x_train, batch_size=1))
+# plt.plot(y_train)
 
 # prev_model.compile(loss=custom_loss,
 #             optimizer=RobustAdam(lr_rate = 0.001,
@@ -393,37 +386,86 @@ nanTerminate = tf.keras.callbacks.TerminateOnNaN()
 #                     TAIL=y_test_two.shape[0],
 #                     save_plot=True)
 # %%
+# MAE = tf.metrics.MeanAbsoluteError()
+# RMSE = tf.metrics.RootMeanSquaredError()
+# RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
+
+# optimiser = RobustAdam()
+# loss_fn = tf.keras.losses.MeanAbsoluteError()
+# pbar = tqdm(total=y_train.shape[0])
+# # while iEpoch < mEpoch:
+# #     iEpoch+=1
+# for x, y in zip(np.expand_dims(x_train, axis=1), y_train):
+#     with tf.GradientTape() as tape:
+#         # Run the forward pass of the layer.
+#         logits = gru_model(x, training=True)
+#         # Compute the loss value 
+#         loss_value = loss_fn(y_true=y, y_pred=logits)
+        
+#         grads = tape.gradient(loss_value, gru_model.trainable_weights)
+#     # optimiser.update_labels()trainable_weights
+#     optimiser.apply_gradients(zip(grads, gru_model.trainable_weights),
+#                                 experimental_aggregate_gradients=True)
+#     # Get matrics
+#     MAE.update_state(y_true=y_train[:1], y_pred=logits)
+#     RMSE.update_state(y_true=y_train[:1], y_pred=logits)
+#     RSquare.update_state(y_true=y_train[:1], y_pred=logits)
+
+#     # Progress Bar
+#     pbar.update(1)
+#     pbar.set_description(f' :: '
+#                         f'loss: {loss_value:.4e} - '
+#                         f'mae: {MAE.result():.4e} - '
+#                         f'rmse: {RMSE.result():.4e} - '
+#                         f'rsquare: {RSquare.result():04f}'
+#                         )
+# plt.plot(gru_model.predict(x_train, batch_size=1))
+# plt.plot(y_train)
+# %%
+optimiser = RobustAdam()
+loss_fn = tf.losses.MeanAbsoluteError()
+@tf.function
+def train_step(x, y):
+    with tf.GradientTape() as tape:
+        logits = gru_model(x, training=True)
+        loss_value = optimiser.mse_loss(y, logits)
+    grads = tape.gradient(loss_value, gru_model.trainable_weights)
+    optimiser.apply_gradients(zip(grads, gru_model.trainable_weights))
+    MAE.update_state(y_true=y[:1], y_pred=logits)
+    RMSE.update_state(y_true=y[:1], y_pred=logits)
+    RSquare.update_state(y_true=y[:1], y_pred=logits)
+    return loss_value
+@tf.function
+def test_step(x):
+    return gru_model(x, training=False)
+    
+
 MAE = tf.metrics.MeanAbsoluteError()
 RMSE = tf.metrics.RootMeanSquaredError()
 RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
-optimiser = RobustAdam()
-pbar = tqdm(total=y_valid.shape[0])
-for x, y in zip(np.expand_dims(x_valid, axis=1), y_valid):
-    with tf.GradientTape() as tape:
-        # Run the forward pass of the layer.
-        logits = gru_model(x, training=True)
-        # Compute the loss value 
-        loss_value = custom_loss(y_true=y, y_pred=logits)
-        
-        grads = tape.gradient(loss_value, gru_model.trainable_variables)
-    # optimiser.update_labels()
-    optimiser.apply_gradients(zip(grads, gru_model.trainable_variables),
-                                experimental_aggregate_gradients=True)
-    # Get matrics
-    MAE.update_state(y_true=y_train[:1], y_pred=logits)
-    RMSE.update_state(y_true=y_train[:1], y_pred=logits)
-    RSquare.update_state(y_true=y_train[:1], y_pred=logits)
 
+pbar = tqdm(total=y_train.shape[0])
+
+sh_i = np.arange(y_train.shape[0])
+np.random.shuffle(sh_i)
+for i in sh_i:
+    loss_value = train_step(x_train[i:i+1,:,:], y_train[i:i+1,:])
     # Progress Bar
     pbar.update(1)
     pbar.set_description(f' :: '
-                         f'loss: {loss_value[0]:.4e} - '
-                         f'mae: {MAE.result():.4e} - '
-                         f'rmse: {RMSE.result():.4e} - '
-                         f'rsquare: {RSquare.result():04f}'
+                        f'loss: {loss_value:.4f} - '
+                        f'mae: {MAE.result():.4f} - '
+                        f'rmse: {RMSE.result():.4f} - '
+                        f'rsquare: {RSquare.result():.4f}'
                         )
-plt.plot(gru_model(x_valid, training=False))
-plt.plot(y_valid)
+pbar.close()
+
+PRED = np.zeros(shape=(y_train.shape[0], ))
+for i in trange(y_train.shape[0]):
+    PRED[i] = test_step(x_train[i:i+1,:,:])
+    
+plt.plot(PRED)
+plt.plot(y_train)
 # %%
 # loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 # def loss(model, x, y, training):
