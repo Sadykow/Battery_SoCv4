@@ -13,20 +13,22 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
   _is_first : bool = True
 
   # Robust part
-  prediction : tf.Variable = 0.0
-  actual : tf.Variable = 0.0
-  prev_loss : tf.Variable = 0.0
+  prev_loss : tf.Variable = None
+  current_loss : tf.Variable = None
 
   i_init : int = 0
   t : int = 0
 
+  mae_loss = tf.losses.MeanAbsoluteError()
+
   def __init__(self, name : str ='RobustAdam',
-                learning_rate: tf.float32 = 0.001,
+                learning_rate: tf.float32 = 0.0001,
                 beta_1 : tf.float32 = 0.9,
                 beta_2 : tf.float32 = 0.999,
                 beta_3 : tf.float32 = 0.999,
+                k      : tf.float32 = 0.1,
+                K      : tf.float32 = 10,
                 epsilon :tf.float32 = 1e-7,
-                _is_first : bool = False,
                 **kwargs):
     super(RobustAdam, self).__init__(name, **kwargs)
     self._set_hyper("learning_rate", kwargs.get("lr", learning_rate))
@@ -34,8 +36,9 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
     self._set_hyper('beta_1', beta_1)
     self._set_hyper('beta_2', beta_2)
     self._set_hyper('beta_3', beta_3)
+    self._set_hyper('k', k)
+    self._set_hyper('K', K)
     self.epsilon = epsilon # or backend_config.epsilon()
-    self._is_first = _is_first
   
   def mse_loss(self, y_true, y_pred):
     """Computes the mean squared error between labels and predictions.
@@ -120,6 +123,8 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
     for var in var_list:
       self.add_slot(var, 'd')
     for var in var_list:
+      self.add_slot(var, 'r')
+    for var in var_list:
       self.add_slot(var, 'prev_var')
     
   def _prepare_local(self, var_device, var_dtype, apply_state):
@@ -128,6 +133,8 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
     beta_1_t = self._get_hyper('beta_1', var_dtype)
     beta_2_t = self._get_hyper('beta_2', var_dtype)
     beta_3_t = self._get_hyper('beta_3', var_dtype)
+    k_t      = self._get_hyper('k', var_dtype)
+    K_t      = self._get_hyper('K', var_dtype)
     beta_1_power = tf.pow(beta_1_t, local_step)
     beta_2_power = tf.pow(beta_2_t, local_step)
     lr = (apply_state[(var_device, var_dtype)]['lr_t'] *
@@ -143,7 +150,9 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
             beta_2_power=beta_2_power,
             one_minus_beta_2_t=1 - beta_2_t,
             beta_3_t=beta_3_t,
-            one_minus_beta_3_t=1 - beta_3_t
+            one_minus_beta_3_t=1 - beta_3_t,
+            k=k_t,
+            K=K_t
             ))
   
   def _resource_apply_dense(self, grad, var, apply_state=None):
@@ -168,20 +177,78 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
     with ops.control_dependencies([v_t]):
       v_t = state_ops.assign_add(ref=v, value=v_scaled_g_values,
             use_locking=self._use_locking, name=None) 
+    prev_var = self.get_slot(var, 'prev_var')
 
-    v_sqrt = math_ops.sqrt(v_t)
-    var_update = state_ops.assign_sub(
-        var, coefficients['lr'] * m_t / (v_sqrt + coefficients['epsilon']),
-        use_locking=self._use_locking)
-    return control_flow_ops.group(*[var_update, m_t, v_t])
+    #if prev_var is None:
+    if self.prev_loss is None:
+      prev_var = state_ops.assign(prev_var, var,
+                           use_locking=self._use_locking)
+      # W_t = W - lr * m_t / (sqrt(v)+epsilon)
+      v_sqrt = math_ops.sqrt(v_t)
+      var_update = state_ops.assign_sub(
+          var, coefficients['lr'] * m_t / (v_sqrt + coefficients['epsilon']),
+          use_locking=self._use_locking)
+      return control_flow_ops.group(*[var_update, m_t, v_t, prev_var])
+    else:
+      r = self.get_slot(var, 'r')
+      if math_ops.abs(self.current_loss) >= math_ops.abs(self.prev_loss):
+        # r = min{(max{k,(L)}),K}
+        r_loss = math_ops.minimum(
+            x=math_ops.maximum(
+                x=coefficients['k'],
+                y=math_ops.abs(self.current_loss/self.prev_loss)
+              ),
+            y=coefficients['K']
+          )
+      else:
+        # r = min{(max{1/K,(L)}),1/k}
+        r_loss = math_ops.minimum(
+            x=math_ops.maximum(
+                x=1/coefficients['K'],
+                y=math_ops.abs(self.current_loss/self.prev_loss)
+              ),
+            y=1/coefficients['k']
+          )
+      ones = tf.ones(
+          shape=r.shape, dtype=tf.dtypes.float32, name=None
+        )
+      r_t = state_ops.assign(r, ones * r_loss,
+                           use_locking=self._use_locking)
+      
+      # d_t = beta3 * d + (1 - beta3) * r      
+      d = self.get_slot(var, 'd')
+      d_scaled_r_values = r_t * coefficients['one_minus_beta_3_t']
+      d_t = state_ops.assign(d, d * coefficients['beta_3_t'],
+                           use_locking=self._use_locking)
+      with ops.control_dependencies([d_t]):
+        #! I blody repmat() it manualy if I have to 4 it!
+        d_t = state_ops.assign_add(ref=d, value=4.0*d_scaled_r_values,
+                    use_locking=self._use_locking, name=None)
+      # print(f'\nR_t: {r_t}\nd: {d}\n d_t: {d_t}\n')
 
-  def update_labels(self, loss_value : tf.float32, label : tf.float32,
-                    first_run : bool = False, t : int = 0):
-    self.prediction = tf.Variable(loss_value, dtype=tf.float32)
-    self.actual = tf.Variable(label, dtype=tf.float32)
-    self.first_run = first_run
-    self.t = t
+      prev_var = state_ops.assign(prev_var, var,
+                           use_locking=self._use_locking)
+      # W_t = W - lr * m_t / (d_t*sqrt(v)+epsilon)
+      v_sqrt = math_ops.sqrt(v_t)
+      var_update = state_ops.assign_sub(
+          var, coefficients['lr'] * m_t / (d_t * v_sqrt + coefficients['epsilon']),
+          use_locking=self._use_locking)
+      # if (d_t.shape[0] == 1):
+      #   normal = v_sqrt + coefficients['epsilon']
+      #   roadam = d_t * v_sqrt + coefficients['epsilon']
+      #   print(f'Normal: {normal}')
+      #   print(f'RoAdam: {roadam}')
+      return control_flow_ops.group(*[var_update, m_t, v_t, prev_var, d_t])
 
+
+  def update_loss(self, prev_loss : tf.float32, current_loss : tf.float32):
+    if prev_loss is not None:
+      # print(f'\n1)PRev_loss and loss: {prev_loss} and {current_loss}')
+      self.prev_loss = prev_loss
+      self.current_loss = current_loss
+    # else:
+    #   print('\nNo Prev Value')
+  
   def _resource_apply_sparse(self, grad, handle, indices, apply_state):
     raise NotImplementedError
 
@@ -193,6 +260,8 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
         'beta_1'       : self._serialize_hyperparameter('beta_1'),
         'beta_2'       : self._serialize_hyperparameter('beta_2'),
         'beta_3'       : self._serialize_hyperparameter('beta_3'),
+        'k'            : self._serialize_hyperparameter('k'),
+        'K'            : self._serialize_hyperparameter('K'),
         'epsilon'      : self.epsilon,
     })
     return config

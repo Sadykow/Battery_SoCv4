@@ -43,7 +43,7 @@ from py_modules.plotting import predicting_plot
 #     print ('EXEPTION: Arguments requied!')
 #     sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '2'), ('-g', '0'), ('-p', 'DST')]
+opts = [('-d', 'False'), ('-e', '1'), ('-g', '0'), ('-p', 'DST')]
 mEpoch  : int = 10
 GPU     : int = 0
 profile : str = 'DST'
@@ -135,12 +135,12 @@ window = WindowGenerator(Data=dataGenerator,
                         label_columns=['SoC(%)'], batch=1,
                         includeTarget=False, normaliseLabal=False,
                         shuffleTraining=False)
-ds_train, xx_train, yy_train = window.train
+# ds_train, xx_train, yy_train = window.train
 # ds_valid, xx_valid, yy_valid = window.valid
 
 # Entire Training set 
-x_train = np.array(xx_train, copy=True, dtype=np.float32)
-y_train = np.array(yy_train, copy=True, dtype=np.float32)
+# x_train = np.array(xx_train, copy=True, dtype=np.float32)
+# y_train = np.array(yy_train, copy=True, dtype=np.float32)
 
 # For validation use same training
 # x_valid = np.array(xx_train[16800:25000,:,:], copy=True, dtype=np.float32)
@@ -152,6 +152,7 @@ y_train = np.array(yy_train, copy=True, dtype=np.float32)
 # y_test_one = np.array(yy_valid[:mid,:], copy=True, dtype=np.float32)
 # x_test_two = np.array(xx_valid[mid:,:,:], copy=True, dtype=np.float32)
 # y_test_two = np.array(yy_valid[mid:,:], copy=True, dtype=np.float32)
+_, x_train, y_train = window.train
 # %%
 #return tf.sqrt(tf.reduce_mean(tf.square(tf.subtract(y_true, y_pred)), axis=0))
 file_name : str = os.path.basename(__file__)[:-3]
@@ -422,43 +423,46 @@ except OSError as identifier:
 # plt.plot(gru_model.predict(x_train, batch_size=1))
 # plt.plot(y_train)
 # %%
-optimiser = RobustAdam()
-loss_fn = tf.losses.MeanAbsoluteError()
-@tf.function
-def train_step(x, y):
+optimiser = RobustAdam(learning_rate = 0.0001)
+
+def train_step(x, y, prev_loss):
     with tf.GradientTape() as tape:
         logits = gru_model(x, training=True)
-        loss_value = optimiser.mse_loss(y, logits)
+        loss_value = optimiser.mae_loss(y, logits)
     grads = tape.gradient(loss_value, gru_model.trainable_weights)
+    # 
+    optimiser.update_loss(prev_loss, loss_value)
     optimiser.apply_gradients(zip(grads, gru_model.trainable_weights))
     MAE.update_state(y_true=y[:1], y_pred=logits)
     RMSE.update_state(y_true=y[:1], y_pred=logits)
     RSquare.update_state(y_true=y[:1], y_pred=logits)
     return loss_value
+
 @tf.function
 def test_step(x):
     return gru_model(x, training=False)
     
-
 MAE = tf.metrics.MeanAbsoluteError()
 RMSE = tf.metrics.RootMeanSquaredError()
 RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
+loss_value : np.float32 = 1.0
+while iEpoch < mEpoch:
+    iEpoch+=1
+    pbar = tqdm(total=y_train.shape[0])
 
-pbar = tqdm(total=y_train.shape[0])
-
-sh_i = np.arange(y_train.shape[0])
-np.random.shuffle(sh_i)
-for i in sh_i:
-    loss_value = train_step(x_train[i:i+1,:,:], y_train[i:i+1,:])
-    # Progress Bar
-    pbar.update(1)
-    pbar.set_description(f' :: '
-                        f'loss: {loss_value:.4f} - '
-                        f'mae: {MAE.result():.4f} - '
-                        f'rmse: {RMSE.result():.4f} - '
-                        f'rsquare: {RSquare.result():.4f}'
-                        )
-pbar.close()
+    sh_i = np.arange(y_train.shape[0])
+    np.random.shuffle(sh_i)
+    for i in sh_i[:]:
+        loss_value = train_step(x_train[i:i+1,:,:], y_train[i:i+1,:], loss_value)
+        # Progress Bar
+        pbar.update(1)
+        pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
+                             f'loss: {loss_value:.4f} - '
+                             f'mae: {MAE.result():.4f} - '
+                             f'rmse: {RMSE.result():.4f} - '
+                             f'rsquare: {RSquare.result():.4f}'
+                            )
+    pbar.close()
 
 PRED = np.zeros(shape=(y_train.shape[0], ))
 for i in trange(y_train.shape[0]):
@@ -466,6 +470,9 @@ for i in trange(y_train.shape[0]):
     
 plt.plot(PRED)
 plt.plot(y_train)
+# %%
+# tf.Tensor([0.00789516], shape=(1,), dtype=float32)
+# tf.Tensor([1.910142e-06], shape=(1,), dtype=float32)
 # %%
 # loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 # def loss(model, x, y, training):
