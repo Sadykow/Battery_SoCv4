@@ -191,24 +191,25 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
       return control_flow_ops.group(*[var_update, m_t, v_t, prev_var])
     else:
       r = self.get_slot(var, 'r')
-      if math_ops.abs(self.current_loss) >= math_ops.abs(self.prev_loss):
-        # r = min{(max{k,(L)}),K}
-        r_loss = math_ops.minimum(
-            x=math_ops.maximum(
-                x=coefficients['k'],
-                y=math_ops.abs(self.current_loss/self.prev_loss)
-              ),
-            y=coefficients['K']
-          )
-      else:
-        # r = min{(max{1/K,(L)}),1/k}
-        r_loss = math_ops.minimum(
-            x=math_ops.maximum(
-                x=1/coefficients['K'],
-                y=math_ops.abs(self.current_loss/self.prev_loss)
-              ),
-            y=1/coefficients['k']
-          )
+    #   if math_ops.abs(self.current_loss) >= math_ops.abs(self.prev_loss):
+    #     # r = min{(max{k,(L)}),K}
+    #     r_loss = math_ops.minimum(
+    #         x=math_ops.maximum(
+    #             x=coefficients['k'],
+    #             y=math_ops.abs(self.current_loss/self.prev_loss)
+    #           ),
+    #         y=coefficients['K']
+    #       )
+    #   else:
+    #     # r = min{(max{1/K,(L)}),1/k}
+    #     r_loss = math_ops.minimum(
+    #         x=math_ops.maximum(
+    #             x=1/coefficients['K'],
+    #             y=math_ops.abs(self.current_loss/self.prev_loss)
+    #           ),
+    #         y=1/coefficients['k']
+    #       )
+      r_loss = math_ops.abs(self.current_loss/self.prev_loss)
       ones = tf.ones(
           shape=r.shape, dtype=tf.dtypes.float32, name=None
         )
@@ -221,8 +222,10 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
       d_t = state_ops.assign(d, d * coefficients['beta_3_t'],
                            use_locking=self._use_locking)
       with ops.control_dependencies([d_t]):
-        #! I blody repmat() it manualy if I have to 4 it!
-        d_t = state_ops.assign_add(ref=d, value=4.0*d_scaled_r_values,
+        #! I blody repmat() it manualy if I have to FUDS:4 it!
+        #! To get that constant, get the last shape[1,1] value and divide
+        #!by another one. See if that makes things logical.
+        d_t = state_ops.assign_add(ref=d, value=4*d_scaled_r_values,
                     use_locking=self._use_locking, name=None)
       # print(f'\nR_t: {r_t}\nd: {d}\n d_t: {d_t}\n')
 

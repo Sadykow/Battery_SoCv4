@@ -33,17 +33,17 @@ from cy_modules.utils import str2bool
 from py_modules.plotting import predicting_plot
 # %%
 # Extract params
-# try:
-#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
-#                     ["help", "debug=", "epochs=",
-#                      "gpu=", "profile="])
-# except getopt.error as err: 
-#     # output error, and return with an error code 
-#     print (str(err)) 
-#     print ('EXEPTION: Arguments requied!')
-#     sys.exit(2)
+try:
+    opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
+                    ["help", "debug=", "epochs=",
+                     "gpu=", "profile="])
+except getopt.error as err: 
+    # output error, and return with an error code 
+    print (str(err)) 
+    print ('EXEPTION: Arguments requied!')
+    sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '1'), ('-g', '0'), ('-p', 'DST')]
+# opts = [('-d', 'False'), ('-e', '2'), ('-g', '0'), ('-p', 'DST')]
 mEpoch  : int = 10
 GPU     : int = 0
 profile : str = 'DST'
@@ -111,17 +111,9 @@ if(platform=='win32'):
     Data    : str = 'DataWin\\'
 else:
     Data    : str = 'Data/'
-# dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
-#                               valid_dir=f'{Data}A123_Matt_Val',
-#                               test_dir=f'{Data}A123_Matt_Test',
-#                               columns=[
-#                                 'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
-#                                 'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
-#                                 ],
-#                               PROFILE_range = profile)
-dataGenerator = DataGenerator(train_dir=f'{Data}A123__Test',
-                              valid_dir=f'{Data}A123__Test',
-                              test_dir=f'{Data}A123__Test',
+dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
+                              valid_dir=f'{Data}A123_Matt_Val',
+                              test_dir=f'{Data}A123_Matt_Test',
                               columns=[
                                 'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
                                 'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
@@ -135,24 +127,24 @@ window = WindowGenerator(Data=dataGenerator,
                         label_columns=['SoC(%)'], batch=1,
                         includeTarget=False, normaliseLabal=False,
                         shuffleTraining=False)
-# ds_train, xx_train, yy_train = window.train
-# ds_valid, xx_valid, yy_valid = window.valid
+ds_train, xx_train, yy_train = window.train
+ds_valid, xx_valid, yy_valid = window.valid
 
 # Entire Training set 
-# x_train = np.array(xx_train, copy=True, dtype=np.float32)
-# y_train = np.array(yy_train, copy=True, dtype=np.float32)
+x_train = np.array(xx_train, copy=True, dtype=np.float32)
+y_train = np.array(yy_train, copy=True, dtype=np.float32)
 
 # For validation use same training
-# x_valid = np.array(xx_train[16800:25000,:,:], copy=True, dtype=np.float32)
-# y_valid = np.array(yy_train[16800:25000,:]  , copy=True, dtype=np.float32)
+x_valid = np.array(xx_train[16800:25000,:,:], copy=True, dtype=np.float32)
+y_valid = np.array(yy_train[16800:25000,:]  , copy=True, dtype=np.float32)
 
 # For test dataset take the remaining profiles.
-# mid = int(xx_valid.shape[0]/2)+350
-# x_test_one = np.array(xx_valid[:mid,:,:], copy=True, dtype=np.float32)
-# y_test_one = np.array(yy_valid[:mid,:], copy=True, dtype=np.float32)
-# x_test_two = np.array(xx_valid[mid:,:,:], copy=True, dtype=np.float32)
-# y_test_two = np.array(yy_valid[mid:,:], copy=True, dtype=np.float32)
-_, x_train, y_train = window.train
+mid = int(xx_valid.shape[0]/2)+350
+x_test_one = np.array(xx_valid[:mid,:,:], copy=True, dtype=np.float32)
+y_test_one = np.array(yy_valid[:mid,:], copy=True, dtype=np.float32)
+x_test_two = np.array(xx_valid[mid:,:,:], copy=True, dtype=np.float32)
+y_test_two = np.array(yy_valid[mid:,:], copy=True, dtype=np.float32)
+# _, x_train, y_train = window.train
 # %%
 #return tf.sqrt(tf.reduce_mean(tf.square(tf.subtract(y_true, y_pred)), axis=0))
 file_name : str = os.path.basename(__file__)[:-3]
@@ -424,8 +416,10 @@ except OSError as identifier:
 # plt.plot(y_train)
 # %%
 optimiser = RobustAdam(learning_rate = 0.0001)
-
-def train_step(x, y, prev_loss):
+#! We can potentialy run 2 models on single GPU getting to 86% utilisation.
+#!Although, check if it safe. Use of tf.function speeds up training by 2.
+@tf.function
+def train_single_st(x, y, prev_loss):
     with tf.GradientTape() as tape:
         logits = gru_model(x, training=True)
         loss_value = optimiser.mae_loss(y, logits)
@@ -441,7 +435,24 @@ def train_step(x, y, prev_loss):
 @tf.function
 def test_step(x):
     return gru_model(x, training=False)
-    
+
+def valid_step(x, y):
+    logits = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
+    loss = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
+    mae = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
+    rmse = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
+    rsquare = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
+    for i in trange(y.shape[0]):
+        logits[i] = test_step(x[i:i+1,:,:])
+        MAE.update_state(y_true=y[i:i+1], y_pred=logits[i])
+        RMSE.update_state(y_true=y[i:i+1], y_pred=logits[i])
+        RSquare.update_state(y_true=y[i:i+1], y_pred=logits[i])
+        loss[i] = optimiser.mae_loss(y[i:i+1], logits[i])
+        mae[i] = MAE.result()
+        rmse[i] = RMSE.result()
+        rsquare[i] = RSquare.result()
+    return [np.mean(loss), np.mean(mae), np.mean(rmse), np.mean(rsquare), logits]
+
 MAE = tf.metrics.MeanAbsoluteError()
 RMSE = tf.metrics.RootMeanSquaredError()
 RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
@@ -453,7 +464,7 @@ while iEpoch < mEpoch:
     sh_i = np.arange(y_train.shape[0])
     np.random.shuffle(sh_i)
     for i in sh_i[:]:
-        loss_value = train_step(x_train[i:i+1,:,:], y_train[i:i+1,:], loss_value)
+        loss_value = train_single_st(x_train[i:i+1,:,:], y_train[i:i+1,:], None)
         # Progress Bar
         pbar.update(1)
         pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
@@ -463,13 +474,54 @@ while iEpoch < mEpoch:
                              f'rsquare: {RSquare.result():.4f}'
                             )
     pbar.close()
-
-PRED = np.zeros(shape=(y_train.shape[0], ))
-for i in trange(y_train.shape[0]):
-    PRED[i] = test_step(x_train[i:i+1,:,:])
+    # Saving model
+    gru_model.save(filepath=f'{model_loc}{iEpoch}',
+                overwrite=True, include_optimizer=True,
+                save_format='h5', signatures=None, options=None,
+                save_traces=True
+        )
+    if os.path.exists(f'{model_loc}{iEpoch-1}.ch'):
+        os.remove(f'{model_loc}{iEpoch-1}.ch')
+    os.mknod(f'{model_loc}{iEpoch}.ch')
     
-plt.plot(PRED)
-plt.plot(y_train)
+    PERF = valid_step(x_valid, y_valid)
+    hist_df = pd.DataFrame(data={
+            'loss'   : [np.array(loss_value)],
+            'mae'    : [np.array(MAE.result())],
+            'rmse'   : [np.array(RMSE.result())],
+            'rsquare': [np.array(RSquare.result())]
+        })
+    hist_df['vall_loss'] = PERF[0]
+    hist_df['val_mean_absolute_error'] = PERF[1]
+    hist_df['val_root_mean_squared_error'] = PERF[2]
+    hist_df['val_r_square'] = PERF[3]
+    
+    # or save to csv:
+    with open(f'{model_loc}history-{profile}.csv', mode='a') as f:
+        if(firstLog):
+            hist_df.to_csv(f, index=False)
+            firstLog = False
+        else:
+            hist_df.to_csv(f, index=False, header=False)
+    
+    PRED = PERF[4]
+    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+                y_valid[::,]-PRED)))
+    # otherwise the right y-label is slightly clipped
+    predicting_plot(profile=profile, file_name='Model №5',
+                    model_loc=model_loc,
+                    model_type='GRU Test - Train dataset',
+                    iEpoch=f'val-{iEpoch}',
+                    Y=y_valid,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=PERF[:4],
+                    TAIL=y_valid.shape[0],
+                    save_plot=True,
+                    RMS_plot=False) #! Saving memory from high errors.
+    if(PERF[-3] <=0.024): # Check thr RMSE
+        print("RMS droped around 2.4%. Breaking the training")
+        break
 # %%
 # tf.Tensor([0.00789516], shape=(1,), dtype=float32)
 # tf.Tensor([1.910142e-06], shape=(1,), dtype=float32)
