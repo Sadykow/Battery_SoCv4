@@ -119,6 +119,14 @@ dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
                                 'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
                                 ],
                               PROFILE_range = profile)
+# dataGenerator = DataGenerator(train_dir=f'{Data}A123__Test',
+#                               valid_dir=f'{Data}A123__Test',
+#                               test_dir=f'{Data}A123__Test',
+#                               columns=[
+#                                 'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
+#                                 'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
+#                                 ],
+#                               PROFILE_range = profile)
 # %%
 window = WindowGenerator(Data=dataGenerator,
                         input_width=500, label_width=1, shift=0,
@@ -416,15 +424,19 @@ except OSError as identifier:
 # plt.plot(y_train)
 # %%
 optimiser = RobustAdam(learning_rate = 0.0001)
+loss_fn = tf.losses.MeanAbsoluteError()
+# tf.optimizers.Adam()
+# for w in gru_model.trainable_weights:
+#     print(w)
 #! We can potentialy run 2 models on single GPU getting to 86% utilisation.
 #!Although, check if it safe. Use of tf.function speeds up training by 2.
-@tf.function
 def train_single_st(x, y, prev_loss):
     with tf.GradientTape() as tape:
         logits = gru_model(x, training=True)
-        loss_value = optimiser.mae_loss(y, logits)
+        loss_value = loss_fn(y, logits)
     grads = tape.gradient(loss_value, gru_model.trainable_weights)
     # 
+    # print(f'Losses {prev_loss} and {loss_value}')
     optimiser.update_loss(prev_loss, loss_value)
     optimiser.apply_gradients(zip(grads, gru_model.trainable_weights))
     MAE.update_state(y_true=y[:1], y_pred=logits)
@@ -447,7 +459,7 @@ def valid_step(x, y):
         MAE.update_state(y_true=y[i:i+1], y_pred=logits[i])
         RMSE.update_state(y_true=y[i:i+1], y_pred=logits[i])
         RSquare.update_state(y_true=y[i:i+1], y_pred=logits[i])
-        loss[i] = optimiser.mae_loss(y[i:i+1], logits[i])
+        loss[i] = loss_fn(y[i:i+1], logits[i])
         mae[i] = MAE.result()
         rmse[i] = RMSE.result()
         rsquare[i] = RSquare.result()
@@ -464,7 +476,7 @@ while iEpoch < mEpoch:
     sh_i = np.arange(y_train.shape[0])
     np.random.shuffle(sh_i)
     for i in sh_i[:]:
-        loss_value = train_single_st(x_train[i:i+1,:,:], y_train[i:i+1,:], None)
+        loss_value = train_single_st(x_train[i:i+1,:,:], y_train[i:i+1,:], loss_value)
         # Progress Bar
         pbar.update(1)
         pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
