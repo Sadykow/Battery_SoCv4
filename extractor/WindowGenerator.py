@@ -191,6 +191,7 @@ class WindowGenerator():
                                 lambda x, _: x[0,:,:]
                               ).as_numpy_iterator()
                           ))
+    # print('Output Shape ')
     y : np.ndarray = np.asarray(list(ds.map(
                                 lambda _, y: y[0,0]
                               ).as_numpy_iterator()
@@ -563,7 +564,7 @@ class WindowGenerator():
 
   @property
   def train(self):
-    if (self.shift == 1 & self.label_width == 1):
+    if (self.shift == 1 & self.label_width == 1 & self.input_width == 1):
       print("Maling train dataset from list")
       x, y = self.make_dataset_from_list(
                                   X=self.Data.train_list,
@@ -579,7 +580,7 @@ class WindowGenerator():
 
   @property
   def valid(self):
-    if (self.shift == 1 & self.label_width == 1):
+    if (self.shift == 1 & self.label_width == 1 & self.input_width == 1):
       print("Maling train dataset from list")
       x, y = self.make_dataset_from_list(
                                   X=self.Data.valid_list,

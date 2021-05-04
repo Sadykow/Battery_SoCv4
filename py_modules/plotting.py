@@ -1,5 +1,8 @@
-from matplotlib.pyplot import subplots, close
+from matplotlib.pyplot import subplots, close, FuncFormatter
 from numpy import ndarray
+
+def format_SoC(value, _):
+  return int(value*100)
 
 def predicting_plot(profile : str, file_name : str, model_loc : str,
                     model_type : str,  iEpoch : str,
@@ -46,12 +49,14 @@ def predicting_plot(profile : str, file_name : str, model_loc : str,
           RMS[:,0],
           color='#698856')
     ax2.set_ylabel('Error', fontsize=32, color='#698856')
-    ax2.tick_params(axis='y', labelcolor='#698856')
+    ax2.tick_params(axis='y', labelcolor='#698856', labelsize=24)
     ax2.set_ylim([-0.1,1.6])
   ax1.set_title(
       f"{file_name} {model_type}. {profile}-trained",
       fontsize=36)
   ax1.legend(prop={'size': 32})
+  ax1.tick_params(axis='both', labelsize=24)
+  ax1.yaxis.set_major_formatter(FuncFormatter(format_SoC))
   ax1.set_ylim([-0.1,1.2])
   fig.tight_layout()
 

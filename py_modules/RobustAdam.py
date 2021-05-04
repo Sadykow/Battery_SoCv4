@@ -2,22 +2,17 @@ from tensorflow.python.ops import state_ops
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import control_flow_ops
-from tensorflow.python.keras import backend
-#from tensorflow.python.util.tf_export import keras_export
+# from tensorflow.python.util.tf_export import keras_export
 import tensorflow as tf
 from numpy import float32
-#@keras_export('tf.keras.optimizers.RobustAdam')
+# @keras_export('tf.keras.optimizers.RobustAdam')
 class RobustAdam(tf.keras.optimizers.Optimizer):
   
   epsilon : tf.float32 = 10e-8
-  _is_first : bool = True
-
+  
   # Robust part
   prev_loss : tf.Variable = None
   current_loss : tf.Variable = None
-
-  i_init : int = 0
-  t : int = 0
 
   def __init__(self, name : str ='RobustAdam',
                 learning_rate: tf.float32 = 0.0001,
@@ -60,9 +55,11 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
     for var in var_list:
       self.add_slot(var, slot_name='d', initializer='ones')
     for var in var_list:
-      self.add_slot(var, slot_name='prev_loss',  initializer=self.prev_loss)
+      self.add_slot(var, slot_name='prev_loss',
+                         initializer=self.prev_loss)
     for var in var_list:
-      self.add_slot(var, slot_name='current_loss',  initializer=self.current_loss)
+      self.add_slot(var, slot_name='current_loss', 
+                         initializer=self.current_loss)
     # print('_create_slots')
     
   def _prepare_local(self, var_device, var_dtype, apply_state):
@@ -137,25 +134,25 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
       # print(f'_dense:prev_loss:{prev_loss}')
       # print(f'_dense:currrent_loss:{current_loss}')
       # print(f'Var Shape: {var.shape}')
-      # if math_ops.abs(current_loss) >= math_ops.abs(prev_loss):
-      #   # r = min{(max{k,(L)}),K}
-      #   r_t = math_ops.minimum(
-      #       x=math_ops.maximum(
-      #           x=coefficients['k'],
-      #           y=math_ops.abs(current_loss/prev_loss)
-      #         ),
-      #       y=coefficients['K']
-      #     )
-      # else:
-      #   # r = min{(max{1/K,(L)}),1/k}
-      #   r_t = math_ops.minimum(
-      #       x=math_ops.maximum(
-      #           x=1/coefficients['K'],
-      #           y=math_ops.abs(current_loss/prev_loss)
-      #         ),
-      #       y=1/coefficients['k']
-      #     )
-      r_t = math_ops.abs(current_loss/prev_loss)
+      if math_ops.abs(current_loss) >= math_ops.abs(prev_loss):
+        # r = min{(max{k,(L)}),K}
+        r_t = math_ops.minimum(
+            x=math_ops.maximum(
+                x=coefficients['k'],
+                y=math_ops.abs(current_loss/prev_loss)
+              ),
+            y=coefficients['K']
+          )
+      else:
+        # r = min{(max{1/K,(L)}),1/k}
+        r_t = math_ops.minimum(
+            x=math_ops.maximum(
+                x=1/coefficients['K'],
+                y=math_ops.abs(current_loss/prev_loss)
+              ),
+            y=1/coefficients['k']
+          )
+      # r_t = math_ops.abs(current_loss/prev_loss)
       # d_t = beta3 * d + (1 - beta3) * r
       d = self.get_slot(var, 'd')
       d_scaled_r_values = r_t * coefficients['one_minus_beta_3_t']
@@ -166,25 +163,20 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
       var_update = state_ops.assign_sub(
           var, coefficients['lr'] * m_t / (d_t * v_sqrt + coefficients['epsilon']),
           use_locking=self._use_locking)
-      # if (d_t.shape[0] == 1):
-      #   normal = v_sqrt + coefficients['epsilon']
-      #   roadam = d_t * v_sqrt + coefficients['epsilon']
-      #   print(f'Normal: {normal}')
-      #   print(f'RoAdam: {roadam}')
       return control_flow_ops.group(*[var_update, m_t, v_t, d_t])
 
 
-  def update_loss(self, prev_loss : tf.float32, current_loss : tf.float32):
+  def update_loss(self, prev_loss : float32, current_loss : float32):
     # print('update_loss')
     if prev_loss is not None:
       # print(f'\n1)PRev_loss and loss: {prev_loss} and {current_loss}')
       self.prev_loss = prev_loss
       self.current_loss = current_loss
-    # else:
-    #   print('\nNo Prev Value')
+    else:
+      self.prev_loss = None
   
   def _resource_apply_sparse(self, grad, handle, indices, apply_state):
-    # print('_resource_apply_sparse')
+    print('_resource_apply_sparse: not implemented')
     raise NotImplementedError
 
   def get_config(self):
