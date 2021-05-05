@@ -243,8 +243,6 @@ while iEpoch < mEpoch:
     VIT_input = x_valid[0,:,:3]
     SOC_input = x_valid[0,:,3:]
     PRED = np.zeros(shape=(y_valid.shape[0],), dtype=np.float32)
-    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-                y_valid[::,-1]-PRED)))
     for i in trange(y_valid.shape[0]):
         logits = lstm_model.predict(
                                 x=np.expand_dims(
@@ -259,6 +257,8 @@ while iEpoch < mEpoch:
                             (SOC_input, np.expand_dims(logits,axis=0)),
                             axis=0)[1:,:]
         PRED[i] = logits
+    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+                y_valid[::,-1]-PRED)))
     # Time range
     test_time = range(0,PRED.shape[0])
     def format_func(value, _):

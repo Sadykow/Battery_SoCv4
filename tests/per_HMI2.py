@@ -1,5 +1,5 @@
 # %%
-import os
+import os, sys
 from typing import get_type_hints
 import numpy as np
 import pandas as pd
@@ -7,6 +7,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 import matplotlib.cm as cm
+import matplotlib.animation as animation
 
 import tensorflow as tf
 import tensorflow_addons as tfa
@@ -159,8 +160,8 @@ for BMS_id in range(0,7):
         #!Current
         test_data[:,0] = 0.25
         #!Voltage and temperature of a Cell
-        test_data[:,1] = BMSsV[BMS_id][:1:-fs,cell][:500]
-        test_data[:,2] = np.repeat(BMSsT[BMS_id][:1:-fs,cell], 100)[:500]
+        test_data[:,1] = BMSsV[BMS_id][:1:-fs,cell][:length]
+        test_data[:,2] = np.repeat(BMSsT[BMS_id][:1:-fs,cell], 100)[:length]
 
         normalised_test_data = np.divide(
             np.subtract(
@@ -173,21 +174,59 @@ for BMS_id in range(0,7):
                         batch_size=1)[0][0]
     charges.append(np.copy(SoC))
 # %%
-langs = ['4Cell-1', '4Cell-2', '4Cell-3', '4Cell-4', '4Cell-5', '4Cell-6', '4Cell-7', '4Cell-8', '4Cell-9', '4Cell-10']
-index = 1
-# Get a color map
+# langs = ['4Cell-1', '4Cell-2', '4Cell-3', '4Cell-4', '4Cell-5', '4Cell-6', '4Cell-7', '4Cell-8', '4Cell-9', '4Cell-10']
+# index = 1
+# # Get a color map
+# my_cmap = cm.get_cmap('jet_r')
+# # Get normalize function (takes data in range [vmin, vmax] -> [0, 1])
+# #my_norm = Normalize(vmin=0, vmax=8)
+# plt.figure(num=None, figsize=(60, 36))
+# for charge in charges[:]:
+#     plt.subplot(2, 4, index)
+#     plt.ylabel('SoC', fontsize=32)
+#     plt.ylim([1,100])
+#     plt.xticks(fontsize=24 )
+#     plt.yticks(fontsize=32 )
+#     plt.grid(b=True, axis='both', linestyle='-', linewidth=1)
+#     plt.title(f'BMS: {index}', fontsize=32)
+#     plt.bar(range(10),charge*100, color=my_cmap(charge))
+#     index +=1
+# plt.show()
+# %%
+# fig = plt.figure(num=None, figsize=(60,36))
+# ax1 = fig.add_subplot(1,1,1)
 my_cmap = cm.get_cmap('jet_r')
-# Get normalize function (takes data in range [vmin, vmax] -> [0, 1])
-#my_norm = Normalize(vmin=0, vmax=8)
-plt.figure(num=None, figsize=(60, 36))
-for charge in charges[:]:
-    plt.subplot(2, 4, index)
-    plt.ylabel('SoC', fontsize=32)
-    plt.ylim([1,100])
-    plt.xticks(fontsize=24 )
-    plt.yticks(fontsize=32 )
-    plt.grid(b=True, axis='both', linestyle='-', linewidth=1)
-    plt.title(f'BMS: {index}', fontsize=32)
-    plt.bar(range(10),charge*100, color=my_cmap(charge))
-    index +=1
+
+fig, axs = plt.subplots(2, 2)
+
+#https://pythonprogramming.net/live-graphs-matplotlib-tutorial/
+# def animate_old(i):
+#     graph_data = open('example.txt','r').read()
+#     lines = graph_data.split('\n')
+#     xs = []
+#     ys = []
+#     for line in lines:
+#         if len(line) > 1:
+#             x, y = line.split(',')
+#             xs.append(float(x))
+#             ys.append(float(y))
+#     ax1.clear()
+#     ax1.plot(xs, ys)
+
+def animate(i):
+    for ax in axs.flat:
+        # ax.clear()
+        ax.bar(range(10),charges[i]*i, color=my_cmap(charges[i]))
+    # for charge in charges[:1]:
+        # plt.subplot(2, 4, index)
+        # ax1.ylabel('SoC', fontsize=32)
+        # ax1.ylim([1,100])
+        # ax1.xticks(fontsize=24 )
+        # ax1.yticks(fontsize=32 )
+        # ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
+        # ax1.title(f'BMS: {index}', fontsize=32)
+        # ax1.bar(range(10),charge*i, color=my_cmap(charge))
+        # index +=1
+
+ani = animation.FuncAnimation(fig, animate, interval=1000)
 plt.show()
