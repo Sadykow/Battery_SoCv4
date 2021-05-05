@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd  # File read
 import tensorflow as tf
 import tensorflow_addons as tfa
-from tqdm import tqdm, trange
+from tqdm import trange
 
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
@@ -22,20 +22,21 @@ from cy_modules.utils import str2bool
 from py_modules.plotting import predicting_plot
 # %%
 # Extract params
-# try:
-#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
-#                     ["help", "debug=", "epochs=",
-#                      "gpu=", "profile="])
-# except getopt.error as err: 
-#     # output error, and return with an error code 
-#     print (str(err)) 
-#     print ('EXEPTION: Arguments requied!')
-#     sys.exit(2)
+try:
+    opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:s:",
+                    ["help", "debug=", "epochs=",
+                     "gpu=", "profile="])
+except getopt.error as err: 
+    # output error, and return with an error code 
+    print (str(err)) 
+    print ('EXEPTION: Arguments requied!')
+    sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '5'), ('-g', '0'), ('-p', 'DST')]
-mEpoch  : int = 10
-GPU     : int = 0
-profile : str = 'DST'
+# opts = [('-d', 'False'), ('-e', '5'), ('-g', '0'), ('-p', 'DST') ('-s', '10')]
+mEpoch    : int = 10
+GPU       : int = 0
+profile   : str = 'DST'
+out_steps : int = 10
 for opt, arg in opts:
     if opt == '-h':
         print('HELP: Use following default example.')
@@ -56,6 +57,8 @@ for opt, arg in opts:
         GPU = int(arg)
     elif opt in ("-p", "--profile"):
         profile = (arg)
+    elif opt in ("-s", "--steps"):
+        out_steps = int(arg)
 # %%
 # Define plot sizes
 mpl.rcParams['figure.figsize'] = (8, 6)
@@ -109,7 +112,6 @@ dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set_2nd',
                                 ],
                               PROFILE_range = profile)
 # %%
-out_steps   : int = 10
 window = WindowGenerator(Data=dataGenerator,
                         input_width=500, label_width=out_steps, shift=1,
                         input_columns=['Current(A)', 'Voltage(V)',
@@ -150,7 +152,7 @@ x_test_two = np.array(xx_valid[mid:,:,:], copy=True, dtype=np.float32)
 y_test_two = np.array(yy_valid[mid:,:], copy=True, dtype=np.float32)
 # %%
 file_name : str = os.path.basename(__file__)[:-3]
-model_loc : str = f'Models/{file_name}/{profile}-models/'
+model_loc : str = f'Models/{file_name}-{out_steps}steps/{profile}-models/'
 iEpoch = 0
 firstLog  : bool = True
 try:
@@ -184,6 +186,7 @@ lstm_model.compile(loss=tf.losses.MeanAbsoluteError(),
             optimizer=tf.optimizers.Adam(learning_rate = 0.0001), #!Start: 0.001
             metrics=[tf.metrics.MeanAbsoluteError(),
                      tf.metrics.RootMeanSquaredError(),
+                     tfa.metrics.RSquare(y_shape=(out_steps,), dtype=tf.float32)
                     ])
 while iEpoch < mEpoch:
     iEpoch+=1
@@ -215,6 +218,15 @@ while iEpoch < mEpoch:
     
     # or save to csv:
     hist_df = pd.DataFrame(train_hist.history)
+    PERF = lstm_model.evaluate(x=x_valid,
+                               y=y_valid,
+                               batch_size=1,
+                               verbose=1)
+    hist_df['vall_loss'] = PERF[0]
+    hist_df['val_mean_absolute_error'] = PERF[1]
+    hist_df['val_root_mean_squared_error'] = PERF[2]
+    hist_df['val_r_square'] = PERF[3]
+
     with open(f'{model_loc}history-{profile}.csv', mode='a') as f:
         if(firstLog):
             hist_df.to_csv(f, index=False)
@@ -257,6 +269,7 @@ while iEpoch < mEpoch:
                             (SOC_input, np.expand_dims(logits,axis=0)),
                             axis=0)[1:,:]
         PRED[i] = logits
+    MAE = np.mean(tf.keras.backend.abs(y_valid[::,-1]-PRED))
     RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
                 y_valid[::,-1]-PRED)))
     # Time range
@@ -283,7 +296,7 @@ while iEpoch < mEpoch:
     ax2.set_ylim([-0.1,1.6])
     ax1.set_title(
         #f"{file_name} {model_type}. {profile}-trained",
-        f"VITpSoC №1 Train Dataset. {profile}-trained",
+        f"VITpSoC №1 Train Dataset. {profile}-trained. {out_steps}-steps",
         fontsize=36)
     ax1.legend(prop={'size': 32})
     ax1.tick_params(axis='both', labelsize=24)
@@ -291,18 +304,17 @@ while iEpoch < mEpoch:
     ax1.set_ylim([-0.1,1.2])
     fig.tight_layout()
     textstr = '\n'.join((
-        '$MAE  = nn.nn%$',
-        '$RMSE = nn.nn%$',
-        '$R2  = nn.nn%$'))
+        '$MAE  = {0:.2f}%$'.format(np.mean(MAE)*100, ),
+        '$RMSE = {0:.2f}%$'.format(np.mean(RMS)*100, )
+        # '$R2  = nn.nn%$'
+            ))
     ax1.text(0.65, 0.80, textstr, transform=ax1.transAxes, fontsize=30,
         verticalalignment='top',
         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    fig.show()
-    # if save_plot:
-    # plt.savefig(f'{model_loc}{profile}-{iEpoch}.svg')
-    # fig.clf()
-    # plt.close()
-
+    
+    fig.savefig(f'{model_loc}{profile}-{iEpoch}.svg')
+    fig.clf()
+    plt.close()
 # %%
 # for j in range(2,6):
 #     lstm_model.load_weights(f'{model_loc}{j}/variables/variables')

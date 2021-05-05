@@ -163,6 +163,69 @@ class AutoFeedBack(tf.keras.Model):
       # print(f'Validation shape: {predictions[0].shape}')
       return self.tf_round(predictions[0], decimals=2)
   # AutoFeedBack.call = call
+  
+  def call(self, inputs, training=None):
+    ###Given model with 510cells, out_steps=8, Dense(1) ###
+    # print(f'\nTraining State: {training}')
+    # print(f"Input Shape: {inputs.shape}") # -> (1, 500, 4)
+    if training:
+      # Use a TensorArray to capture dynamically unrolled outputs.
+      predictions = []
+      # Initialize the lstm state # -> (1, 492, 4)
+      # print(f"First Input Shape: {inputs[:,:-self.out_steps,:].shape}") 
+      prediction, state = self.warmup(inputs[:,:-self.out_steps,:])
+      # print(f"Warmup Pred[0]:  {prediction[0].shape}") #-> (1,)
+      # print(f"Warmup Len State: {len(state)}") #-> 2
+      # for i in range(len(state)):
+        # print(f"Warmup State[{i}]: {state[i].shape}")
+        # -> 2 -> (1,510)
+        # Insert the first prediction
+      predictions.append(prediction)
+
+      # Run the rest of the prediction steps
+      for n in range(1, self.out_steps):
+        # Use the last prediction as input.
+        # x = tf.concat(
+        #             values=[
+        #                 inputs[:,-self.out_steps:-self.out_steps+n,:-self.num_feat],
+        #                 tf.expand_dims(prediction, axis=0)
+        #                 ],
+        #             axis=2,
+        #             name='InputPred'
+        #             )
+        x = tf.concat(
+                    values=[
+                        inputs[:,-self.out_steps+n,:-self.num_feat],
+                        prediction
+                        ],
+                    axis=1,
+                    name='InputPred'
+                )
+        # print(f"Concated: {x.shape}")
+        # Execute one lstm step.
+        x, state = self.lstm_cell(
+                x,
+                states=state,
+                training=training)
+        # Convert the lstm output to a prediction.
+        prediction = self.dense(x)
+        # Add the prediction to the output
+        predictions.append(prediction)
+
+      # predictions.shape => (time, batch, features)
+      predictions = tf.stack(predictions)
+      # print(f'Stacked: {predictions.shape}')
+      # predictions.shape => (batch, time, features)
+      # predictions = tf.transpose(predictions, [1, 0, 2])
+      # print(f'Transposed: {predictions.shape}')
+      # print(f'Returned: {predictions[:,0,0].shape}')
+      return predictions[:,0,0]
+      #return self.tf_round(predictions[:,0,0], decimals=2)
+    else:
+      x, *_ = self.lstm_rnn(inputs, training=training)
+      predictions = self.dense(x)
+      # print(f'Validation shape: {predictions[0].shape}')
+      return self.tf_round(predictions[0], decimals=2)
 
   def tf_round(self, x : tf.Tensor, decimals : int = 2):
     multiplier = tf.constant(10**decimals, dtype=x.dtype)
