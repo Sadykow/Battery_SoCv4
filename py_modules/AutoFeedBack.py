@@ -100,7 +100,7 @@ class AutoFeedBack(tf.keras.Model):
   #               name = 'TranposeOrder'
   #             )
 
-  def call(self, inputs, training=None):
+  def call_noTensor(self, inputs, training=None):
     ###Given model with 510cells, out_steps=8, Dense(1) ###
     # print(f'\nTraining State: {training}')
     # print(f"Input Shape: {inputs.shape}") # -> (1, 500, 4)
@@ -165,12 +165,13 @@ class AutoFeedBack(tf.keras.Model):
   # AutoFeedBack.call = call
   
   def call(self, inputs, training=None):
-    ###Given model with 510cells, out_steps=8, Dense(1) ###
-    # print(f'\nTraining State: {training}')
-    # print(f"Input Shape: {inputs.shape}") # -> (1, 500, 4)
     if training:
       # Use a TensorArray to capture dynamically unrolled outputs.
-      predictions = []
+      predictions = tf.TensorArray(self.float_dtype, size=self.out_steps,
+                dynamic_size=False, clear_after_read=True,
+                tensor_array_name=None, handle=None, flow=None,
+                infer_shape=True, element_shape=tf.TensorShape([1, None]),
+                colocate_with_first_write_call=True, name=None)
       # Initialize the lstm state # -> (1, 492, 4)
       # print(f"First Input Shape: {inputs[:,:-self.out_steps,:].shape}") 
       prediction, state = self.warmup(inputs[:,:-self.out_steps,:])
@@ -180,26 +181,17 @@ class AutoFeedBack(tf.keras.Model):
         # print(f"Warmup State[{i}]: {state[i].shape}")
         # -> 2 -> (1,510)
         # Insert the first prediction
-      predictions.append(prediction)
-
+      predictions = predictions.write(0, prediction)
+      
       # Run the rest of the prediction steps
       for n in range(1, self.out_steps):
         # Use the last prediction as input.
-        # x = tf.concat(
-        #             values=[
-        #                 inputs[:,-self.out_steps:-self.out_steps+n,:-self.num_feat],
-        #                 tf.expand_dims(prediction, axis=0)
-        #                 ],
-        #             axis=2,
-        #             name='InputPred'
-        #             )
         x = tf.concat(
                     values=[
                         inputs[:,-self.out_steps+n,:-self.num_feat],
                         prediction
                         ],
-                    axis=1,
-                    name='InputPred'
+                    axis=1
                 )
         # print(f"Concated: {x.shape}")
         # Execute one lstm step.
@@ -210,17 +202,12 @@ class AutoFeedBack(tf.keras.Model):
         # Convert the lstm output to a prediction.
         prediction = self.dense(x)
         # Add the prediction to the output
-        predictions.append(prediction)
+        predictions = predictions.write(n, prediction)
 
       # predictions.shape => (time, batch, features)
-      predictions = tf.stack(predictions)
-      # print(f'Stacked: {predictions.shape}')
-      # predictions.shape => (batch, time, features)
-      # predictions = tf.transpose(predictions, [1, 0, 2])
-      # print(f'Transposed: {predictions.shape}')
-      # print(f'Returned: {predictions[:,0,0].shape}')
-      return predictions[:,0,0]
-      #return self.tf_round(predictions[:,0,0], decimals=2)
+      # return tf.squeeze(tf.squeeze(predictions.stack()))
+      # return predictions.stack()[:,0,0]
+      return self.tf_gradient_round(predictions.stack()[:,0,0], 2)
     else:
       x, *_ = self.lstm_rnn(inputs, training=training)
       predictions = self.dense(x)
@@ -228,8 +215,61 @@ class AutoFeedBack(tf.keras.Model):
       return self.tf_round(predictions[0], decimals=2)
 
   def tf_round(self, x : tf.Tensor, decimals : int = 2):
-    multiplier = tf.constant(10**decimals, dtype=x.dtype)
-    return tf.round(x * multiplier) / multiplier
+    #multiplier = tf.constant(10**decimals, dtype=x.dtype)
+    #return tf.round(x * multiplier) / multiplier
+    multiplier  : tf.Tensor = tf.constant(value = 10**decimals, shape=(1,),
+                        dtype=x.dtype, name = 'Multiplier')
+    return tf.math.divide(
+                x=tf.keras.backend.round(
+                      tf.math.multiply(
+                          x=x,
+                          y=multiplier
+                        )
+                    ),
+                y=multiplier,
+                name = 'Convert_Back'
+              )
+  
+  def tf_gradient_round(self, x : tf.Tensor, decimals : int = 2):
+    """ Rounding function but with preserved gradient.
 
+    Args:
+        x (tf.Tensor): [description]
+        decimals (int, optional): [description]. Defaults to 2.
+
+    Returns:
+        [type]: [description]
+    """
+    #* *100
+    multiplier  : tf.Tensor = tf.constant(value = 10**decimals, shape=(1,),
+                        dtype=x.dtype, name = 'Multiplier')
+    #* 0.9356 -> 93.56
+    raised = tf.math.multiply(x, multiplier)
+    #* 93.56 -> 93.00
+    rounded_pos = tf.keras.backend.cast(
+                        tf.keras.backend.cast(
+                            raised,
+                            dtype=tf.int32
+                          ),
+                        dtype=x.dtype
+                      )
+    #* 93.56-93.00 = 0.56 
+    cutter = tf.math.subtract(
+                      raised,
+                      rounded_pos
+                    )
+    #* 93.56-0.56->93.00->0.93
+    prediction = tf.math.divide(
+                      tf.math.subtract(
+                            raised,
+                            cutter
+                          ),
+                      multiplier
+                    )
+    #*+1 or 0
+    return prediction + tf.round(cutter)/multiplier
+  
   def __repr__(self) -> str:
     return super().__repr__()
+
+    

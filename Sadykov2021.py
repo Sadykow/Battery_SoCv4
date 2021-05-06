@@ -32,7 +32,7 @@ except getopt.error as err:
     print ('EXEPTION: Arguments requied!')
     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '5'), ('-g', '0'), ('-p', 'DST') ('-s', '10')]
+# opts = [('-d', 'False'), ('-e', '5'), ('-g', '1'), ('-p', 'DST'), ('-s', '10')]
 mEpoch    : int = 10
 GPU       : int = 0
 profile   : str = 'DST'
