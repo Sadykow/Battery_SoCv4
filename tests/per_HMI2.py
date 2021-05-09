@@ -32,7 +32,7 @@ bms_file   : str  = 'SecondBalanceCharge.json'
 #! Select GPU for usage. CPU versions ignores it.
 #!! Learn to check if GPU is occupied or not.
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
-GPU=0
+GPU=1
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
     #! need to research more why.
@@ -119,8 +119,8 @@ for i in range(8):
 # plt.plot(np.flipud(BMSsVt[0][1:]))
 # plt.title('Time')
 author  : str = 'Chemali2017'#'TadeleMamo2020'#'WeiZhang2020'#Chemali2017
-profile : str = 'US06'#'FUDS'#'US06'#'DST'
-iEpoch  : int = 50
+profile : str = 'FUDS'#'FUDS'#'US06'#'DST'
+iEpoch  : int = 48
 model_loc : str = f'../Models/{author}/{profile}-models/'
 
 try:
@@ -174,24 +174,24 @@ for BMS_id in range(0,7):
                         batch_size=1)[0][0]
     charges.append(np.copy(SoC))
 # %%
-# langs = ['4Cell-1', '4Cell-2', '4Cell-3', '4Cell-4', '4Cell-5', '4Cell-6', '4Cell-7', '4Cell-8', '4Cell-9', '4Cell-10']
-# index = 1
-# # Get a color map
-# my_cmap = cm.get_cmap('jet_r')
-# # Get normalize function (takes data in range [vmin, vmax] -> [0, 1])
-# #my_norm = Normalize(vmin=0, vmax=8)
-# plt.figure(num=None, figsize=(60, 36))
-# for charge in charges[:]:
-#     plt.subplot(2, 4, index)
-#     plt.ylabel('SoC', fontsize=32)
-#     plt.ylim([1,100])
-#     plt.xticks(fontsize=24 )
-#     plt.yticks(fontsize=32 )
-#     plt.grid(b=True, axis='both', linestyle='-', linewidth=1)
-#     plt.title(f'BMS: {index}', fontsize=32)
-#     plt.bar(range(10),charge*100, color=my_cmap(charge))
-#     index +=1
-# plt.show()
+langs = ['4Cell-1', '4Cell-2', '4Cell-3', '4Cell-4', '4Cell-5', '4Cell-6', '4Cell-7', '4Cell-8', '4Cell-9', '4Cell-10']
+index = 1
+# Get a color map
+my_cmap = cm.get_cmap('jet_r')
+# Get normalize function (takes data in range [vmin, vmax] -> [0, 1])
+#my_norm = Normalize(vmin=0, vmax=8)
+plt.figure(num=None, figsize=(60, 36))
+for charge in charges[:]:
+    plt.subplot(2, 4, index)
+    plt.ylabel('SoC', fontsize=32)
+    plt.ylim([1,100])
+    plt.xticks(fontsize=24 )
+    plt.yticks(fontsize=32 )
+    plt.grid(b=True, axis='both', linestyle='-', linewidth=1)
+    plt.title(f'BMS: {index}', fontsize=32)
+    plt.bar(range(10),charge*100, color=my_cmap(charge))
+    index +=1
+plt.show()
 # %%
 # fig = plt.figure(num=None, figsize=(60,36))
 # ax1 = fig.add_subplot(1,1,1)

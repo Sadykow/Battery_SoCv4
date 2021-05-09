@@ -15,6 +15,10 @@
 */
 bool str2bool(int8_t v[], int8_t size);
 
+/**
+ * Testing conversion..
+*/
+int bytes2int(unsigned char bytes[]);
 // float *diffSoC(float *chargeData, float *discargeData);
 
 #endif // UTILS_H

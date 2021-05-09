@@ -45,26 +45,42 @@ int main (void) {
     //     printf("%f ", arr3[i]);
     // }
     // printf("\n");
-    FILE* stream = fopen("../Models/Chemali2017/FUDS-models/history-FUDS2.csv", "r");
-    char line[MAXCHAR];
-    char *token;
-    int index = 0;
-    // Write the finder of the minimum epoch.
-    while (feof(stream) != true)
-    {
-        fgets(line, MAXCHAR, stream);
-        if(index == 0) {
-            printf("Row: %s", line);
-        } else {
-            token = strtok(line, ",");
-            while(token != NULL) {
-                //printf("%s ", token);
-                printf("fl: %4.8f " ,atof(token)); 
-                token = strtok(NULL, ",");
-            }
-        }
-        printf("\n");
-        index++;
-    }
+    // FILE* stream = fopen("../Models/Chemali2017/FUDS-models/history-FUDS2.csv", "r");
+    // char line[MAXCHAR];
+    // char *token;
+    // int index = 0;
+    // // Write the finder of the minimum epoch.
+    // while (feof(stream) != true)
+    // {
+    //     fgets(line, MAXCHAR, stream);
+    //     if(index == 0) {
+    //         printf("Row: %s", line);
+    //     } else {
+    //         token = strtok(line, ",");
+    //         while(token != NULL) {
+    //             //printf("%s ", token);
+    //             printf("fl: %4.8f " ,atof(token)); 
+    //             token = strtok(NULL, ",");
+    //         }
+    //     }
+    //     printf("\n");
+    //     index++;
+    // }
+    // Example raw data from SFP module
+    // unsigned char byte1 = 0xFC;
+    // unsigned char byte2 = 0x0C;
+    // unsigned char byte3 = 0x7F;
+    // unsigned char byte4 = 0xC9; // Assembling to 32 bit unsigned integer
+    // unsigned int reassembled_data = 0;
+    // reassembled_data |= byte1 << 24;
+    // reassembled_data |= byte2 << 16;
+    // reassembled_data |= byte3 <<  8;
+    // reassembled_data |= byte4 <<  0; // Converting to volts
+    // float voltage = (int)(reassembled_data) / 1000000.0f; // Calculated value is -12.213964 Volts
+    // printf("%i :: %f\n", (int)(reassembled_data),voltage);
+    unsigned char bytes[] = {0xFC, 0x0C, 0x7F, 0xC9};
+    unsigned int data = bytes2int(bytes);
+    float voltage = (int) data / 1000000.0f;
+    printf("%u %i:: %f\n", data, (int)data, voltage);
     return 0;
 }

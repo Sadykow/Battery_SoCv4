@@ -16,6 +16,7 @@ from tqdm import trange
 sys.path.append(os.getcwd() + '/..')
 from extractor.DataGenerator import *
 from py_modules.Attention import *
+from py_modules.AutoFeedBack import AutoFeedBack
 
 float_dtype : type = np.float32
 int_dtype   : type = np.int32
@@ -346,7 +347,7 @@ for axT in axTs.flat:
 #? Model №7 - WeiZhang2020   - DST  - 9
 #?                           - US06 - ?
 #?                           - FUDS - 3
-author  : str = 'BinXiao2020'#'TadeleMamo2020'#'WeiZhang2020'#Chemali2017
+author  : str = 'Chemali2017'#'BinXiao2020'#'TadeleMamo2020'#'WeiZhang2020'#Chemali2017
 profile : str = 'FUDS'#'FUDS'#'US06'#'DST'
 iEpoch  : int = 48
 model_loc : str = f'../Models/{author}/{profile}-models/'
@@ -376,6 +377,7 @@ try:
 except OSError as identifier:
     print("Model Not Found, Check the path. {} \n".format(identifier))
 # %%
+#* Testing model against some article model
 data_dir    : str = '../Data/'
 dataGenerator = DataGenerator(train_dir=f'{data_dir}A123_Matt_Set',
                               valid_dir=f'{data_dir}A123_Matt_Val',
@@ -398,7 +400,7 @@ normalised_training = np.divide(
         ),
     STD
     )
-
+# %%
 #? Given: 28408 samples, 1s => 7.89h
 #?                       10s => +-48min
 fs = 10
@@ -436,5 +438,115 @@ plt.yticks(range(10,90,5), fontsize=18, rotation=0)
 plt.title(
       f"BMD ID-{BMS_id+1} {author}. {profile}-trained",
       fontsize=36)
-plt.savefig(f'figures/BMD_ID-{BMS_id+1}-{author}-{profile}.png')
+# plt.savefig(f'figures/BMD_ID-{BMS_id+1}-{author}-{profile}.png')
+# %%
+#* DST based model
+# out_steps = 15
+# my_model_loc = '../Models/Sadykov2021-15steps/DST-models/8/8'
+#* US06 based model
+out_steps = 20
+my_model_loc = '../Models/Sadykov2021-20steps/US06-models/10/10'
+try:
+    lstm_model : AutoFeedBack = AutoFeedBack(units=510,
+            out_steps=out_steps, num_features=1
+        )
+    lstm_model.load_weights(my_model_loc)
+    firstLog = False
+    print("Model Identefied. Continue training.")
+except:
+    print("Model Not Found, with some TF error.\n")
+# %%
+my_test_data : np.ndarray = np.zeros(shape=(length-500,3), dtype=float_dtype)
+#!Current
+my_test_data[:,0] = test_data[500:,0]
+my_test_data[:,1] = test_data[500:,1]
+my_test_data[:,2] = test_data[500:,2]
+
+my_normalised_test_data : np.ndarray = np.zeros(shape=(length-500,4), dtype=float_dtype)
+my_normalised_test_data[:,:3] = np.divide(
+    np.subtract(
+            np.copy(a=my_test_data[:,:]),
+            MEAN
+        ),
+    STD
+    )
+my_normalised_test_data[:500,3]  = PRED[:500]
+
+for i in trange(0, length-1000):
+    #! Something unclear here.
+    my_normalised_test_data[500+i,3] = lstm_model.predict(
+                        np.expand_dims(my_normalised_test_data[i:500+i,:], axis=0),
+                batch_size=1)
+
+time = np.linspace(0, BMSsV[BMS_id].shape[0]/fs/60, length-500)
+plt.figure
+plt.plot(time, my_normalised_test_data[:,3]*100,
+         label="Prediction", color='k', linewidth=7)
+plt.grid(b=True, axis='both', linestyle='-', linewidth=1)
+plt.ylabel('Charge(%)', fontsize=32)
+#plt.xlabel('Samples fs=10', fontsize=32)
+plt.xlabel('Time (minutes) - fs=10', fontsize=32)
+plt.xticks(range(0,50,5), fontsize=18, rotation=0)
+plt.yticks(range(10,90,5), fontsize=18, rotation=0)
+plt.title(
+      f"BMD ID-{BMS_id+1} Sadykov2021. {profile}-trained",
+      fontsize=36)
+# %%
+# VIT_input : np.ndarray = np.zeros(shape=(length-500,3), dtype=float_dtype)
+# VIT_input = normalised_test_data[500:, :]
+# SOC_input : np.ndarray = np.zeros(shape=(500,1), dtype=float_dtype)
+# SOC_input[:, 0] = PRED[:500]
+# myPRED = np.zeros(shape=(length-500))
+# myPRED[:500] = SOC_input[:, 0]
+# for i in trange(0, length-1000-1):
+#     #! Or here omething unclear here.
+#     logits = lstm_model.predict(
+#                     x=np.expand_dims(
+#                             np.concatenate(
+#                                     (VIT_input[i:i+500, :], SOC_input),
+#                                     axis=1
+#                                 ),
+#                             axis=0
+#                         ),
+#                     batch_size=1
+#                 )
+#     SOC_input = np.concatenate(
+#                             (SOC_input, np.expand_dims(logits,axis=0)),
+#                             axis=0)[1:,:]
+#     myPRED[500+i] = logits
+
+# time = np.linspace(0, BMSsV[BMS_id].shape[0]/fs/60, length-500)
+# plt.figure
+# plt.plot(time, myPRED*100,
+#          label="Prediction", color='k', linewidth=7)
+# plt.grid(b=True, axis='both', linestyle='-', linewidth=1)
+# plt.ylabel('Charge(%)', fontsize=32)
+# #plt.xlabel('Samples fs=10', fontsize=32)
+# plt.xlabel('Time (minutes) - fs=10', fontsize=32)
+# plt.xticks(range(0,50,5), fontsize=18, rotation=0)
+# plt.yticks(range(10,90,5), fontsize=18, rotation=0)
+# plt.title(
+#       f"BMD ID-{BMS_id+1} {author}. {profile}-trained",
+#       fontsize=36)
+# %%
+test = my_normalised_test_data[:,3]
+# test = myPRED
+def smooth(y, box_pts: int) -> np.array:
+    """ Smoothing data using numpy convolve. Based on the size of the
+    averaging box, data gets smoothed.
+    Here it used in following form:
+    y = V/(maxV-minV)
+    box_pts = 500
+
+    Args:
+        y (pd.Series): A data which requires to be soothed.
+        box_pts (int): Number of points to move averaging box
+
+    Returns:
+        np.array: Smoothed data array
+    """
+    box = np.ones(box_pts)/box_pts
+    y_smooth = np.convolve(y, box, mode='same')
+    return y_smooth
+plt.plot(smooth(test, 40))
 # %%

@@ -40,3 +40,11 @@ bool str2bool(int8_t v[], int8_t size) {
 //         res[i] = round((chargeData[i] - discargeData[i])*100)/100;
 //     return res;
 // }
+int bytes2int(unsigned char bytes[]) {
+    unsigned int reassembled_data = 0;
+    reassembled_data |= bytes[0] << 24;
+    reassembled_data |= bytes[1] << 16;
+    reassembled_data |= bytes[2] <<  8;
+    reassembled_data |= bytes[3] <<  0; // Converting to volts
+    return reassembled_data;
+}

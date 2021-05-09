@@ -206,8 +206,8 @@ class AutoFeedBack(tf.keras.Model):
 
       # predictions.shape => (time, batch, features)
       # return tf.squeeze(tf.squeeze(predictions.stack()))
-      # return predictions.stack()[:,0,0]
-      return self.tf_gradient_round(predictions.stack()[:,0,0], 2)
+      return predictions.stack()[:,0,0]
+      # return self.tf_gradient_round(predictions.stack()[:,0,0], 2)
     else:
       x, *_ = self.lstm_rnn(inputs, training=training)
       predictions = self.dense(x)

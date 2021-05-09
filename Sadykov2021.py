@@ -183,7 +183,7 @@ nanTerminate = tf.keras.callbacks.TerminateOnNaN()
 #! I changed learning rate from 0.001 to 0.0001 after first run. If further fails
 #!replace back. The drop was present.
 lstm_model.compile(loss=tf.losses.MeanAbsoluteError(),
-            optimizer=tf.optimizers.Adam(learning_rate = 0.0001), #!Start: 0.001
+            optimizer=tf.optimizers.Adam(learning_rate = 0.001), #!Start: 0.001
             metrics=[tf.metrics.MeanAbsoluteError(),
                      tf.metrics.RootMeanSquaredError(),
                      tfa.metrics.RSquare(y_shape=(out_steps,), dtype=tf.float32)
