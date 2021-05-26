@@ -33,7 +33,7 @@ from py_modules.plotting import predicting_plot
 #     print ('EXEPTION: Arguments requied!')
 #     sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '2'), ('-g', '1'), ('-p', 'FUDS')]
+opts = [('-d', 'False'), ('-e', '2'), ('-g', '1'), ('-p', 'DST')]
 mEpoch  : int = 10
 GPU     : int = 0
 profile : str = 'DST'
@@ -124,6 +124,10 @@ ds_valid, xx_valid, yy_valid = window.valid
 x_train = np.array(xx_train, copy=True, dtype=np.float32)
 y_train = np.array(yy_train, copy=True, dtype=np.float32)
 
+#! Meaning the SoC
+for i in range(0, x_train.shape[0]):
+    x_train[i,:,3] = np.mean(x_train[i,:,3])
+
 # For validation use same training
 x_valid = np.array(xx_train[16800:25000,:,:], copy=True, dtype=np.float32)
 y_valid = np.array(yy_train[16800:25000,:]  , copy=True, dtype=np.float32)
@@ -134,6 +138,8 @@ x_test_one = np.array(xx_valid[:mid,:,:], copy=True, dtype=np.float32)
 y_test_one = np.array(yy_valid[:mid,:], copy=True, dtype=np.float32)
 x_test_two = np.array(xx_valid[mid:,:,:], copy=True, dtype=np.float32)
 y_test_two = np.array(yy_valid[mid:,:], copy=True, dtype=np.float32)
+
+
 # %%
 file_name : str = os.path.basename(__file__)[:-3]
 model_loc : str = f'Models/{file_name}/{profile}-models/'
@@ -186,6 +192,39 @@ except OSError as identifier:
 #         update_freq='epoch', profile_batch=2, embeddings_freq=0,
 #         embeddings_metadata=None
 #     )
+lstm_model.compile(loss=tf.losses.MeanAbsoluteError(),
+            optimizer=tf.optimizers.Adam(learning_rate = 0.0001), #!Start: 0.001
+            metrics=[tf.metrics.MeanAbsoluteError(),
+                     tf.metrics.RootMeanSquaredError(),
+                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
+                    ])
+history2 = lstm_model.fit(x_train, y_train, batch_size=1, epochs=1,
+                 validation_data=(x_valid, y_valid))
+# %%
+PREDi = lstm_model.predict(x_valid, batch_size=1, verbose=1)
+
+plt.plot(PREDi)
+plt.plot(y_valid)
+# %%
+VIT_input = x_valid[0,:,:3]
+SOC_input = x_valid[0,:,3:]
+PRED = np.zeros(shape=(y_valid.shape[0],), dtype=np.float32)
+for i in trange(y_valid.shape[0]):
+    logits = lstm_model.predict(
+                            x=np.expand_dims(
+                                np.concatenate(
+                                    (VIT_input, SOC_input),
+                                    axis=1),
+                                axis=0),
+                            batch_size=1
+                        )
+    VIT_input = x_valid[i,:,:3]
+    SOC_input = np.concatenate(
+                        (SOC_input, logits),
+                        axis=0)[1:,:]
+    PRED[i] = logits[0]
+plt.plot(y_valid)
+plt.plot(PRED)
 # %%
 # optimiser = RobustAdam(learning_rate = 0.0001)
 optimiser = tf.optimizers.Adam(learning_rate = 0.001)
@@ -311,34 +350,8 @@ while iEpoch < mEpoch:
 #                         (SOC_input, logits),
 #                         axis=0)[1:,:]
 #     PRED[i] = logits
-# %%
-# PRED = lstm_model.predict(x_valid, batch_size=1, verbose=1)
-# def format_SoC(value, _):
-#   return int(value*100)
-
-# test_time = range(0,PRED.shape[0])
-  
-# # instantiate the first axes
-# fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
-# ax1.plot(test_time, y_valid[:,0],
-#         label="Actual", color='#0000ff')
-# ax1.plot(test_time,
-#         PRED,
-#         label="Prediction", color='#ff7f0e')
-# ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
-# ax1.set_xlabel("Time Slice (s)", fontsize=32)
-# ax1.set_ylabel("SoC (%)", fontsize=32)
-
-# # instantiate a second axes that shares the same x-axis
-# ax1.set_title(
-#     f"Feed-forward model LSTM Test. {profile}-trained",
-#     fontsize=36)
-# ax1.legend(prop={'size': 32})
-# ax1.tick_params(axis='both', labelsize=24)
-# ax1.yaxis.set_major_formatter(plt.FuncFormatter(format_SoC))
-# ax1.set_ylim([-0.1,1.2])
-# fig.tight_layout()
-# fig.savefig('/mnt/WORK/work/MPhil(CCS)/ThesisDefense/Models/Sadykov2020-Feed.svg')
+# plt.plot(y_valid[:,0])
+# plt.plot(PRED)
 # %%
 # log_dir=model_loc+ \
 #     f'tensorboard/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}'

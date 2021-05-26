@@ -9,6 +9,7 @@ import pandas as pd
 import matplotlib as mpl        # Plot functionality
 import matplotlib.pyplot as plt
 import seaborn as sns
+import datetime
 
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.python.keras.backend import shape
@@ -157,6 +158,7 @@ for _, _, files in os.walk(train_dir):
     for file in files[0:1]:
         X : pd.DataFrame = Read_Excel_File(train_dir + '/' + file,
                                     range(22,25), columns) #! or 21
+                                    #range(4,12), columns)
         Y : pd.DataFrame = pd.DataFrame(
                 data={'SoC' : diffSoC(
                             chargeData=X.loc[:,'Charge_Capacity(Ah)'],
@@ -177,144 +179,154 @@ for i in range(0, len(train_X)):
     #train_X[i] = train_X[i].to_numpy()
     sample_size += train_X[i].shape[0]
 train_X[0]['Test_Time(s)'] = train_X[0]['Test_Time(s)']-train_X[0]['Test_Time(s)'][0]
+time_minutes = np.linspace(0,int(train_X[0]['Test_Time(s)'].iloc[-1]/60)+1,train_X[0]['Test_Time(s)'].shape[0])
+train_X[0]['Test_Time(m)'] = time_minutes
 # %% [markdown]
 # # Performing Plots generation from 10C example
 # %%
+# train_X[0]['V_smooth(V)'] = smooth(train_X[0]['Voltage(V)'],600)
 #sns.set(rc={'figure.figsize':(16,8)})
-V = sns.relplot(x='Test_Time(s)', y='Voltage(V)', kind="line",
-                data=train_X[0], size=20, color='r')
+V = sns.relplot(x='Test_Time(m)', y='Voltage(V)', kind="line",
+                data=train_X[0][:-200], linewidth=1, color='r', legend=False)
 #plt.xlim(-100, 40000)
 plt.ylim(2.25, 3.78)
-plt.ylabel('Voltage (V)', size=16)
-plt.xlabel('Time (s)', size=16)
+# plt.title('Single Cycle - Voltage - 3 hours', size=16)
+plt.ylabel('(V)', size=16, rotation=0)
+plt.xlabel('Time (minutes)', size=16)
 plt.xticks(size=14)
-plt.yticks(size=20)
+plt.yticks(size=14)
 plt.grid(which='major', alpha=1)
-#plt.legend(False)
+
 width : float = 1.5
 # Box 1
-x1,x2,y1,y2  = 0, 500, 2.6, 3.75
+x1,x2,y1,y2  = 0, 10, 2.6, 3.75
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 
 # Box 2
-x1,x2,y1,y2  = 250, 750, 2.55, 3.70
+x1,x2,y1,y2  = 2.50, 12.50, 2.55, 3.70
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 
 # Box 3
-x1,x2,y1,y2  = 600, 1100, 2.53, 3.68
+x1,x2,y1,y2  = 6.00, 16.00, 2.53, 3.68
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 
 # Box Last
-x1,x2,y1,y2  = 6500, 7000, 2.55, 3.4
+x1,x2,y1,y2  = 115.00, 125.00, 2.55, 3.4
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 
 # Middle dots
-plt.plot([2000,3000,4000], [3.62,3.6,3.58], '.k', linewidth=width)
-plt.plot([2000,3000,4000], [2.72,2.7,2.68], '.k', linewidth=width)
+plt.plot([40.00,60.00,80.00], [3.62,3.6,3.58], '.k', linewidth=width)
+plt.plot([40.00,60.00,80.00], [2.72,2.7,2.68], '.k', linewidth=width)
 #g.fig.autofmt_xdate()
 # sns.boxplot(x='Test_Time(s)', y='Voltage(V)', data=train_X[0], 
 #                  showcaps=False,boxprops={'facecolor':'None', "zorder":10},
 #                  showfliers=False,whiskerprops={'linewidth':0, "zorder":10},
 #                  ax=V, zorder=10)
 
-V.fig.savefig('../windowingPlots/1-Voltage.svg', transparent=True,
+V.fig.savefig('../windowingPlots2/1-Voltage.svg', transparent=True,
                 bbox_inches = "tight")
+# V.fig.savefig('/mnt/WORK/work/MPhil(CCS)/ThesisDefense/Batteries/1-Voltage.svg', transparent=True,
+#                 bbox_inches = "tight")
 # %%
-I = sns.relplot(x='Test_Time(s)', y='Current(A)', kind="line",
-                data=train_X[0], size=20, color='b')
+# train_X[0]['C_smooth(A)'] = smooth(train_X[0]['Current(A)'],20)
+I = sns.relplot(x='Test_Time(m)', y='Current(A)', kind="line",
+                data=train_X[0][:-200], linewidth=1.0, color='b', legend=False)
 #plt.xlim(-100, 40000)
 #plt.ylim(2.25, 3.75)
 #g.fig.autofmt_xdate()
-plt.ylabel('Current (A)', size=16)
-plt.xlabel('Time (s)', size=16)
-plt.xticks(size=12)
-plt.yticks(size=20)
+# plt.title('Single Cycle - Current - 3 hours', size=16)
+plt.ylabel('(A)', size=16, rotation=0)
+plt.xlabel('Time (minutes)', size=16)
+plt.xticks(size=14)
+plt.yticks(size=14)
 plt.grid(which='major', alpha=1)
-#plt.legend(False)
+
 width : float = 1.5
 # Box 1
-x1,x2,y1,y2  = 0, 500, -4, 2
+x1,x2,y1,y2  = 0, 10, -4, 2
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 
 # Box 2
-x1,x2,y1,y2  = 250, 750, -3.9, 2.1
+x1,x2,y1,y2  = 2.50, 12.50, -3.9, 2.1
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 
 # Box 3
-x1,x2,y1,y2  = 600, 1100, -4.1, 1.9
+x1,x2,y1,y2  = 6.00, 16.00, -4.1, 1.9
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 
 # Box Last
-x1,x2,y1,y2  = 6500, 7000, -4, 2
+x1,x2,y1,y2  = 115.0, 125.0, -4, 2
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 
 # Middle dots
-plt.plot([2000,3000,4000], [ 2, 2, 2], '.k', linewidth=width)
-plt.plot([2000,3000,4000], [-4,-4,-4], '.k', linewidth=width)
+plt.plot([40.00,60.00,80.00], [ 2, 2, 2], '.k', linewidth=width)
+plt.plot([40.00,60.00,80.00], [-4,-4,-4], '.k', linewidth=width)
 
-I.fig.savefig('../windowingPlots/2-Current.svg', transparent=True,
+I.fig.savefig('../windowingPlots2/2-Current.svg', transparent=True,
                 bbox_inches = "tight")
-
+# I.fig.savefig('/mnt/WORK/work/MPhil(CCS)/ThesisDefense/Batteries/2-Current.svg', transparent=True,
+#                 bbox_inches = "tight")
 # %%
 #sns.set(rc={'figure.figsize':(16,8)})
-T = sns.relplot(x='Test_Time(s)', y='Temperature (C)_1', kind="line",
-                data=train_X[0], size=20, color='m')
+T = sns.relplot(x='Test_Time(m)', y='Temperature (C)_1', kind="line",
+                data=train_X[0], size=20, color='m', legend=False)
 #plt.xlim(-100, 40000)
 # plt.ylim(8, 14)
-plt.ylabel('Temperature (C)', size=16)
-plt.xlabel('Time (s)', size=16)
-plt.xticks(size=12)
-plt.yticks(size=20)
+# plt.title('Single Cycle - Temperature - 3 hours', size=16)
+plt.ylabel('(C)   ', size=16, rotation=0)
+plt.xlabel('Time (minutes)', size=16)
+plt.xticks(size=14)
+plt.yticks(size=14)
 plt.grid(which='major', alpha=1)
-#plt.legend(False)
+
 width : float = 1.5
 # Box 1
-x1,x2,y1,y2  = 0, 500, 19, 21#9, 12
+x1,x2,y1,y2  = 0, 10, 19, 21#9, 12
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 
 # Box 2
-x1,x2,y1,y2  = 250, 750, 18.8, 20.8#8.8, 11.8
+x1,x2,y1,y2  = 2.50, 12.50, 18.8, 20.8#8.8, 11.8
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 
 # Box 3
-x1,x2,y1,y2  = 600, 1100, 18.7, 20.7#8.7, 11.7
+x1,x2,y1,y2  = 6.00, 16.00, 18.7, 20.7#8.7, 11.7
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 
 # Box Last
-x1,x2,y1,y2  = 6500, 7000, 19.2, 21.2#9.2, 12.2
+x1,x2,y1,y2  = 115.0, 125.0, 19.2, 21.2#9.2, 12.2
 plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
 plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
 plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
@@ -323,124 +335,198 @@ plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 # Middle dots
 # plt.plot([2000,3000,4000], [11.5,11.5,11.5], '.k', linewidth=width)
 # plt.plot([2000,3000,4000], [ 9.5, 9.5, 9.5], '.k', linewidth=width)
-plt.plot([2000,3000,4000], [20.5,20.7,20.9], '.k', linewidth=width)
-plt.plot([2000,3000,4000], [19.0,19.2,19.4], '.k', linewidth=width)
+plt.plot([40.00,60.00,80.00], [20.5,20.7,20.9], '.k', linewidth=width)
+plt.plot([40.00,60.00,80.00], [19.0,19.2,19.4], '.k', linewidth=width)
 
-T.fig.savefig('../windowingPlots/3-Temperature.svg', transparent=True,
+T.fig.savefig('../windowingPlots2/3-Temperature.svg', transparent=True,
                 bbox_inches = "tight")
+# T.fig.savefig('/mnt/WORK/work/MPhil(CCS)/ThesisDefense/Batteries/3-Temperature.svg', transparent=True,
+#                 bbox_inches = "tight")
 # %% SoC Plot
-T = sns.relplot(x='Test_Time(s)', y='SoC', kind="line",
-                data=Y, size=20, color='k')
-plt.ylabel('SoC', size=16)
-plt.xlabel('Time (s)', size=16)
-plt.xticks(size=12)
-plt.yticks(size=20)
+temp = pd.DataFrame(data={
+                'SoC' : train_Y[0][:,0]*100,
+                'Test_Time(m)' : train_X[0]['Test_Time(m)']
+            }, dtype=np.float32)
+T = sns.relplot(x='Test_Time(m)', y='SoC', kind="line",
+                data=temp, size=20, color='k', legend=False)
+# plt.plot(train_X[0]['Test_Time(m)'], train_Y[0]*100, linewidth=1.8, color='k')
+# plt.title('Single Cycle - State of Charge - 3 hours', size=16)
+plt.ylabel('(%)', size=16, rotation=0)
+plt.xlabel('Time (minutes)', size=16)
+plt.xticks(size=14)
+plt.yticks(size=14)
 plt.grid(which='major', alpha=1)
-#plt.legend(False)
+
+width : float = 1.5
+# Box 1
+x1,x2,y1,y2  = 0, 10, 85, 105#9, 12
+plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
+plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
+plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
+plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
+
+# Box 2
+x1,x2,y1,y2  = 2.50, 12.50, 80, 100#8.8, 11.8
+plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
+plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
+plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
+plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
+
+# Box 3
+x1,x2,y1,y2  = 6.00, 16.00, 75, 95#8.7, 11.7
+plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
+plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
+plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
+plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
+
+# Box Last
+x1,x2,y1,y2  = 115.0, 125.0, -5, 15#9.2, 12.2
+plt.plot([x1,x1], [y1,y2], linewidth=width, color='k')
+plt.plot([x2,x2], [y1,y2], linewidth=width, color='k')
+plt.plot([x1,x2], [y2,y2], linewidth=width, color='k')
+plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
+
+# Middle dots
+# plt.plot([2000,3000,4000], [11.5,11.5,11.5], '.k', linewidth=width)
+# plt.plot([2000,3000,4000], [ 9.5, 9.5, 9.5], '.k', linewidth=width)
+plt.plot([40.00,60.00,80.00], [80,65,50], '.k', linewidth=width)
+plt.plot([40.00,60.00,80.00], [55,40,25], '.k', linewidth=width)
+
 width : float = 3
-plt.plot([500, 750,1100,7000], [0.94,0.90,0.86,0.075], 'xk',
+plt.plot([10.00, 12.50, 16.00, 125.0], [94, 90, 88, 5.5], 'xk',
             linewidth=width, marker='v', markersize=11)
-T.fig.savefig('../windowingPlots/4-SoC.svg', transparent=True,
+T.fig.savefig('../windowingPlots2/4-SoC.svg', transparent=True,
                 bbox_inches = "tight")
+# plt.savefig('/mnt/WORK/work/MPhil(CCS)/ThesisDefense/Batteries/4-SoC.svg', transparent=True,
+#                 bbox_inches = "tight")
 # %%
 # Windows i
 plt.figure()
-plt.plot(train_X[0]['Test_Time(s)'][0:500], train_X[0]['Voltage(V)'][0:500],
+plt.plot(train_X[0]['Test_Time(m)'][0:500], train_X[0]['Voltage(V)'][0:500],
             color='r')
 plt.title('V', size=60)
-plt.xticks(size=12)
-plt.yticks(size=12)
+plt.xticks(size=17)
+plt.yticks(size=17)
 plt.ylabel('i        ', size=60, rotation=0)
-plt.savefig('../windowingPlots/i-V.svg', transparent=True,
+plt.savefig('../windowingPlots2/i-V.svg', transparent=True,
                 bbox_inches = "tight")
 plt.figure()
-plt.plot(train_X[0]['Test_Time(s)'][0:500], train_X[0]['Current(A)'][0:500],
+plt.plot(train_X[0]['Test_Time(m)'][0:500], train_X[0]['Current(A)'][0:500],
             color='b')
 plt.title('I', size=60)
-plt.xticks(size=12)
-plt.yticks(size=12)
-plt.savefig('../windowingPlots/i-I.svg', transparent=True,
+plt.xticks(size=17)
+plt.yticks(size=17)
+plt.savefig('../windowingPlots2/i-I.svg', transparent=True,
                 bbox_inches = "tight")
 plt.figure()
-plt.plot(train_X[0]['Test_Time(s)'][0:500], train_X[0]['Temperature (C)_1'][0:500],
-            color='k')
+plt.plot(train_X[0]['Test_Time(m)'][0:500], train_X[0]['Temperature (C)_1'][0:500],
+            color='m')
 plt.title('T', size=60)
-plt.xticks(size=12)
-plt.yticks(size=12)
-plt.savefig('../windowingPlots/i-T.svg', transparent=True,
+plt.xticks(size=17)
+plt.yticks(size=17)
+plt.savefig('../windowingPlots2/i-T.svg', transparent=True,
+                bbox_inches = "tight")
+plt.figure()
+plt.plot(temp['Test_Time(m)'][0:500], temp['SoC'][0:500],
+            color='k')
+plt.title('SoC', size=60)
+plt.xticks(size=17)
+plt.yticks(size=17)
+plt.savefig('../windowingPlots2/i-S.svg', transparent=True,
                 bbox_inches = "tight")
 # %%
 # Windows i+s
 s : int = 250
 plt.figure()
-plt.plot(train_X[0]['Test_Time(s)'][0+s:500+s], train_X[0]['Voltage(V)'][0+s:500+s],
+plt.plot(train_X[0]['Test_Time(m)'][0+s:500+s], train_X[0]['Voltage(V)'][0+s:500+s],
             color='r')
-plt.xticks(size=12)
-plt.yticks(size=12)
+plt.xticks(size=17)
+plt.yticks(size=17)
 plt.ylabel('i+s      ', size=60, rotation=0)
-plt.savefig('../windowingPlots/i+s-V.svg', transparent=True,
+plt.savefig('../windowingPlots2/i+s-V.svg', transparent=True,
                 bbox_inches = "tight")
 plt.figure()
-plt.plot(train_X[0]['Test_Time(s)'][0+s:500+s], train_X[0]['Current(A)'][0+s:500+s],
+plt.plot(train_X[0]['Test_Time(m)'][0+s:500+s], train_X[0]['Current(A)'][0+s:500+s],
             color='b')
-plt.xticks(size=12)
-plt.yticks(size=12)
-plt.savefig('../windowingPlots/i+s-I.svg', transparent=True,
+plt.xticks(size=17)
+plt.yticks(size=17)
+plt.savefig('../windowingPlots2/i+s-I.svg', transparent=True,
                 bbox_inches = "tight")
 plt.figure()
-plt.plot(train_X[0]['Test_Time(s)'][0+s:500+s], train_X[0]['Temperature (C)_1'][0+s:500+s],
+plt.plot(train_X[0]['Test_Time(m)'][0+s:500+s], train_X[0]['Temperature (C)_1'][0+s:500+s],
+            color='m')
+plt.xticks(size=17)
+plt.yticks(size=17)
+plt.savefig('../windowingPlots2/i+s-T.svg', transparent=True,
+                bbox_inches = "tight")
+plt.figure()
+plt.plot(temp['Test_Time(m)'][0+s:500+s], temp['SoC'][0+s:500+s],
             color='k')
-plt.xticks(size=12)
-plt.yticks(size=12)
-plt.savefig('../windowingPlots/i+s-T.svg', transparent=True,
+plt.xticks(size=17)
+plt.yticks(size=17)
+plt.savefig('../windowingPlots2/i+s-S.svg', transparent=True,
                 bbox_inches = "tight")
 # %%
 # Windows i+2s
 s : int = 2*250
 plt.figure()
-plt.plot(train_X[0]['Test_Time(s)'][0+s:500+s], train_X[0]['Voltage(V)'][0+s:500+s],
+plt.plot(train_X[0]['Test_Time(m)'][0+s:500+s], train_X[0]['Voltage(V)'][0+s:500+s],
             color='r')
-plt.xticks(size=12)
-plt.yticks(size=12)
+plt.xticks(size=17)
+plt.yticks(size=17)
 plt.ylabel('i+2s      ', size=60, rotation=0)
-plt.savefig('../windowingPlots/i+2s-V.svg', transparent=True,
+plt.savefig('../windowingPlots2/i+2s-V.svg', transparent=True,
                 bbox_inches = "tight")
 plt.figure()
-plt.plot(train_X[0]['Test_Time(s)'][0+s:500+s], train_X[0]['Current(A)'][0+s:500+s],
+plt.plot(train_X[0]['Test_Time(m)'][0+s:500+s], train_X[0]['Current(A)'][0+s:500+s],
             color='b')
-plt.xticks(size=12)
-plt.yticks(size=12)
-plt.savefig('../windowingPlots/i+2s-I.svg', transparent=True,
+plt.xticks(size=17)
+plt.yticks(size=17)
+plt.savefig('../windowingPlots2/i+2s-I.svg', transparent=True,
                 bbox_inches = "tight")
 plt.figure()
-plt.plot(train_X[0]['Test_Time(s)'][0+s:500+s], train_X[0]['Temperature (C)_1'][0+s:500+s],
+plt.plot(train_X[0]['Test_Time(m)'][0+s:500+s], train_X[0]['Temperature (C)_1'][0+s:500+s],
+            color='m')
+plt.xticks(size=17)
+plt.yticks(size=17)
+plt.savefig('../windowingPlots2/i+2s-T.svg', transparent=True,
+                bbox_inches = "tight")
+plt.figure()
+plt.plot(temp['Test_Time(m)'][0+s:500+s], temp['SoC'][0+s:500+s],
             color='k')
-plt.xticks(size=12)
-plt.yticks(size=12)
-plt.savefig('../windowingPlots/i+2s-T.svg', transparent=True,
+plt.xticks(size=17)
+plt.yticks(size=17)
+plt.savefig('../windowingPlots2/i+2s-S.svg', transparent=True,
                 bbox_inches = "tight")
 # %%
 # Windows i+ns
 plt.figure()
-plt.plot(train_X[0]['Test_Time(s)'][6500:7000], train_X[0]['Voltage(V)'][6500:7000],
+plt.plot(train_X[0]['Test_Time(m)'][-500:], train_X[0]['Voltage(V)'][-500:],
             color='r')
-plt.xticks(size=12)
-plt.yticks(size=12)
+plt.xticks(size=17)
+plt.yticks(size=17)
 plt.ylabel('i+ns      ', size=60, rotation=0)
-plt.savefig('../windowingPlots/i+ns-V.svg', transparent=True,
+plt.savefig('../windowingPlots2/i+ns-V.svg', transparent=True,
                 bbox_inches = "tight")
 plt.figure()
-plt.plot(train_X[0]['Test_Time(s)'][6500:7000], train_X[0]['Current(A)'][6500:7000],
+plt.plot(train_X[0]['Test_Time(m)'][-500:], train_X[0]['Current(A)'][-500:],
             color='b')
-plt.xticks(size=12)
-plt.yticks(size=12)
-plt.savefig('../windowingPlots/i+ns-I.svg', transparent=True,
+plt.xticks(size=17)
+plt.yticks(size=17)
+plt.savefig('../windowingPlots2/i+ns-I.svg', transparent=True,
                 bbox_inches = "tight")
 plt.figure()
-plt.plot(train_X[0]['Test_Time(s)'][6500:7000], train_X[0]['Temperature (C)_1'][6500:7000],
+plt.plot(train_X[0]['Test_Time(m)'][-500:], train_X[0]['Temperature (C)_1'][-500:],
+            color='m')
+plt.xticks(size=17)
+plt.yticks(size=17)
+plt.savefig('../windowingPlots2/i+ns-T.svg', transparent=True,
+                bbox_inches = "tight")
+plt.figure()
+plt.plot(temp['Test_Time(m)'][-500:], temp['SoC'][-500:],
             color='k')
-plt.xticks(size=12)
-plt.yticks(size=12)
-plt.savefig('../windowingPlots/i+ns-T.svg', transparent=True,
+plt.xticks(size=17)
+plt.yticks(size=17)
+plt.savefig('../windowingPlots2/i+ns-S.svg', transparent=True,
                 bbox_inches = "tight")
 # %%

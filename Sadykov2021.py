@@ -22,17 +22,17 @@ from cy_modules.utils import str2bool
 from py_modules.plotting import predicting_plot
 # %%
 # Extract params
-try:
-    opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:s:",
-                    ["help", "debug=", "epochs=",
-                     "gpu=", "profile="])
-except getopt.error as err: 
-    # output error, and return with an error code 
-    print (str(err)) 
-    print ('EXEPTION: Arguments requied!')
-    sys.exit(2)
+# try:
+#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:s:",
+#                     ["help", "debug=", "epochs=",
+#                      "gpu=", "profile="])
+# except getopt.error as err: 
+#     # output error, and return with an error code 
+#     print (str(err)) 
+#     print ('EXEPTION: Arguments requied!')
+#     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '5'), ('-g', '1'), ('-p', 'DST'), ('-s', '10')]
+opts = [('-d', 'False'), ('-e', '5'), ('-g', '1'), ('-p', 'FUDS'), ('-s', '25')]
 mEpoch    : int = 10
 GPU       : int = 0
 profile   : str = 'DST'
@@ -315,6 +315,129 @@ while iEpoch < mEpoch:
     fig.savefig(f'{model_loc}{profile}-{iEpoch}.svg')
     fig.clf()
     plt.close()
+# # %%
+# VIT_input = x_test_one[0,:,:3]
+# SOC_input = x_test_one[0,:,3:]
+# PRED = np.zeros(shape=(y_test_one.shape[0],), dtype=np.float32)
+# for i in trange(y_test_one.shape[0]):
+#     logits = lstm_model.predict(
+#                             x=np.expand_dims(
+#                                 np.concatenate(
+#                                     (VIT_input, SOC_input),
+#                                     axis=1),
+#                                 axis=0),
+#                             batch_size=1
+#                         )
+#     VIT_input = x_test_one[i,:,:3]
+#     SOC_input = np.concatenate(
+#                         (SOC_input, np.expand_dims(logits,axis=0)),
+#                         axis=0)[1:,:]
+#     PRED[i] = logits
+# MAE = np.mean(tf.keras.backend.abs(y_test_one[::,-1]-PRED))
+# RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+#             y_test_one[::,-1]-PRED)))
+# # %%
+# # Time range
+# test_time = range(0,PRED.shape[0])
+# def format_func(value, _):
+#     return int(value*100)
+
+# fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
+# ax1.plot(test_time, y_test_one[:,-1], label="Actual")
+# ax1.plot(test_time, PRED, label="Prediction")
+# ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
+# ax1.set_xlabel("Time Slice (s)", fontsize=32)
+# ax1.set_ylabel("SoC (%)", fontsize=32)
+# #if RMS_plot:
+# ax2 = ax1.twinx()
+# ax2.plot(test_time,
+#     RMS,
+#     label="RMS error", color='#698856')
+# ax2.fill_between(test_time,
+#     RMS,
+#     color='#698856')
+# ax2.set_ylabel('Error', fontsize=32, color='#698856')
+# ax2.tick_params(axis='y', labelcolor='#698856', labelsize=24)
+# ax2.set_ylim([-0.1,1.6])
+# ax1.set_title(
+#     #f"{file_name} {model_type}. {profile}-trained",
+#     f"VITpSoC №1 Test. {profile}-trained. {out_steps}-steps",
+#     fontsize=36)
+# ax1.legend(prop={'size': 32})
+# ax1.tick_params(axis='both', labelsize=24)
+# ax1.yaxis.set_major_formatter(plt.FuncFormatter(format_func))
+# ax1.set_ylim([-0.1,1.2])
+# fig.tight_layout()
+# textstr = '\n'.join((
+#     '$MAE  = {0:.2f}%$'.format(np.mean(MAE)*100, ),
+#     '$RMSE = {0:.2f}%$'.format(np.mean(RMS)*100, )
+#     # '$R2  = nn.nn%$'
+#         ))
+# ax1.text(0.65, 0.80, textstr, transform=ax1.transAxes, fontsize=30,
+#     verticalalignment='top',
+#     bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+# fig.savefig('/mnt/WORK/work/MPhil(CCS)/ThesisDefense/newModels/testOne.svg')
+# # %%
+# VIT_input = x_test_two[0,:,:3]
+# SOC_input = x_test_two[0,:,3:]
+# PRED = np.zeros(shape=(y_test_two.shape[0],), dtype=np.float32)
+# for i in trange(y_test_two.shape[0]):
+#     logits = lstm_model.predict(
+#                             x=np.expand_dims(
+#                                 np.concatenate(
+#                                     (VIT_input, SOC_input),
+#                                     axis=1),
+#                                 axis=0),
+#                             batch_size=1
+#                         )
+#     VIT_input = x_test_two[i,:,:3]
+#     SOC_input = np.concatenate(
+#                         (SOC_input, np.expand_dims(logits,axis=0)),
+#                         axis=0)[1:,:]
+#     PRED[i] = logits
+# MAE = np.mean(tf.keras.backend.abs(y_test_two[::,-1]-PRED))
+# RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+#             y_test_two[::,-1]-PRED)))
+
+# # Time range
+# test_time = range(0,PRED.shape[0])
+# def format_func(value, _):
+#     return int(value*100)
+
+# fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
+# ax1.plot(test_time, y_test_two[:,-1], label="Actual")
+# ax1.plot(test_time, PRED, label="Prediction")
+# ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
+# ax1.set_xlabel("Time Slice (s)", fontsize=32)
+# ax1.set_ylabel("SoC (%)", fontsize=32)
+# #if RMS_plot:
+# ax2 = ax1.twinx()
+# ax2.plot(test_time,
+#     RMS,
+#     label="RMS error", color='#698856')
+# ax2.fill_between(test_time,
+#     RMS,
+#     color='#698856')
+# ax2.set_ylabel('Error', fontsize=32, color='#698856')
+# ax2.tick_params(axis='y', labelcolor='#698856', labelsize=24)
+# ax2.set_ylim([-0.1,1.6])
+# ax1.set_title(
+#     #f"{file_name} {model_type}. {profile}-trained",
+#     f"VITpSoC №1 Train Dataset. {profile}-trained. {out_steps}-steps",
+#     fontsize=36)
+# ax1.legend(prop={'size': 32})
+# ax1.tick_params(axis='both', labelsize=24)
+# ax1.yaxis.set_major_formatter(plt.FuncFormatter(format_func))
+# ax1.set_ylim([-0.1,1.2])
+# fig.tight_layout()
+# textstr = '\n'.join((
+#     '$MAE  = {0:.2f}%$'.format(np.mean(MAE)*100, ),
+#     '$RMSE = {0:.2f}%$'.format(np.mean(RMS)*100, )
+#     # '$R2  = nn.nn%$'
+#         ))
+# ax1.text(0.65, 0.80, textstr, transform=ax1.transAxes, fontsize=30,
+#     verticalalignment='top',
+#     bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 # %%
 # for j in range(2,6):
 #     lstm_model.load_weights(f'{model_loc}{j}/variables/variables')
