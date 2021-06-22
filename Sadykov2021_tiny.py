@@ -16,7 +16,7 @@ from tqdm import trange
 
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
-from py_modules.AutoFeedBack import AutoFeedBack
+from py_modules.AutoFeedBack_GRU import AutoFeedBack
 from py_modules.RobustAdam import RobustAdam
 from cy_modules.utils import str2bool
 from py_modules.plotting import predicting_plot
@@ -32,7 +32,7 @@ from py_modules.plotting import predicting_plot
 #     print ('EXEPTION: Arguments requied!')
 #     sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '5'), ('-g', '1'), ('-p', 'FUDS'), ('-s', '30')]
+opts = [('-d', 'False'), ('-e', '5'), ('-g', '0'), ('-p', 'FUDS'), ('-s', '40')]
 mEpoch    : int = 10
 GPU       : int = 0
 profile   : str = 'DST'
@@ -161,15 +161,20 @@ try:
         for file in files:
             if file.endswith('.ch'):
                 iEpoch = int(os.path.splitext(file)[0])
-    lstm_model : AutoFeedBack = AutoFeedBack(units=510,
+    lstm_model : AutoFeedBack = AutoFeedBack(units=64,
             out_steps=out_steps, num_features=1
         )
     lstm_model.load_weights(f'{model_loc}{iEpoch}/{iEpoch}')
     firstLog = False
     print("Model Identefied. Continue training.")
+    lstm_model : AutoFeedBack = tf.keras.models.load_model(
+            filepath=f'{model_loc}/test',
+            custom_objects={"AutoFeedBack": AutoFeedBack},
+            compile=True
+        )
 except:
     print("Model Not Found, with some TF error.\n")
-    lstm_model : AutoFeedBack = AutoFeedBack(units=510,
+    lstm_model : AutoFeedBack = AutoFeedBack(units=64,
             out_steps=out_steps, num_features=1
         )
     firstLog = True
@@ -196,6 +201,11 @@ while iEpoch < mEpoch:
                     callbacks=[nanTerminate],
                     batch_size=1, shuffle=True
                 )
+    lstm_model.save(filepath=f'{model_loc}{iEpoch}',
+                overwrite=True, include_optimizer=True,
+                save_format='tf', signatures=None, options=None,
+                save_traces=False
+        )
     # Saving model
     lstm_model.save_weights(filepath=f'{model_loc}{iEpoch}/{iEpoch}',
             overwrite=True, save_format='tf', options=None
@@ -681,13 +691,13 @@ fig.savefig(f'{model_loc}images/test_twoFull2.svg')
 #                     save_traces=True
 #             )
 # # Convert the model to Tensorflow Lite and save.
-# with open(f'{model_loc}myModel-№2-{profile}.tflite', 'wb') as f:
-#     f.write(
-        # tf.lite.TFLiteConverter.from_saved_model(
-        #         saved_model_dir=f'{model_loc}test/12-2'
-        #     ).convert()
-        # )
-        # tf.lite.TFLiteConverter.from_keras_model(
-        #         model=lstm_model
-        #     ).convert()
-        # )
+with open(f'{model_loc}myModel-№2-{profile}.tflite', 'wb') as f:
+    f.write(
+        tf.lite.TFLiteConverter.from_saved_model(
+                saved_model_dir=f'{model_loc}test/12-2'
+            ).convert()
+        )
+        tf.lite.TFLiteConverter.from_keras_model(
+                model=lstm_model
+            ).convert()
+        )
