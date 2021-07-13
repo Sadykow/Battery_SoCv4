@@ -103,6 +103,39 @@ if physical_devices:
 #! For numeric stability, set the default floating-point dtype to float64
 tf.keras.backend.set_floatx('float32')
 # %%
+def custom_loss(y_true, y_pred):
+    """ Custom loss based on following formula:
+        sumN(0.5*(SoC-SoC*)^2)
+
+    Args:
+        y_true (tf.Tensor): True output values
+        y_pred (tf.Tensor): Predicted output from model
+
+    Returns:
+        tf.Tensor: The calculated Loss Value
+    """
+    y_pred = tf.convert_to_tensor(y_pred)
+    y_true = tf.cast(y_true, y_pred.dtype)
+    loss = tf.math.divide(
+                        x=tf.keras.backend.square(
+                                x=tf.math.subtract(x=y_true,
+                                                   y=y_pred)
+                            ), 
+                        y=2
+                    )
+    return tf.keras.backend.sum(loss, axis=1)
+try:
+    VIT : tf.keras.models.Sequential = tf.keras.models.load_model(
+            filepath='Models/Chemali2017/FUDS-models/48', compile=True,
+            custom_objects={"RSquare": tfa.metrics.RSquare,
+                            "custom_loss": custom_loss}
+        )
+
+except:
+    print('One of the models failed to load.')
+MEAN = np.array([-0.35640615,  3.2060466 , 30.660755  ], dtype=np.float32)
+STD  = np.array([ 0.9579658 ,  0.22374259, 13.653275  ], dtype=np.float32)
+# %%
 def ccSoC(current   : pd.Series,
           time_s    : pd.Series,
           n_capacity: float = 2.5 ) -> pd.Series:
@@ -122,54 +155,74 @@ def ccSoC(current   : pd.Series,
     """
     return (1/(3600*n_capacity))*(
             integrate.cumtrapz(
-                    y=current, x=time_s,
+                    y=current.to_numpy(), x=time_s.to_numpy(),
                     dx=1, axis=-1, initial=0
                 )
         )
 output_loc  : str = 'Data/BMS_data/July09-FUDS1/'
 BMSsData = []
-for i in range(0, 6):
+for BMSid in range(0, 6):
     try:
         #* Voltages
         BMSsData.append(
-                pd.read_csv(filepath_or_buffer=f'{output_loc}Filt_CANid_{i}.csv',
+                pd.read_csv(filepath_or_buffer=f'{output_loc}Filt_CANid_{BMSid}.csv',
                             sep=',', verbose=True)
             )
-        print(f'Cycle samples of V at BMS{i} - {BMSsData[i].shape} and T -{BMSsData[i].shape}')
-        BMSsData[i]['SoC(%)'] = 0.98 +\
-            ccSoC(current = BMSsData[i]['Current(A)'].to_numpy(), 
-                  time_s  = BMSsData[i]['Cycle_Time(s)'].to_numpy())
+        print(f'Cycle samples of V at BMS{BMSid} - {BMSsData[BMSid].shape} and T -{BMSsData[BMSid].shape}')
+        #! Get initial SoC with model
+        # initial_SoC = np.zeros(shape=(10,), dtype=np.float32)
+        for cell in range(1,11):
+            #* Get values
+            input_set = np.expand_dims(np.divide(
+                            np.subtract(
+                                    BMSsData[BMSid].loc[:499,
+                                            ['Current(A)', f'6-Cell_{cell}', f'Sns_{cell}']
+                                        ].to_numpy(),
+                                    MEAN
+                                ),
+                            STD
+                        ),axis=0)
+            #* Eliminate NaN
+            location = np.where(np.isnan(input_set))
+            # print(location)
+            input_set[location] = input_set[location[0],location[1]-1,location[2]]
+            initial_SoC = np.round(VIT.predict(input_set)[0][0], decimals=2)
+            #* Fill the remaining data
+            BMSsData[BMSid].loc[:499, f'SoC_{cell}(%)'] = initial_SoC
+            BMSsData[BMSid].loc[500:, f'SoC_{cell}(%)'] = np.round(initial_SoC +\
+                ccSoC(current = BMSsData[BMSid].loc[500:,'Current(A)'], 
+                    time_s  = BMSsData[BMSid].loc[500:,'Cycle_Time(s)']), decimals=2)
     except Exception as e:
         print(e)
-        print(f'============Failed to extract Cycle data of BMS {i}==============')
+        print(f'============Failed to extract Cycle data of BMS {BMSid}==============')
 
 # %%
-BMSid   = 0
-cell = 1
-Data = BMSsData[BMSid][['Current(A)', f'6-Cell_{cell}', f'Sns_{cell}', 'SoC(%)']].to_numpy()
+# BMSid   = 0
+# cell = 1
+# Data = BMSsData[BMSid][['Current(A)', f'6-Cell_{cell}', f'Sns_{cell}']].to_numpy()
 
-for cell in range(2, 11):
-    Data = np.append(
-            Data,
-            BMSsData[BMSid][['Current(A)', f'6-Cell_{cell}', f'Sns_{cell}', 'SoC(%)']].to_numpy(),
-            axis=0
-        )
+# for cell in range(2, 11):
+#     Data = np.append(
+#             Data,
+#             BMSsData[BMSid][['Current(A)', f'6-Cell_{cell}', f'Sns_{cell}']].to_numpy(),
+#             axis=0
+#         )
 
-# newCC = CC[-1,bms] + 
-# test = 0.98 + ccSoC(current=BMSsData[BMSid]['Current(A)'].to_numpy(), 
-#       time_s=BMSsData[BMSid]['Cycle_Time(s)'].to_numpy())
-# plt.plot(test)
-for BMSid in range(1, 6):
-    for cell in range(1, 11):
-        Data = np.append(
-                Data,
-                BMSsData[BMSid][['Current(A)', f'6-Cell_{cell}', f'Sns_{cell}', 'SoC(%)']].to_numpy(),
-                axis=0
-            )
-MEAN = np.array([-0.35640615,  3.2060466 , 30.660755  ], dtype=np.float32)
-STD  = np.array([ 0.9579658 ,  0.22374259, 13.653275  ], dtype=np.float32)
+# # newCC = CC[-1,bms] + 
+# # test = 0.98 + ccSoC(current=BMSsData[BMSid]['Current(A)'].to_numpy(), 
+# #       time_s=BMSsData[BMSid]['Cycle_Time(s)'].to_numpy())
+# # plt.plot(test)
+# for BMSid in range(1, 6):
+#     for cell in range(1, 11):
+#         Data = np.append(
+#                 Data,
+#                 BMSsData[BMSid][['Current(A)', f'6-Cell_{cell}', f'Sns_{cell}']].to_numpy(),
+#                 axis=0
+#             )
+
 # %%
-n_samples = Data.shape[0]-(500*6*10)
+
+n_samples = (BMSsData[0].shape[0]*10*6)-(500*6*10)
 bms_samples = BMSsData[BMSid].shape[0]-500
 cell_samples = 10
 X_windows = np.zeros(shape=(n_samples,500,3), dtype=np.float32)
@@ -189,7 +242,7 @@ for BMSid in range(0, 6):
             # X_windows[index,:,:] = BMSsData[BMSid].loc[i:499+i,
             #         ['Current(A)', f'6-Cell_{cell}', f'Sns_{cell}']
             #     ].to_numpy()
-            X_windows[index,:,:] = np.divide(
+            input_set = np.divide(
                             np.subtract(
                                     BMSsData[BMSid].loc[i:499+i,
                                             ['Current(A)', f'6-Cell_{cell}', f'Sns_{cell}']
@@ -198,6 +251,12 @@ for BMSid in range(0, 6):
                                 ),
                             STD
                         )
+            location = np.where(np.isnan(input_set))
+            if len(location[0]) > 0:
+                for j in range(len(location[0])):
+                    input_set[location[0][j], location[1][j]] = \
+                        input_set[location[0][j]-1,location[1][j]]
+            X_windows[index,:,:] = input_set
             
             # BMSsData[BMSid].loc[i:499+i,
             #         ['Current(A)', f'6-Cell_{cell}', f'Sns_{cell}']
@@ -209,54 +268,24 @@ for BMSid in range(0, 6):
             #     ].to_numpy(), axis=0),
             #     axis=0)
             Y_windows[index,:] = BMSsData[BMSid].loc[499+i,
-                    ['SoC(%)']
+                    [f'SoC_{cell}(%)']
                 ].to_numpy()
 print(f'Data windowing ready')
 # %%
-#! Cross-entropy problem if yo uwant to turn into classification.
-def custom_loss(y_true, y_pred):
-    """ Custom loss based on following formula:
-        sumN(0.5*(SoC-SoC*)^2)
 
-    Args:
-        y_true (tf.Tensor): True output values
-        y_pred (tf.Tensor): Predicted output from model
-
-    Returns:
-        tf.Tensor: The calculated Loss Value
-    """
-    y_pred = tf.convert_to_tensor(y_pred)
-    y_true = tf.cast(y_true, y_pred.dtype)
-    #print(f"True: {y_true[0]}" ) # \nvs Pred: {tf.make_ndarray(y_pred)}")
-    loss = tf.math.divide(
-                        x=tf.keras.backend.square(
-                                x=tf.math.subtract(x=y_true,
-                                                   y=y_pred)
-                            ), 
-                        y=2
-                    )
-    #print("\nInitial Loss: {}".format(loss))    
-    #loss = 
-    #print(  "Summed  Loss: {}\n".format(loss))
-    return tf.keras.backend.sum(loss, axis=1)
-
-try:
-    VIT : tf.keras.models.Sequential = tf.keras.models.load_model(
-            filepath='Models/Chemali2017/FUDS-models/48', compile=False,
-            custom_objects={"RSquare": tfa.metrics.RSquare}
-        )
-
-except:
-    print('One of the models failed to load.')
-
-VIT.compile(loss=custom_loss,
-        optimizer=tf.optimizers.Adam(learning_rate=0.001,
-                beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
-        metrics=[tf.metrics.MeanAbsoluteError(),
-                    tf.metrics.RootMeanSquaredError(),
-                    tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
-        #run_eagerly=True
-    )
+# VIT.compile(loss=custom_loss,
+#         optimizer=tf.optimizers.Adam(learning_rate=0.001,
+#                 beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
+#         metrics=[tf.metrics.MeanAbsoluteError(),
+#                     tf.metrics.RootMeanSquaredError(),
+#                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
+#         #run_eagerly=True
+#     )
+#! CHeck NaN presense
+print('X-Nans')
+print(np.where(np.isnan(X_windows[:, :, :])))
+print('Y-Nans')
+print(np.where(np.isnan(Y_windows[:, :])))
 nanTerminate = tf.keras.callbacks.TerminateOnNaN()
 # %%
 #! Normalise data before running
@@ -271,15 +300,15 @@ nanTerminate = tf.keras.callbacks.TerminateOnNaN()
                         # )
 file_name : str = os.path.basename(__file__)[:-3]
 model_loc : str = f'Models/{file_name}/{profile}-models/'
-iEpoch = 4
 # %%
-history = VIT.fit(x=X_windows[:84490, :, :],
+iEpoch = 2
+history = VIT.fit(x=X_windows[:, :, :],
                         
-                  y=Y_windows[:84490,:],
+                  y=Y_windows[:,:],
                         epochs=1,
                         # validation_data=(x_valid, y_valid),
                         callbacks=[nanTerminate],
-                        batch_size=1, shuffle=False #!Change back to true
+                        batch_size=1, shuffle=True #!Change back to true
                         )
 #! Model saving to somewhere
 VIT.save(filepath=f'{model_loc}{iEpoch}',
