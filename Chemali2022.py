@@ -301,7 +301,7 @@ nanTerminate = tf.keras.callbacks.TerminateOnNaN()
 file_name : str = os.path.basename(__file__)[:-3]
 model_loc : str = f'Models/{file_name}/{profile}-models/'
 # %%
-iEpoch = 2
+iEpoch = 1
 history = VIT.fit(x=X_windows[:, :, :],
                         
                   y=Y_windows[:,:],
@@ -316,6 +316,18 @@ VIT.save(filepath=f'{model_loc}{iEpoch}',
                             save_format='h5', signatures=None, options=None,
                             save_traces=True
                 )
+# Convert the model to Tensorflow Lite and save.
+with open(f'{model_loc}postModel-№1-{profile}.tflite', 'wb') as f:
+    f.write(
+        tf.lite.TFLiteConverter.from_keras_model(
+                model=VIT
+            ).convert()
+        )
+    # f.write(
+    #     tf.lite.TFLiteConverter.from_saved_model(
+    #             f'{model_loc}{iEpoch}'
+    #         ).convert()
+    #     )
 # %%
 test = VIT.predict(x=X_windows[:8000, :, :], batch_size=1, verbose=1)
 plt.plot(test)
