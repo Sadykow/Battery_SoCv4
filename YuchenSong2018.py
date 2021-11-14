@@ -320,9 +320,9 @@ while iEpoch < mEpoch:
     RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
                 y_valid[::,]-PRED)))
     # otherwise the right y-label is slightly clipped
-    predicting_plot(profile=profile, file_name='Model №6',
+    predicting_plot(profile=profile, file_name='Model №7',
                     model_loc=model_loc,
-                    model_type='GRU Test - Train dataset',
+                    model_type='GRU Train',
                     iEpoch=f'val-{iEpoch}',
                     Y=y_valid,
                     PRED=PRED,
@@ -338,7 +338,7 @@ while iEpoch < mEpoch:
 # %%
 # %%
 # Convert the model to Tensorflow Lite and save.
-with open(f'{model_loc}Model-№6-{profile}.tflite', 'wb') as f:
+with open(f'{model_loc}Model-№7-{profile}.tflite', 'wb') as f:
     f.write(
         tf.lite.TFLiteConverter.from_keras_model(
                 model=gru_model

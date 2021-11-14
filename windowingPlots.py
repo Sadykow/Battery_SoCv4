@@ -15,7 +15,7 @@ from sklearn.preprocessing import MinMaxScaler
 from tensorflow.python.keras.backend import shape
 
 # Define plot sizes
-mpl.rcParams['figure.figsize'] = (8, 6)
+mpl.rcParams['figure.figsize'] = (16, 6)
 mpl.rcParams['axes.grid'] = False
 
 train_dir : str = 'Data/A123_Matt_Set'
@@ -185,10 +185,13 @@ train_X[0]['Test_Time(m)'] = time_minutes
 # # Performing Plots generation from 10C example
 # %%
 # train_X[0]['V_smooth(V)'] = smooth(train_X[0]['Voltage(V)'],600)
-#sns.set(rc={'figure.figsize':(16,8)})
+# sns.set(rc={'figure.figsize':(16,8)})
+# plt.figure(figsize=(24, 8))
+
 V = sns.relplot(x='Test_Time(m)', y='Voltage(V)', kind="line",
                 data=train_X[0][:-200], linewidth=1, color='r', legend=False)
-#plt.xlim(-100, 40000)
+V.fig.set_size_inches(12, 8)
+# plt.xlim([0,120])
 plt.ylim(2.25, 3.78)
 # plt.title('Single Cycle - Voltage - 3 hours', size=16)
 plt.ylabel('(V)', size=16, rotation=0)
@@ -235,7 +238,7 @@ plt.plot([40.00,60.00,80.00], [2.72,2.7,2.68], '.k', linewidth=width)
 #                  showfliers=False,whiskerprops={'linewidth':0, "zorder":10},
 #                  ax=V, zorder=10)
 
-V.fig.savefig('../windowingPlots2/1-Voltage.svg', transparent=True,
+V.fig.savefig('../windowingPlots2/1-Voltage-ext.svg', transparent=True,
                 bbox_inches = "tight")
 # V.fig.savefig('/mnt/WORK/work/MPhil(CCS)/ThesisDefense/Batteries/1-Voltage.svg', transparent=True,
 #                 bbox_inches = "tight")
@@ -243,6 +246,7 @@ V.fig.savefig('../windowingPlots2/1-Voltage.svg', transparent=True,
 # train_X[0]['C_smooth(A)'] = smooth(train_X[0]['Current(A)'],20)
 I = sns.relplot(x='Test_Time(m)', y='Current(A)', kind="line",
                 data=train_X[0][:-200], linewidth=1.0, color='b', legend=False)
+I.fig.set_size_inches(12, 8)
 #plt.xlim(-100, 40000)
 #plt.ylim(2.25, 3.75)
 #g.fig.autofmt_xdate()
@@ -286,7 +290,7 @@ plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 plt.plot([40.00,60.00,80.00], [ 2, 2, 2], '.k', linewidth=width)
 plt.plot([40.00,60.00,80.00], [-4,-4,-4], '.k', linewidth=width)
 
-I.fig.savefig('../windowingPlots2/2-Current.svg', transparent=True,
+I.fig.savefig('../windowingPlots2/2-Current-ext.svg', transparent=True,
                 bbox_inches = "tight")
 # I.fig.savefig('/mnt/WORK/work/MPhil(CCS)/ThesisDefense/Batteries/2-Current.svg', transparent=True,
 #                 bbox_inches = "tight")
@@ -294,6 +298,7 @@ I.fig.savefig('../windowingPlots2/2-Current.svg', transparent=True,
 #sns.set(rc={'figure.figsize':(16,8)})
 T = sns.relplot(x='Test_Time(m)', y='Temperature (C)_1', kind="line",
                 data=train_X[0], size=20, color='m', legend=False)
+T.fig.set_size_inches(12, 8)
 #plt.xlim(-100, 40000)
 # plt.ylim(8, 14)
 # plt.title('Single Cycle - Temperature - 3 hours', size=16)
@@ -338,7 +343,7 @@ plt.plot([x1,x2], [y1,y1], linewidth=width, color='k')
 plt.plot([40.00,60.00,80.00], [20.5,20.7,20.9], '.k', linewidth=width)
 plt.plot([40.00,60.00,80.00], [19.0,19.2,19.4], '.k', linewidth=width)
 
-T.fig.savefig('../windowingPlots2/3-Temperature.svg', transparent=True,
+T.fig.savefig('../windowingPlots2/3-Temperature-ext.svg', transparent=True,
                 bbox_inches = "tight")
 # T.fig.savefig('/mnt/WORK/work/MPhil(CCS)/ThesisDefense/Batteries/3-Temperature.svg', transparent=True,
 #                 bbox_inches = "tight")
@@ -347,8 +352,9 @@ temp = pd.DataFrame(data={
                 'SoC' : train_Y[0][:,0]*100,
                 'Test_Time(m)' : train_X[0]['Test_Time(m)']
             }, dtype=np.float32)
-T = sns.relplot(x='Test_Time(m)', y='SoC', kind="line",
+S = sns.relplot(x='Test_Time(m)', y='SoC', kind="line",
                 data=temp, size=20, color='k', legend=False)
+S.fig.set_size_inches(12, 8)
 # plt.plot(train_X[0]['Test_Time(m)'], train_Y[0]*100, linewidth=1.8, color='k')
 # plt.title('Single Cycle - State of Charge - 3 hours', size=16)
 plt.ylabel('(%)', size=16, rotation=0)
@@ -395,7 +401,7 @@ plt.plot([40.00,60.00,80.00], [55,40,25], '.k', linewidth=width)
 width : float = 3
 plt.plot([10.00, 12.50, 16.00, 125.0], [94, 90, 88, 5.5], 'xk',
             linewidth=width, marker='v', markersize=11)
-T.fig.savefig('../windowingPlots2/4-SoC.svg', transparent=True,
+S.fig.savefig('../windowingPlots2/4-SoC-ext.svg', transparent=True,
                 bbox_inches = "tight")
 # plt.savefig('/mnt/WORK/work/MPhil(CCS)/ThesisDefense/Batteries/4-SoC.svg', transparent=True,
 #                 bbox_inches = "tight")

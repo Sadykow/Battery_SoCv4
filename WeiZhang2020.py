@@ -23,17 +23,17 @@ from cy_modules.utils import str2bool
 from py_modules.plotting import predicting_plot
 # %%
 # Extract params
-try:
-    opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
-                    ["help", "debug=", "epochs=",
-                     "gpu=", "profile="])
-except getopt.error as err: 
-    # output error, and return with an error code 
-    print (str(err)) 
-    print ('EXEPTION: Arguments requied!')
-    sys.exit(2)
+# try:
+#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
+#                     ["help", "debug=", "epochs=",
+#                      "gpu=", "profile="])
+# except getopt.error as err: 
+#     # output error, and return with an error code 
+#     print (str(err)) 
+#     print ('EXEPTION: Arguments requied!')
+#     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '5'), ('-g', '0'), ('-p', 'DST')]
+opts = [('-d', 'False'), ('-e', '5'), ('-g', '0'), ('-p', 'FUDS')]
 mEpoch  : int = 10
 GPU     : int = 0
 profile : str = 'DST'
@@ -440,9 +440,9 @@ while iEpoch < mEpoch:
                                batch_size=1,
                                verbose=0)
     # otherwise the right y-label is slightly clipped
-    predicting_plot(profile=profile, file_name='Model №7',
+    predicting_plot(profile=profile, file_name='Model №6',
                     model_loc=model_loc,
-                    model_type='LSTM Test - Train dataset',
+                    model_type='LSTM Train',
                     iEpoch=f'val-{iEpoch}',
                     Y=y_valid,
                     PRED=PRED,
@@ -450,15 +450,15 @@ while iEpoch < mEpoch:
                     val_perf=PERF,
                     TAIL=y_valid.shape[0],
                     save_plot=True,
-                    RMS_plot=False)
+                    RMS_plot=True)
     if(PERF[-2] <=0.024): # Check thr RMSE
         print("RMS droped around 2.4%. Breaking the training")
         break
 # %%
-PRED = lstm_model.predict(x_test_one, batch_size=1)
+PRED = lstm_model.predict(x_test_one, batch_size=1, verbose=1)
 RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_one[::,]-PRED)))
 if profile == 'DST':
-    predicting_plot(profile=profile, file_name='Model №7',
+    predicting_plot(profile=profile, file_name='Model №6',
                     model_loc=model_loc,
                     model_type='LSTM Test on US06', iEpoch=f'Test One-{iEpoch}',
                     Y=y_test_one,
@@ -468,11 +468,11 @@ if profile == 'DST':
                                     x=x_test_one,
                                     y=y_test_one,
                                     batch_size=1,
-                                    verbose=0),
+                                    verbose=1),
                     TAIL=y_test_one.shape[0],
                     save_plot=True)
 else:
-    predicting_plot(profile=profile, file_name='Model №7',
+    predicting_plot(profile=profile, file_name='Model №6',
                     model_loc=model_loc,
                     model_type='LSTM Test on DST', iEpoch=f'Test One-{iEpoch}',
                     Y=y_test_one,
@@ -482,14 +482,14 @@ else:
                                     x=x_test_one,
                                     y=y_test_one,
                                     batch_size=1,
-                                    verbose=0),
+                                    verbose=1),
                     TAIL=y_test_one.shape[0],
                     save_plot=True)
-# %%
-PRED = lstm_model.predict(x_test_two, batch_size=1)
+
+PRED = lstm_model.predict(x_test_two, batch_size=1, verbose=1)
 RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,]-PRED)))
 if profile == 'FUDS':
-    predicting_plot(profile=profile, file_name='Model №7',
+    predicting_plot(profile=profile, file_name='Model №6',
                     model_loc=model_loc,
                     model_type='LSTM Test on US06', iEpoch=f'Test Two-{iEpoch}',
                     Y=y_test_two,
@@ -499,11 +499,11 @@ if profile == 'FUDS':
                                     x=x_test_two,
                                     y=y_test_two,
                                     batch_size=1,
-                                    verbose=0),
+                                    verbose=1),
                     TAIL=y_test_two.shape[0],
                     save_plot=True)
 else:
-    predicting_plot(profile=profile, file_name='Model №7',
+    predicting_plot(profile=profile, file_name='Model №6',
                     model_loc=model_loc,
                     model_type='LSTM Test on FUDS', iEpoch=f'Test Two-{iEpoch}',
                     Y=y_test_two,
@@ -513,12 +513,12 @@ else:
                                     x=x_test_two,
                                     y=y_test_two,
                                     batch_size=1,
-                                    verbose=0),
+                                    verbose=1),
                     TAIL=y_test_two.shape[0],
                     save_plot=True)
 # %%
 # Convert the model to Tensorflow Lite and save.
-with open(f'{model_loc}Model-№7-{profile}.tflite', 'wb') as f:
+with open(f'{model_loc}Model-№6-{profile}.tflite', 'wb') as f:
     f.write(
         tf.lite.TFLiteConverter.from_keras_model(
                 model=lstm_model

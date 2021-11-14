@@ -32,10 +32,9 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
     self._set_hyper('k', k)
     self._set_hyper('K', K)
     self.epsilon = epsilon # or backend_config.epsilon()
-    # print('\n__init__')
-  
-  def _create_slots(self, var_list : list[tf.Variable]):
-    """ For each model variable, create the optimizer variable associated
+    
+  def _create_slots(self, var_list : list[tf.Variable]) -> None:
+    """For each model variable, create the optimizer variable associated
     with it. TensorFlow calls these optimizer variables "slots".
     For momentum optimization, we need one momentum slot per model variable.
 
@@ -43,10 +42,7 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
     Separate for-loops to respect the ordering of slot variables from v1.
 
     Args:
-        var_list ([type]): [description]
-
-    Returns:
-        [type]: [description]
+        var_list (list[tf.Variable]): List of varaibles to add slots into
     """
     for var in var_list:
       self.add_slot(var, slot_name='m', initializer="zeros")
@@ -62,7 +58,15 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
                          initializer=self.current_loss)
     # print('_create_slots')
     
-  def _prepare_local(self, var_device, var_dtype, apply_state):
+  def _prepare_local(self, var_device, var_dtype, apply_state) -> None:
+    """ Preparing varaibles locally. Initialising some of the states to match
+    the algorithm.
+
+    Args:
+        var_device (): device
+        var_dtype (): type
+        apply_state (): function*
+    """
     super(RobustAdam, self)._prepare_local(var_device, var_dtype, apply_state)
     local_step = tf.cast(self.iterations + 1, var_dtype)
     beta_1_t = self._get_hyper('beta_1', var_dtype)
@@ -89,10 +93,16 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
             k=k_t,
             K=K_t
             ))
-    # print('__prepare_local')
-  
-  def _resource_apply_dense(self, grad, var, apply_state=None):
-    # print('_resource_apply_dense')
+    
+  def _resource_apply_dense(self, grad, var, apply_state=None) -> None:
+    """ Dense implementation of the optimiser apply. Similar to the Adam and
+    replaces the unused Sparse function
+
+    Args:
+        grad (): Gradient
+        var (): Variables
+        apply_state ((), optional): function*. Defaults to None.
+    """
     var_device, var_dtype = var.device, var.dtype.base_dtype
     coefficients = ((apply_state or {}).get((var_device, var_dtype))
                     or self._fallback_apply_state(var_device, var_dtype))
@@ -166,7 +176,14 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
       return control_flow_ops.group(*[var_update, m_t, v_t, d_t])
 
 
-  def update_loss(self, prev_loss : float32, current_loss : float32):
+  def update_loss(self, prev_loss : float32, current_loss : float32) -> None:
+    """ Custom function added specifically for Robust Adam implementation. TF
+    has no meaning to pass loss. This is the only I was able to figure.
+
+    Args:
+        prev_loss (float32): Previos Loss value
+        current_loss (float32): Currently calculated Loss.
+    """
     # print('update_loss')
     if prev_loss is not None:
       # print(f'\n1)PRev_loss and loss: {prev_loss} and {current_loss}')
@@ -176,10 +193,20 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
       self.prev_loss = None
   
   def _resource_apply_sparse(self, grad, handle, indices, apply_state):
+    """ Unused function in this impleemntation.
+
+    Raises:
+        NotImplementedError: Not implemented
+    """
     print('_resource_apply_sparse: not implemented')
     raise NotImplementedError
 
   def get_config(self):
+    """ Configuration function used to save and restore model with this optimiser
+
+    Returns:
+        config: super.config update from parent class
+    """
     # print('get_config')
     config = super().get_config()
     config.update({

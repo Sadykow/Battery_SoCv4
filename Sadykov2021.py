@@ -32,7 +32,7 @@ from py_modules.plotting import predicting_plot
 #     print ('EXEPTION: Arguments requied!')
 #     sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '5'), ('-g', '1'), ('-p', 'FUDS'), ('-s', '30')]
+opts = [('-d', 'False'), ('-e', '5'), ('-g', '0'), ('-p', 'FUDS'), ('-s', '30')]
 mEpoch    : int = 10
 GPU       : int = 0
 profile   : str = 'DST'
@@ -172,6 +172,12 @@ except:
     lstm_model : AutoFeedBack = AutoFeedBack(units=510,
             out_steps=out_steps, num_features=1
         )
+    # lstm_model : AutoFeedBack = tf.keras.models.load_model(
+    #         f'{model_loc}{iEpoch}-tf',
+    #         compile=False,
+    #         custom_objects={"RSquare": tfa.metrics.RSquare,
+    #                         "AutoFeedBack": AutoFeedBack
+    #                         })
     firstLog = True
 
 early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss',
@@ -235,24 +241,30 @@ while iEpoch < mEpoch:
         else:
             hist_df.to_csv(f, index=False, header=False)
     
-    # PRED = PERF[4]
-    # RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-    #             y_valid[::,]-PRED)))
-    # # otherwise the right y-label is slightly clipped
-    # predicting_plot(profile=profile, file_name='myModel №1',
-    #                 model_loc=model_loc,
-    #                 model_type='LST Test - Train dataset',
-    #                 iEpoch=f'val-{iEpoch}',
-    #                 Y=y_valid,
-    #                 PRED=PRED,
-    #                 RMS=RMS,
-    #                 val_perf=PERF[:4],
-    #                 TAIL=y_valid.shape[0],
-    #                 save_plot=True,
-    #                 RMS_plot=False) #! Saving memory from high errors.
-    # if(PERF[-3] <=0.024): # Check thr RMSE
-    #     print("RMS droped around 2.4%. Breaking the training")
-    #     break
+    PRED = lstm_model.predict(
+                    x=x_valid, verbose=1,
+                    batch_size=1
+                )
+    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+                y_valid[::,-1]-PRED)))
+
+    # otherwise the right y-label is slightly clipped
+    predicting_plot(profile=profile, file_name='4-feature Model №2',
+                    model_loc=model_loc,
+                    model_type='LSTM Train',
+                    iEpoch=f'val-{iEpoch}',
+                    Y=y_valid,
+                    PRED=PRED,
+                    RMS=np.expand_dims(RMS,axis=1),
+                    val_perf=PERF[:4],
+                    TAIL=y_valid.shape[0],
+                    save_plot=True,
+                    RMS_plot=True) #! Saving memory from high errors.
+    # otherwise the right y-label is slightly clipped
+    if(PERF[-3] <=0.024): # Check thr RMSE
+        print("RMS droped around 2.4%. Breaking the training")
+        break
+
     VIT_input = x_valid[0,:,:3]
     SOC_input = x_valid[0,:,3:]
     PRED = np.zeros(shape=(y_valid.shape[0],), dtype=np.float32)
@@ -274,15 +286,15 @@ while iEpoch < mEpoch:
     RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
                 y_valid[::,-1]-PRED)))
     # Time range
-    test_time = range(0,PRED.shape[0])
+    test_time = np.linspace(0, PRED.shape[0]/60, PRED.shape[0])
     def format_func(value, _):
         return int(value*100)
 
     fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
-    ax1.plot(test_time, y_valid[:,-1], label="Actual")
-    ax1.plot(test_time, PRED, label="Prediction")
-    ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
-    ax1.set_xlabel("Time Slice (s)", fontsize=32)
+    ax1.plot(test_time, y_valid[:,-1], '-', label="Actual")
+    ax1.plot(test_time, PRED, '--', label="Prediction")
+    # ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
+    ax1.set_xlabel("Time Slice (min)", fontsize=32)
     ax1.set_ylabel("SoC (%)", fontsize=32)
     #if RMS_plot:
     ax2 = ax1.twinx()
@@ -293,14 +305,16 @@ while iEpoch < mEpoch:
         RMS,
         color='#698856')
     ax2.set_ylabel('Error', fontsize=32, color='#698856')
-    ax2.tick_params(axis='y', labelcolor='#698856', labelsize=24)
+    ax2.tick_params(axis='y', labelcolor='#698856', labelsize=28)
     ax2.set_ylim([-0.1,1.6])
     ax1.set_title(
         #f"{file_name} {model_type}. {profile}-trained",
-        f"VITpSoC №1 Train Dataset. {profile}-trained. {out_steps}-steps",
+        #f"4-feature Model №2 Train. {profile}-trained. {out_steps}-steps",
+        f"4-feature Model №2 LSTM Feed-forward {profile}-tr,  {out_steps}-steps",
         fontsize=36)
     ax1.legend(prop={'size': 32})
-    ax1.tick_params(axis='both', labelsize=24)
+    ax2.legend(loc='center right', bbox_to_anchor=(1.0,0.80), prop={'size': 32})
+    ax1.tick_params(axis='both', labelsize=28)
     ax1.yaxis.set_major_formatter(plt.FuncFormatter(format_func))
     ax1.set_ylim([-0.1,1.2])
     fig.tight_layout()
@@ -309,80 +323,80 @@ while iEpoch < mEpoch:
         '$RMSE = {0:.2f}%$'.format(np.mean(RMS)*100, )
         # '$R2  = nn.nn%$'
             ))
-    ax1.text(0.65, 0.80, textstr, transform=ax1.transAxes, fontsize=30,
+    ax1.text(0.66, 0.74, textstr, transform=ax1.transAxes, fontsize=30,
         verticalalignment='top',
         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
-    fig.savefig(f'{model_loc}{profile}-{iEpoch}.svg')
+    fig.savefig(f'{model_loc}{profile}-FF-{iEpoch}.svg')
     fig.clf()
     plt.close()
 # %% [Running performance tests]
-test_S = 3000
-test_N = 8000
-x_test = x_train[test_S:test_S+test_N,:,:]
-y_test = y_train[test_S:test_S+test_N,:]
-# plt.plot(y_test[:,0])
-VIT_input = x_test[0,:,:3]
-SOC_input = x_test[0,:,3:]
-# VIT_input = np.ones(shape=x_test[0,:,:3].shape)*x_test[-1,0,:3]
-# SOC_input = np.ones(shape=x_test[0,:,3:].shape)*0.60#x_test[-1,,3:]
-PRED = np.zeros(shape=(y_test.shape[0],), dtype=np.float32)
-for i in trange(y_test.shape[0]):
-    logits = lstm_model.predict(
-                            x=np.expand_dims(
-                                np.concatenate(
-                                    (VIT_input, SOC_input),
-                                    axis=1),
-                                axis=0),
-                            batch_size=1
-                        )
-    VIT_input = x_test[i,:,:3]
-    SOC_input = np.concatenate(
-                        (SOC_input, np.expand_dims(logits,axis=0)),
-                        axis=0)[1:,:]
-    PRED[i] = logits
-MAE = np.mean(tf.keras.backend.abs(y_test[::,-1]-PRED))
-RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-            y_test[::,-1]-PRED)))
-test_time = range(0,PRED.shape[0])
-def format_func(value, _):
-    return int(value*100)
-# %%
-fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
-ax1.plot(test_time, y_test[:,-1], label="Actual")
-ax1.plot(test_time, PRED, label="Prediction")
-ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
-ax1.set_xlabel("Time Slice (s)", fontsize=32)
-ax1.set_ylabel("SoC (%)", fontsize=32)
-#if RMS_plot:
-ax2 = ax1.twinx()
-ax2.plot(test_time,
-    RMS,
-    label="RMS error", color='#698856')
-ax2.fill_between(test_time,
-    RMS,
-    color='#698856')
-ax2.set_ylabel('Error', fontsize=32, color='#698856')
-ax2.tick_params(axis='y', labelcolor='#698856', labelsize=24)
-ax2.set_ylim([-0.1,1.6])
-ax1.set_title(
-    #f"{file_name} {model_type}. {profile}-trained",
-    f"Initial Discharging State. Constant 71% charge",
-    fontsize=36)
-ax1.legend(prop={'size': 32})
-ax2.legend(loc='center right', bbox_to_anchor=(1.0,0.80), prop={'size': 32})
-ax1.tick_params(axis='both', labelsize=24)
-ax1.yaxis.set_major_formatter(plt.FuncFormatter(format_func))
-ax1.set_ylim([-0.1,1.2])
-fig.tight_layout()
-textstr = '\n'.join((
-    '$MAE  = {0:.2f}%$'.format(np.mean(MAE)*100, ),
-    '$RMSE = {0:.2f}%$'.format(np.mean(RMS)*100, )
-    # '$R2  = nn.nn%$'
-        ))
-ax1.text(0.66, 0.74, textstr, transform=ax1.transAxes, fontsize=30,
-    verticalalignment='top',
-    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+# test_S = 3000
+# test_N = 8000
+# x_test = x_train[test_S:test_S+test_N,:,:]
+# y_test = y_train[test_S:test_S+test_N,:]
+# # plt.plot(y_test[:,0])
+# VIT_input = x_test[0,:,:3]
+# SOC_input = x_test[0,:,3:]
+# # VIT_input = np.ones(shape=x_test[0,:,:3].shape)*x_test[-1,0,:3]
+# # SOC_input = np.ones(shape=x_test[0,:,3:].shape)*0.60#x_test[-1,,3:]
+# PRED = np.zeros(shape=(y_test.shape[0],), dtype=np.float32)
+# for i in trange(y_test.shape[0]):
+#     logits = lstm_model.predict(
+#                             x=np.expand_dims(
+#                                 np.concatenate(
+#                                     (VIT_input, SOC_input),
+#                                     axis=1),
+#                                 axis=0),
+#                             batch_size=1
+#                         )
+#     VIT_input = x_test[i,:,:3]
+#     SOC_input = np.concatenate(
+#                         (SOC_input, np.expand_dims(logits,axis=0)),
+#                         axis=0)[1:,:]
+#     PRED[i] = logits
+# MAE = np.mean(tf.keras.backend.abs(y_test[::,-1]-PRED))
+# RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+#             y_test[::,-1]-PRED)))
+# test_time = np.linspace(0, PRED.shape[0]/60, PRED.shape[0])
+# def format_func(value, _):
+#     return int(value*100)
+
+# fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
+# ax1.plot(test_time, y_test[:,-1], '-', label="Actual")
+# ax1.plot(test_time, PRED, '--', label="Prediction")
+# ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
+# ax1.set_xlabel("Time Slice (min)", fontsize=32)
+# ax1.set_ylabel("SoC (%)", fontsize=32)
+# #if RMS_plot:
+# ax2 = ax1.twinx()
+# ax2.plot(test_time,
+#     RMS,
+#     label="RMS error", color='#698856')
+# ax2.fill_between(test_time,
+#     RMS,
+#     color='#698856')
+# ax2.set_ylabel('Error', fontsize=32, color='#698856')
+# ax2.tick_params(axis='y', labelcolor='#698856', labelsize=24)
+# ax2.set_ylim([-0.1,1.6])
+# ax1.set_title(
+#     #f"{file_name} {model_type}. {profile}-trained",
+#     f"Initial Discharging State. Constant 71% charge",
+#     fontsize=36)
+# ax1.legend(prop={'size': 32})
+# ax2.legend(loc='center right', bbox_to_anchor=(1.0,0.80), prop={'size': 32})
+# ax1.tick_params(axis='both', labelsize=24)
+# ax1.yaxis.set_major_formatter(plt.FuncFormatter(format_func))
+# ax1.set_ylim([-0.1,1.2])
+# fig.tight_layout()
+# textstr = '\n'.join((
+#     '$MAE  = {0:.2f}%$'.format(np.mean(MAE)*100, ),
+#     '$RMSE = {0:.2f}%$'.format(np.mean(RMS)*100, )
+#     # '$R2  = nn.nn%$'
+#         ))
+# ax1.text(0.66, 0.74, textstr, transform=ax1.transAxes, fontsize=30,
+#     verticalalignment='top',
+#     bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 # fig.savefig(f'{model_loc}images/train-i71percent.svg')
 # %%
 VIT_input = x_test_one[0,:,:3]
@@ -407,15 +421,15 @@ RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
             y_test_one[::,-1]-PRED)))
 
 # Time range
-test_time = range(0,PRED.shape[0])
+test_time = np.linspace(0, PRED.shape[0]/60, PRED.shape[0])
 def format_func(value, _):
     return int(value*100)
 
 fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
-ax1.plot(test_time, y_test_one[:,-1], label="Actual")
-ax1.plot(test_time, PRED, label="Prediction")
-ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
-ax1.set_xlabel("Time Slice (s)", fontsize=32)
+ax1.plot(test_time, y_test_one[:,-1], '-', label="Actual")
+ax1.plot(test_time, PRED, '--', label="Prediction")
+# ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
+ax1.set_xlabel("Time Slice (min)", fontsize=32)
 ax1.set_ylabel("SoC (%)", fontsize=32)
 #if RMS_plot:
 ax2 = ax1.twinx()
@@ -426,15 +440,15 @@ ax2.fill_between(test_time,
     RMS,
     color='#698856')
 ax2.set_ylabel('Error', fontsize=32, color='#698856')
-ax2.tick_params(axis='y', labelcolor='#698856', labelsize=24)
+ax2.tick_params(axis='y', labelcolor='#698856', labelsize=28)
 ax2.set_ylim([-0.1,1.6])
 ax1.set_title(
     #f"{file_name} {model_type}. {profile}-trained",
-    f"VITpSoC №1 Test. {profile}-trained over DST set. {out_steps}-steps",
+    f"4-feature Model №2 LSTM FF {profile}-tr over DST set. {out_steps}-steps",
     fontsize=36)
 ax1.legend(prop={'size': 32})
 ax2.legend(loc='center right', bbox_to_anchor=(1.0,0.80), prop={'size': 32})
-ax1.tick_params(axis='both', labelsize=24)
+ax1.tick_params(axis='both', labelsize=28)
 ax1.yaxis.set_major_formatter(plt.FuncFormatter(format_func))
 ax1.set_ylim([-0.1,1.2])
 fig.tight_layout()
@@ -446,7 +460,7 @@ textstr = '\n'.join((
 ax1.text(0.66, 0.74, textstr, transform=ax1.transAxes, fontsize=30,
     verticalalignment='top',
     bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-fig.savefig(f'{model_loc}images/test_oneFull2.svg')
+fig.savefig(f'{model_loc}SMR{profile}-Test One-{iEpoch}.svg')
 # %%
 VIT_input = x_test_two[0,:,:3]
 SOC_input = x_test_two[0,:,3:]
@@ -470,15 +484,15 @@ RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
             y_test_two[::,-1]-PRED)))
 
 # Time range
-test_time = range(0,PRED.shape[0])
+test_time = np.linspace(0, PRED.shape[0]/60, PRED.shape[0])
 def format_func(value, _):
     return int(value*100)
 
 fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
-ax1.plot(test_time, y_test_two[:,-1], label="Actual")
-ax1.plot(test_time, PRED, label="Prediction")
-ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
-ax1.set_xlabel("Time Slice (s)", fontsize=32)
+ax1.plot(test_time, y_test_two[:,-1], '-', label="Actual")
+ax1.plot(test_time, PRED, '--', label="Prediction")
+# ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
+ax1.set_xlabel("Time Slice (min)", fontsize=32)
 ax1.set_ylabel("SoC (%)", fontsize=32)
 #if RMS_plot:
 ax2 = ax1.twinx()
@@ -493,7 +507,8 @@ ax2.tick_params(axis='y', labelcolor='#698856', labelsize=24)
 ax2.set_ylim([-0.1,1.6])
 ax1.set_title(
     #f"{file_name} {model_type}. {profile}-trained",
-    f"VITpSoC №1 Train Dataset. {profile}-trained over US06 set. {out_steps}-steps",
+    # f"VITpSoC №1 - {profile}-trained over US06 set. {out_steps}-steps",
+    f"4-feature Model №2 LSTM FF {profile}-tr over US06 set. {out_steps}-steps",
     fontsize=36)
 ax1.legend(prop={'size': 32})
 ax2.legend(loc='center right', bbox_to_anchor=(1.0,0.80), prop={'size': 32})
@@ -509,30 +524,148 @@ textstr = '\n'.join((
 ax1.text(0.66, 0.74, textstr, transform=ax1.transAxes, fontsize=30,
     verticalalignment='top',
     bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-fig.savefig(f'{model_loc}images/test_twoFull2.svg')
+# fig.savefig(f'{model_loc}images/test_twoFull2.svg')
+fig.savefig(f'{model_loc}SMR{profile}-Test Two-{iEpoch}.svg')
 # %%
-# for j in range(2,6):
-#     lstm_model.load_weights(f'{model_loc}{j}/variables/variables')
-#     VIT_input = x_valid[0,:,:3]
-#     SOC_input = x_valid[0,:,3:]
-#     PRED = np.zeros(shape=(y_valid.shape[0],), dtype=np.float32)
-#     for i in trange(y_valid.shape[0]):
-#         logits = lstm_model.predict(
-#                                 x=np.expand_dims(
-#                                     np.concatenate(
-#                                         (VIT_input, SOC_input),
-#                                         axis=1),
-#                                     axis=0),
-#                                 batch_size=1
-#                             )
-#         VIT_input = x_valid[i,:,:3]
-#         SOC_input = np.concatenate(
-#                             (SOC_input, np.expand_dims(logits,axis=0)),
-#                             axis=0)[1:,:]
-#         PRED[i] = logits
+# [Measuring performance of all models]
+file_name : str = os.path.basename(__file__)[:-3]
+model_loc : str = f'Models/{file_name}-{out_steps}steps/{profile}-models/'
+firstTime = False
+#* Run first 10 on 1 GPU, and remaining on another
+for j in range(17,21): #? Up to 21
+    model : AutoFeedBack = AutoFeedBack(units=510,
+        out_steps=out_steps, num_features=1
+    )
+    model.load_weights(f'{model_loc}{j}/{j}')
+    VIT_input = x_valid[0,:,:3]
+    SOC_input = x_valid[0,:,3:]
+    PRED = np.zeros(shape=(y_valid.shape[0],), dtype=np.float32)
+    for i in trange(y_valid.shape[0]):
+        logits = model.predict(
+                                x=np.expand_dims(
+                                    np.concatenate(
+                                        (VIT_input, SOC_input),
+                                        axis=1),
+                                    axis=0),
+                                batch_size=1
+                            )
+        VIT_input = x_valid[i,:,:3]
+        SOC_input = np.concatenate(
+                            (SOC_input, np.expand_dims(logits,axis=0)),
+                            axis=0)[1:,:]
+        PRED[i] = logits
+    FUDS_MAE = np.mean(tf.keras.backend.abs(y_valid[::,-1]-PRED))
+    FUDS_RMS = tf.keras.backend.sqrt(
+                    tf.keras.backend.mean(
+                        tf.keras.backend.square(
+                                y_valid[::,-1]-PRED
+                            )
+                        )
+                    )
+    #! 3) Measure for 2nd
+    VIT_input = x_test_one[0,:,:3]
+    SOC_input = x_test_one[0,:,3:]
+    PRED = np.zeros(shape=(y_test_one.shape[0],), dtype=np.float32)
+    for i in trange(y_test_one.shape[0]):
+        logits = model.predict(
+                                x=np.expand_dims(
+                                    np.concatenate(
+                                        (VIT_input, SOC_input),
+                                        axis=1),
+                                    axis=0),
+                                batch_size=1
+                            )
+        VIT_input = x_test_one[i,:,:3]
+        SOC_input = np.concatenate(
+                            (SOC_input, np.expand_dims(logits,axis=0)),
+                            axis=0)[1:,:]
+        PRED[i] = logits
+    DST_MAE = np.mean(tf.keras.backend.abs(y_test_one[::,-1]-PRED))
+    DST_RMS = tf.keras.backend.sqrt(
+                    tf.keras.backend.mean(
+                        tf.keras.backend.square(
+                                y_test_one[::,-1]-PRED
+                            )
+                        )
+                    )
+    #! 4) Measuire for 3rd
+    VIT_input = x_test_two[0,:,:3]
+    SOC_input = x_test_two[0,:,3:]
+    PRED = np.zeros(shape=(y_test_two.shape[0],), dtype=np.float32)
+    for i in trange(y_test_two.shape[0]):
+        logits = model.predict(
+                                x=np.expand_dims(
+                                    np.concatenate(
+                                        (VIT_input, SOC_input),
+                                        axis=1),
+                                    axis=0),
+                                batch_size=1
+                            )
+        VIT_input = x_test_two[i,:,:3]
+        SOC_input = np.concatenate(
+                            (SOC_input, np.expand_dims(logits,axis=0)),
+                            axis=0)[1:,:]
+        PRED[i] = logits
+    US_MAE = np.mean(tf.keras.backend.abs(y_test_two[::,-1]-PRED))
+    US_RMS = tf.keras.backend.sqrt(
+                    tf.keras.backend.mean(
+                        tf.keras.backend.square(
+                                y_test_two[::,-1]-PRED
+                            )
+                        )
+                    )
+    #! 2) Save to df new values
+    result_df = pd.DataFrame(data={
+            'FUDS_MAE' : [FUDS_MAE],
+            'FUDS_RMS' : np.array(FUDS_RMS),
+
+            'DST_MAE'  : [DST_MAE],
+            'DST_RMS'  : np.array(DST_RMS),
+
+            'US06_MAE' : [US_MAE],
+            'US06_RMS' : np.array(US_RMS)
+        })
+    print(f'\nIteration: {j}', flush=True)
+    print(result_df)
+    with open(f'{model_loc}performance-{profile}.csv', mode='a') as f:
+        if(firstTime):
+            result_df.to_csv(f, index=False)
+            firstTime = False
+        else:
+            result_df.to_csv(f, index=False, header=False)
+    del model
 #     plt.plot(y_valid[:,0])
 #     plt.plot(PRED)
 #     plt.show()
+# %%
+perf_df = pd.read_csv(f'{model_loc}performance-{profile}.csv')
+best_v = [7, 9]
+
+fig, (ax1, ax2) = plt.subplots(1,2, figsize=(28,12), dpi=600)
+ax1.plot(perf_df['FUDS_MAE']*100, '-', label='Training FUDS')
+ax1.plot(perf_df['DST_MAE']*100, '--', label='Validating DST')
+ax1.plot(perf_df['US06_MAE']*100, '-x', label='Validating US06')
+ax1.set_xlabel("Iterations/Epochs", fontsize=32)
+ax1.set_ylabel("MAE Error(%)", fontsize=32)  
+ax1.legend(prop={'size': 32})
+ax1.tick_params(axis='both', labelsize=28)
+ax1.plot(best_v, perf_df['FUDS_MAE'][best_v]*100, 'r*', markersize=32)
+ax1.set_ylim([0,15])
+
+ax2.plot(perf_df['FUDS_RMS']*100, '-', label='Training FUDS')
+ax2.plot(perf_df['DST_RMS']*100, '--', label='Validating DST')
+ax2.plot(perf_df['US06_RMS']*100, '-x', label='Validating US06')
+ax2.set_xlabel("Iterations/Epochs", fontsize=32)
+ax2.set_ylabel("RMSE Error(%)", fontsize=32)  
+ax2.legend(prop={'size': 32})
+ax2.tick_params(axis='both', labelsize=28)
+ax2.plot(best_v, perf_df['FUDS_RMS'][best_v]*100, 'r*', markersize=32)
+ax2.set_ylim([0,15])
+
+fig.suptitle('Accuracy evalution over training FUDS profile and validating with DST and US06', fontsize=32)
+fig.tight_layout()
+fig.savefig(f'{model_loc}SMR{profile}-performance.svg')
+
 # %%
 # optimiser = tf.optimizers.Adam(learning_rate = 0.0001)
 # loss_fn   = tf.losses.MeanAbsoluteError()
@@ -683,11 +816,11 @@ fig.savefig(f'{model_loc}images/test_twoFull2.svg')
 # # Convert the model to Tensorflow Lite and save.
 # with open(f'{model_loc}myModel-№2-{profile}.tflite', 'wb') as f:
 #     f.write(
-        # tf.lite.TFLiteConverter.from_saved_model(
-        #         saved_model_dir=f'{model_loc}test/12-2'
-        #     ).convert()
-        # )
-        # tf.lite.TFLiteConverter.from_keras_model(
-        #         model=lstm_model
-        #     ).convert()
-        # )
+#         # tf.lite.TFLiteConverter.from_saved_model(
+#         #         saved_model_dir=f'{model_loc}19-tf'
+#         #     ).convert()
+#         # )
+#         tf.lite.TFLiteConverter.from_keras_model(
+#                 model=test_lstm_model
+#             ).convert()
+#         )

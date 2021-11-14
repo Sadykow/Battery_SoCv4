@@ -1,5 +1,5 @@
 from matplotlib.pyplot import subplots, close, FuncFormatter
-from numpy import ndarray
+from numpy import ndarray, linspace
 
 def format_SoC(value, _):
   return int(value*100)
@@ -26,17 +26,17 @@ def predicting_plot(profile : str, file_name : str, model_loc : str,
     TAIL (int): The length of the prediction.
   """
   # Time range
-  test_time = range(0,PRED.shape[0])
+  test_time = linspace(0, PRED.shape[0]/60, PRED.shape[0])
   
   # instantiate the first axes
   fig, ax1 = subplots(figsize=(14,12), dpi=600)
-  ax1.plot(test_time[:TAIL:], Y[::,],
+  ax1.plot(test_time[:TAIL:], Y[::,], '-',
           label="Actual", color='#0000ff')
   ax1.plot(test_time[:TAIL:],
-          PRED,
+          PRED, '--',
           label="Prediction", color='#ff0000')
-  ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
-  ax1.set_xlabel("Time Slice (s)", fontsize=32)
+  # ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
+  ax1.set_xlabel("Time Slice (min)", fontsize=32)
   ax1.set_ylabel("SoC (%)", fontsize=32)
   
   # instantiate a second axes that shares the same x-axis
@@ -49,13 +49,14 @@ def predicting_plot(profile : str, file_name : str, model_loc : str,
           RMS[:,0],
           color='#698856')
     ax2.set_ylabel('Error', fontsize=32, color='#698856')
-    ax2.tick_params(axis='y', labelcolor='#698856', labelsize=24)
+    ax2.tick_params(axis='y', labelcolor='#698856', labelsize=28)
     ax2.set_ylim([-0.1,1.6])
+    ax2.legend(loc='center right', bbox_to_anchor=(1.0,0.80), prop={'size': 32})
   ax1.set_title(
       f"{file_name} {model_type}. {profile}-trained",
       fontsize=36)
   ax1.legend(prop={'size': 32})
-  ax1.tick_params(axis='both', labelsize=24)
+  ax1.tick_params(axis='both', labelsize=28)
   ax1.yaxis.set_major_formatter(FuncFormatter(format_SoC))
   ax1.set_ylim([-0.1,1.2])
   fig.tight_layout()
@@ -69,7 +70,7 @@ def predicting_plot(profile : str, file_name : str, model_loc : str,
        '$MAE  = {0:.2f}%$'.format(val_perf[1]*100, ),
        '$RMSE = {0:.2f}%$'.format(val_perf[2]*100, ),
        '$R2  = {0:.2f}%$'.format(val_perf[3]*100, ) ))
-  ax1.text(0.65, 0.80, textstr, transform=ax1.transAxes, fontsize=30,
+  ax1.text(0.66, 0.74, textstr, transform=ax1.transAxes, fontsize=30,
           verticalalignment='top',
           bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
   

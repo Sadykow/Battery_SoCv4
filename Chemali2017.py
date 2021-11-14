@@ -57,17 +57,17 @@ from cy_modules.utils import str2bool
 from py_modules.plotting import predicting_plot
 # %%
 # Extract params
-try:
-    opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
-                    ["help", "debug=", "epochs=",
-                     "gpu=", "profile="])
-except getopt.error as err: 
-    # output error, and return with an error code 
-    print (str(err)) 
-    print ('EXEPTION: Arguments requied!')
-    sys.exit(2)
+# try:
+#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
+#                     ["help", "debug=", "epochs=",
+#                      "gpu=", "profile="])
+# except getopt.error as err: 
+#     # output error, and return with an error code 
+#     print (str(err)) 
+#     print ('EXEPTION: Arguments requied!')
+#     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '50'), ('-g', '1'), ('-p', 'DST')]
+opts = [('-d', 'False'), ('-e', '50'), ('-g', '0'), ('-p', 'FUDS')]
 mEpoch  : int = 10
 GPU     : int = 0
 profile : str = 'DST'
@@ -147,6 +147,34 @@ dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
                                 'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
                                 ],
                               PROFILE_range = profile)
+# %%
+# file_name : str = os.path.basename(__file__)[:-3]
+# model_loc : str = f'Models/{file_name}/{profile}-models/'
+# N_seconds = 8000
+# fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(14,12), dpi=600)
+# titles = [['Voltage', 'Current'],
+#           ['Temperature', 'State of Charge']]
+# units = [['Volts', 'Amps'],
+#           ['Degrees', 'Percentage']]
+# test_time = np.linspace(0, N_seconds/60, N_seconds)
+# y_axis_data = [[dataGenerator.valid_df[:8000,1], dataGenerator.valid_df[:8000,0]],
+#                [dataGenerator.valid_df[:8000,2], dataGenerator.valid_SoC[:8000,0]*100]]
+# colors = [['#FF0000', '#0000FF'],
+#           ['m','k']]
+# fig.suptitle('Pre training input sample of single cell', fontsize=38)
+# for (ax_row, titles_row,
+#      units_row, y_row, colors_row) in zip(axs, titles,
+#                               units, y_axis_data, colors):
+#     for (ax, title,
+#          unit, y, color) in zip(ax_row, titles_row,
+#                          units_row, y_row, colors_row):
+#         ax.plot(test_time, y, '-', color=color)
+#         ax.set_title(f'{title} snapshot', fontsize=32)
+#         ax.set_ylabel(f'{unit}', fontsize=32)
+#         ax.set_xlabel('Time Slice (min)', fontsize=28)
+#         ax.tick_params(axis='both', labelsize=22)
+# fig.tight_layout()
+# fig.savefig(f'{model_loc}pre-training-samples.svg')
 # %%
 window = WindowGenerator(Data=dataGenerator,
                         input_width=500, label_width=1, shift=0,
@@ -368,7 +396,7 @@ while iEpoch < mEpoch:
     # otherwise the right y-label is slightly clipped
     predicting_plot(profile=profile, file_name='Model №1',
                     model_loc=model_loc,
-                    model_type='LSTM Test - Train dataset',
+                    model_type='LSTM Train',
                     iEpoch=f'val-{iEpoch}',
                     Y=y_valid,
                     PRED=PRED,
@@ -432,7 +460,7 @@ while iEpoch < mEpoch:
 # Cleaning Memory from plots
 # fig.clf()
 # plt.close()
-PRED = lstm_model.predict(x_test_one, batch_size=1)
+PRED = lstm_model.predict(x_test_one, batch_size=1, verbose=1)
 RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_one[::,]-PRED)))
 if profile == 'DST':
     predicting_plot(profile=profile, file_name='Model №1',
@@ -445,7 +473,7 @@ if profile == 'DST':
                                     x=x_test_one,
                                     y=y_test_one,
                                     batch_size=1,
-                                    verbose=0),
+                                    verbose=1),
                     TAIL=y_test_one.shape[0],
                     save_plot=True)
 else:
@@ -459,10 +487,10 @@ else:
                                     x=x_test_one,
                                     y=y_test_one,
                                     batch_size=1,
-                                    verbose=0),
+                                    verbose=1),
                     TAIL=y_test_one.shape[0],
                     save_plot=True)
-# %%
+
 # TAIL=y_test_two.shape[0]
 # PRED = lstm_model.predict(x_test_two, batch_size=1)
 # RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
@@ -515,7 +543,7 @@ else:
 # # Cleaning Memory from plots
 # fig.clf()
 # plt.close()
-PRED = lstm_model.predict(x_test_two, batch_size=1)
+PRED = lstm_model.predict(x_test_two, batch_size=1, verbose=1)
 RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,]-PRED)))
 if profile == 'FUDS':
     predicting_plot(profile=profile, file_name='Model №1',
@@ -528,7 +556,7 @@ if profile == 'FUDS':
                                     x=x_test_two,
                                     y=y_test_two,
                                     batch_size=1,
-                                    verbose=0),
+                                    verbose=1),
                     TAIL=y_test_two.shape[0],
                     save_plot=True)
 else:
@@ -542,7 +570,7 @@ else:
                                     x=x_test_two,
                                     y=y_test_two,
                                     batch_size=1,
-                                    verbose=0),
+                                    verbose=1),
                     TAIL=y_test_two.shape[0],
                     save_plot=True)
 # %%

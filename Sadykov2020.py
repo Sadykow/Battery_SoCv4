@@ -278,15 +278,15 @@ while iEpoch < mEpoch:
     
     PRED = PERF[4]
     RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-                y_valid[::,]-PRED)))
+                y_valid[::,0]-PRED)))
     # otherwise the right y-label is slightly clipped
-    predicting_plot(profile=profile, file_name='myModel №1',
+    predicting_plot(profile=profile, file_name='4-feature Model №1',
                     model_loc=model_loc,
-                    model_type='LST Test - Train dataset',
+                    model_type='LSTM Train',
                     iEpoch=f'val-{iEpoch}',
                     Y=y_valid,
                     PRED=PRED,
-                    RMS=RMS,
+                    RMS=np.expand_dims(RMS,axis=1),
                     val_perf=PERF[:4],
                     TAIL=y_valid.shape[0],
                     save_plot=True,
@@ -295,51 +295,61 @@ while iEpoch < mEpoch:
         print("RMS droped around 1.2%. Breaking the training")
         break
 # %%
-# VIT_input = x_valid[0,:,:3]
-# SOC_input = x_valid[0,:,3:]
-# PRED = np.zeros(shape=(y_valid.shape[0],), dtype=np.float32)
-# for i in trange(y_valid.shape[0]):
-#     logits = lstm_model.predict(
-#                             x=np.expand_dims(
-#                                 np.concatenate(
-#                                     (VIT_input, SOC_input),
-#                                     axis=1),
-#                                 axis=0),
-#                             batch_size=1
-#                         )
-#     VIT_input = x_valid[i,:,:3]
-#     SOC_input = np.concatenate(
-#                         (SOC_input, logits),
-#                         axis=0)[1:,:]
-#     PRED[i] = logits
+VIT_input = x_valid[0,:,:3]
+SOC_input = x_valid[0,:,3:]
+PRED = np.zeros(shape=(y_valid.shape[0],), dtype=np.float32)
+for i in trange(y_valid.shape[0]):
+    logits = lstm_model.predict(
+                            x=np.expand_dims(
+                                np.concatenate(
+                                    (VIT_input, SOC_input),
+                                    axis=1),
+                                axis=0),
+                            batch_size=1
+                        )
+    VIT_input = x_valid[i,:,:3]
+    SOC_input = np.concatenate(
+                        (SOC_input, logits),
+                        axis=0)[1:,:]
+    PRED[i] = logits
 # %%
-# PRED = lstm_model.predict(x_valid, batch_size=1, verbose=1)
-# def format_SoC(value, _):
-#   return int(value*100)
+mae = np.mean(tf.keras.backend.abs(y_valid[::,:]-PRED))
+RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+            y_valid[::,-1]-PRED)))
 
-# test_time = range(0,PRED.shape[0])
+def format_SoC(value, _):
+  return int(value*100)
+
+test_time = np.linspace(0, PRED.shape[0]/60, PRED.shape[0])
   
-# # instantiate the first axes
-# fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
-# ax1.plot(test_time, y_valid[:,0],
-#         label="Actual", color='#0000ff')
-# ax1.plot(test_time,
-#         PRED,
-#         label="Prediction", color='#ff7f0e')
+# instantiate the first axes
+fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
+ax1.plot(test_time, y_valid[:,0], '-', label="Actual")
+ax1.plot(test_time,
+        PRED, '--', label="Prediction")
 # ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
-# ax1.set_xlabel("Time Slice (s)", fontsize=32)
-# ax1.set_ylabel("SoC (%)", fontsize=32)
+ax1.set_xlabel("Time Slice (min)", fontsize=32)
+ax1.set_ylabel("SoC (%)", fontsize=32)
 
-# # instantiate a second axes that shares the same x-axis
-# ax1.set_title(
-#     f"Feed-forward model LSTM Test. {profile}-trained",
-#     fontsize=36)
-# ax1.legend(prop={'size': 32})
-# ax1.tick_params(axis='both', labelsize=24)
-# ax1.yaxis.set_major_formatter(plt.FuncFormatter(format_SoC))
-# ax1.set_ylim([-0.1,1.2])
-# fig.tight_layout()
-# fig.savefig('/mnt/WORK/work/MPhil(CCS)/ThesisDefense/Models/Sadykov2020-Feed.svg')
+# instantiate a second axes that shares the same x-axis
+ax1.set_title(
+    # f"Feed-forward model LSTM Test. {profile}-trained",
+    f"4-feature Model №1 LSTM Feed-forward Test. {profile}-trained",
+    fontsize=36)
+ax1.legend(prop={'size': 32})
+ax1.tick_params(axis='both', labelsize=28)
+ax1.yaxis.set_major_formatter(plt.FuncFormatter(format_SoC))
+ax1.set_ylim([-0.1,1.2])
+fig.tight_layout()
+textstr = '\n'.join((
+    '$MAE  = {0:.2f}%$'.format(mae*100, ),
+    '$RMSE = {0:.2f}%$'.format(np.mean(RMS)*100, )
+    # '$R2  = nn.nn%$'
+        ))
+ax1.text(0.66, 0.74, textstr, transform=ax1.transAxes, fontsize=30,
+    verticalalignment='top',
+    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+fig.savefig(f'{model_loc}{profile}-FF-{iEpoch}.svg')
 # %%
 # log_dir=model_loc+ \
 #     f'tensorboard/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}'
@@ -359,3 +369,55 @@ while iEpoch < mEpoch:
 #                             f'rsquare: {RSquare.result():.4f}'
 #                         )
 # tf.profiler.experimental.stop()
+PRED = valid_step(x_test_one, y_test_one)
+RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_one[::,0]-PRED[4])))
+if profile == 'DST':
+    predicting_plot(profile=profile, file_name='4-feature Model №1',
+                    model_loc=model_loc,
+                    model_type='LSTM Test on US06', iEpoch=f'Test One-{iEpoch}',
+                    Y=y_test_one,
+                    PRED=PRED[4],
+                    RMS=np.expand_dims(RMS,axis=1),
+                    val_perf=PRED[:4],
+                    TAIL=y_test_one.shape[0],
+                    save_plot=True)
+else:
+    predicting_plot(profile=profile, file_name='4-feature Model №1',
+                    model_loc=model_loc,
+                    model_type='LSTM Test on DST', iEpoch=f'Test One-{iEpoch}',
+                    Y=y_test_one,
+                    PRED=PRED[4],
+                    RMS=np.expand_dims(RMS,axis=1),
+                    val_perf=PRED[:4],
+                    TAIL=y_test_one.shape[0],
+                    save_plot=True)
+PRED = valid_step(x_test_two, y_test_two)
+RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,0]-PRED[4])))
+if profile == 'FUDS':
+    predicting_plot(profile=profile, file_name='4-feature Model №1',
+                    model_loc=model_loc,
+                    model_type='LSTM Test on US06', iEpoch=f'Test Two-{iEpoch}',
+                    Y=y_test_two,
+                    PRED=PRED[4],
+                    RMS=np.expand_dims(RMS,axis=1),
+                    val_perf=PRED[:4],
+                    TAIL=y_test_two.shape[0],
+                    save_plot=True)
+else:
+    predicting_plot(profile=profile, file_name='4-feature Model №1',
+                    model_loc=model_loc,
+                    model_type='LSTM Test on FUDS', iEpoch=f'Test Two-{iEpoch}',
+                    Y=y_test_two,
+                    PRED=PRED[4],
+                    RMS=np.expand_dims(RMS,axis=1),
+                    val_perf=PRED[:4],
+                    TAIL=y_test_two.shape[0],
+                    save_plot=True)
+# %%
+# Convert the model to Tensorflow Lite and save.
+with open(f'{model_loc}myModel-№1-{profile}.tflite', 'wb') as f:
+    f.write(
+        tf.lite.TFLiteConverter.from_keras_model(
+                model=lstm_model
+            ).convert()
+        )

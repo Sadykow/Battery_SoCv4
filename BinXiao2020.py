@@ -54,6 +54,7 @@ import tensorflow_addons as tfa
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
 from cy_modules.utils import str2bool
+from py_modules.plotting import predicting_plot
 # %%
 # Extract params
 try:
@@ -66,7 +67,7 @@ except getopt.error as err:
     print ('EXEPTION: Arguments requied!')
     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '50'), ('-g', '1'), ('-p', 'DST')]
+# opts = [('-d', 'False'), ('-e', '50'), ('-g', '1'), ('-p', 'FUDS')]
 mEpoch  : int = 10
 GPU     : int = 0
 profile : str = 'DST'
@@ -333,164 +334,93 @@ while iEpoch < mEpoch:
             hist_df.to_csv(f, index=False, header=False)
     
     #! Run the Evaluate function
-    TAIL=y_valid.shape[0]
     PRED = gru_model.predict(x_valid,batch_size=1)
     RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
                 y_valid[::skip,]-PRED)))
-    vl_test_time = range(0,PRED.shape[0])
-    fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
-    ax1.plot(vl_test_time[:TAIL:skip], y_valid[::skip,],
-            label="True", color='#0000ff')
-    ax1.plot(vl_test_time[:TAIL:skip],
-            PRED,
-            label="Recursive prediction", color='#ff0000')
+    PERF = gru_model.evaluate(x=x_valid,
+                              y=y_valid,
+                              batch_size=1,
+                              verbose=0)
+    # otherwise the right y-label is slightly clipped
+    predicting_plot(profile=profile, file_name='Model №2',
+                    model_loc=model_loc,
+                    model_type='GRU Train',
+                    iEpoch=f'val-{iEpoch}',
+                    Y=y_valid,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=PERF,
+                    TAIL=y_valid.shape[0],
+                    save_plot=True)
+    if(PERF[-2] <=0.024): # Check thr RMSE
+        print("RMS droped around 2.4%. Breaking the training")
+        break
 
-    ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
-    ax1.set_xlabel("Time Slice (s)", fontsize=16)
-    ax1.set_ylabel("SoC (%)", fontsize=16)
-
-    ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-    ax2.plot(vl_test_time[:TAIL:skip],
-            RMS,
-            label="RMS error", color='#698856')
-    ax2.fill_between(vl_test_time[:TAIL:skip],
-            RMS[:,0],
-                color='#698856')
-    ax2.set_ylabel('Error', fontsize=16, color='#698856')
-    ax2.tick_params(axis='y', labelcolor='#698856')
-    ax1.set_title(f"{file_name} GRU Test - Train dataset. {profile}-{iEpoch}",
-                fontsize=18)
-    ax1.legend(prop={'size': 16})
-    ax1.set_ylim([-0.1,1.2])
-    ax2.set_ylim([-0.1,1.6])
-    fig.tight_layout()  # otherwise the right y-label is slightly clipped
-
-    val_perf = gru_model.evaluate(x=x_valid,
-                                y=y_valid,
-                                batch_size=1,
-                                verbose=0)
-    textstr = '\n'.join((
-        r'$Loss =%.2f$' % (val_perf[0], ),
-        r'$MAE =%.2f$' % (val_perf[1], ),
-        r'$RMSE=%.2f$' % (val_perf[2], )))
-    ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
-            verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-
-    fig.savefig(f'{model_loc}{profile}val-{iEpoch}.svg')
-
-    # Cleaning Memory from plots
-    fig.clf()
-    plt.close()
 # %%
-TAIL=y_test_one.shape[0]
-PRED = gru_model.predict(x_test_one, batch_size=1)
-RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-            y_test_one[::skip,]-PRED)))
-vl_test_time = range(0,PRED.shape[0])
-fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
-ax1.plot(vl_test_time[:TAIL:skip], y_test_one[::skip,-1],
-        label="True", color='#0000ff')
-ax1.plot(vl_test_time[:TAIL:skip],
-        PRED,
-        label="Recursive prediction", color='#ff0000')
-
-ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
-ax1.set_xlabel("Time Slice (s)", fontsize=16)
-ax1.set_ylabel("SoC (%)", fontsize=16)
-
-ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-ax2.plot(vl_test_time[:TAIL:skip],
-        RMS,
-        label="RMS error", color='#698856')
-ax2.fill_between(vl_test_time[:TAIL:skip],
-        RMS[:,0],
-            color='#698856')
-ax2.set_ylabel('Error', fontsize=16, color='#698856')
-ax2.tick_params(axis='y', labelcolor='#698856')
+PRED = gru_model.predict(x_test_one, batch_size=1, verbose=1)
+RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_one[::,]-PRED)))
 if profile == 'DST':
-    ax1.set_title(f"{file_name} GRU Test on US06 - {profile}-trained",
-                fontsize=18)
+    predicting_plot(profile=profile, file_name='Model №2',
+                    model_loc=model_loc,
+                    model_type='GRU Test on US06', iEpoch=f'Test One-{iEpoch}',
+                    Y=y_test_one,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=gru_model.evaluate(
+                                    x=x_test_one,
+                                    y=y_test_one,
+                                    batch_size=1,
+                                    verbose=1),
+                    TAIL=y_test_one.shape[0],
+                    save_plot=True)
 else:
-    ax1.set_title(f"{file_name} GRU Test on DST - {profile}-trained",
-                fontsize=18)
-                
-ax1.legend(prop={'size': 16})
-ax1.set_ylim([-0.1,1.2])
-ax2.set_ylim([-0.1,1.6])
-fig.tight_layout()  # otherwise the right y-label is slightly clipped
+    predicting_plot(profile=profile, file_name='Model №2',
+                    model_loc=model_loc,
+                    model_type='GRU Test on DST', iEpoch=f'Test One-{iEpoch}',
+                    Y=y_test_one,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=gru_model.evaluate(
+                                    x=x_test_one,
+                                    y=y_test_one,
+                                    batch_size=1,
+                                    verbose=1),
+                    TAIL=y_test_one.shape[0],
+                    save_plot=True)
 
-val_perf = gru_model.evaluate(x=x_test_one,
-                                y=y_test_one,
-                                batch_size=1,
-                                verbose=0)
-textstr = '\n'.join((
-    r'$Loss =%.2f$' % (val_perf[0], ),
-    r'$MAE =%.2f$' % (val_perf[1], ),
-    r'$RMSE=%.2f$' % (val_perf[2], )))
-ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
-        verticalalignment='top',
-        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-fig.savefig(f'{model_loc}{profile}-test_One-{iEpoch}.svg')
-# Cleaning Memory from plots
-fig.clf()
-plt.close()
-# %%
-TAIL=y_test_two.shape[0]
-PRED = gru_model.predict(x_test_two, batch_size=1)
-RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-            y_test_two[::skip,]-PRED)))
-vl_test_time = range(0,PRED.shape[0])
-fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
-ax1.plot(vl_test_time[:TAIL:skip], y_test_two[::skip,-1],
-        label="True", color='#0000ff')
-ax1.plot(vl_test_time[:TAIL:skip],
-        PRED,
-        label="Recursive prediction", color='#ff0000')
-
-ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
-ax1.set_xlabel("Time Slice (s)", fontsize=16)
-ax1.set_ylabel("SoC (%)", fontsize=16)
-
-ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-ax2.plot(vl_test_time[:TAIL:skip],
-        RMS,
-        label="RMS error", color='#698856')
-ax2.fill_between(vl_test_time[:TAIL:skip],
-        RMS[:,0],
-            color='#698856')
-ax2.set_ylabel('Error', fontsize=16, color='#698856')
-ax2.tick_params(axis='y', labelcolor='#698856')
+PRED = gru_model.predict(x_test_two, batch_size=1, verbose=1)
+RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,]-PRED)))
 if profile == 'FUDS':
-    ax1.set_title(f"{file_name} GRU Test on US06 - {profile}-trained",
-                fontsize=18)
+    predicting_plot(profile=profile, file_name='Model №2',
+                    model_loc=model_loc,
+                    model_type='GRU Test on US06', iEpoch=f'Test Two-{iEpoch}',
+                    Y=y_test_two,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=gru_model.evaluate(
+                                    x=x_test_two,
+                                    y=y_test_two,
+                                    batch_size=1,
+                                    verbose=1),
+                    TAIL=y_test_two.shape[0],
+                    save_plot=True)
 else:
-    ax1.set_title(f"{file_name} GRU Test on FUDS - {profile}-trained",
-                fontsize=18)
-
-ax1.legend(prop={'size': 16})
-ax1.set_ylim([-0.1,1.2])
-ax2.set_ylim([-0.1,1.6])
-fig.tight_layout()  # otherwise the right y-label is slightly clipped
-
-val_perf = gru_model.evaluate(x=x_test_two,
-                                y=y_test_two,
-                                batch_size=1,
-                                verbose=0)
-textstr = '\n'.join((
-    r'$Loss =%.2f$' % (val_perf[0], ),
-    r'$MAE =%.2f$' % (val_perf[1], ),
-    r'$RMSE=%.2f$' % (val_perf[2], )))
-ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
-        verticalalignment='top',
-        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-fig.savefig(f'{model_loc}{profile}-test_Two-{iEpoch}.svg')
-# Cleaning Memory from plots
-fig.clf()
-plt.close()
+    predicting_plot(profile=profile, file_name='Model №2',
+                    model_loc=model_loc,
+                    model_type='GRU Test on FUDS', iEpoch=f'Test Two-{iEpoch}',
+                    Y=y_test_two,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=gru_model.evaluate(
+                                    x=x_test_two,
+                                    y=y_test_two,
+                                    batch_size=1,
+                                    verbose=1),
+                    TAIL=y_test_two.shape[0],
+                    save_plot=True)
 # %%
 # Convert the model to Tensorflow Lite and save.
-with open(f'{model_loc}{profile}.tflite', 'wb') as f:
+with open(f'{model_loc}Model-№2-{profile}.tflite', 'wb') as f:
     f.write(
         tf.lite.TFLiteConverter.from_keras_model(
                 model=gru_model

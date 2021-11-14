@@ -75,7 +75,7 @@ except getopt.error as err:
     print ('EXEPTION: Arguments requied!')
     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '50'), ('-g', '0'), ('-p', 'DST')]
+# opts = [('-d', 'False'), ('-e', '50'), ('-g', '1'), ('-p', 'd_FUDS')]
 mEpoch  : int = 10
 GPU     : int = 0
 profile : str = 'DST'
@@ -306,7 +306,7 @@ dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
                                 ],
                               PROFILE_range = profile)
 # %%
-look_back : int = 1
+look_back : int = 1 
 window = WindowGenerator(Data=dataGenerator,
                         input_width=look_back, label_width=1, shift=1,
                         input_columns=['Current(A)', 'Voltage(V)',
@@ -339,6 +339,12 @@ h_nodes = 60#120-onDST #! 60 Nodes gives a nice results.
 
 file_name : str = os.path.basename(__file__)[:-3]
 model_loc : str = f'Models/{file_name}/{profile}-models/'
+# %%
+accuracies = pd.read_csv(f'{model_loc}history-{profile}.csv')
+col_name = 'root_mean_squared_error' # 'mean_absolute_error' 'loss'
+iEpoch = accuracies[col_name][accuracies[col_name] == accuracies[col_name].min()].index[0]
+print(iEpoch)
+# %%
 iEpoch = 0
 firstLog : bool = True
 try:
@@ -479,10 +485,15 @@ while iEpoch < mEpoch:
     gru_model.reset_states()
     RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
                 y_valid[::,]-PRED)))
+    PERF = gru_model.evaluate(x=x_valid,
+                            y=y_valid,
+                            batch_size=1,
+                            verbose=0)
+    gru_model.reset_states()
     # otherwise the right y-label is slightly clipped
     predicting_plot(profile=profile, file_name='Model №4',
                     model_loc=model_loc,
-                    model_type='GRU Test - Train dataset',
+                    model_type='GRU Train',
                     iEpoch=f'val-{iEpoch}',
                     Y=y_valid,
                     PRED=PRED,
@@ -584,3 +595,79 @@ while iEpoch < mEpoch:
 #             hist_df.to_csv(f, index=False, header=False)
 # model.save('Models/Stateful/LSTM_test11_SOC_Last')
 # %%
+PRED = gru_model.predict(x_test_one, batch_size=1, verbose=1)
+gru_model.reset_states()
+RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_one[::,]-PRED)))
+if profile == 'DST':
+    predicting_plot(profile=profile, file_name='Model №4',
+                    model_loc=model_loc,
+                    model_type='GRU Test on US06', iEpoch=f'Test One-{iEpoch}',
+                    Y=y_test_one,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=gru_model.evaluate(
+                                    x=x_test_one,
+                                    y=y_test_one,
+                                    batch_size=1,
+                                    verbose=1),
+                    TAIL=y_test_one.shape[0],
+                    save_plot=True,
+                    RMS_plot=False)
+else:
+    predicting_plot(profile=profile, file_name='Model №4',
+                    model_loc=model_loc,
+                    model_type='GRU Test on DST', iEpoch=f'Test One-{iEpoch}',
+                    Y=y_test_one,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=gru_model.evaluate(
+                                    x=x_test_one,
+                                    y=y_test_one,
+                                    batch_size=1,
+                                    verbose=1),
+                    TAIL=y_test_one.shape[0],
+                    save_plot=True,
+                    RMS_plot=False)
+gru_model.reset_states()
+PRED = gru_model.predict(x_test_two, batch_size=1, verbose=1)
+gru_model.reset_states()
+RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,]-PRED)))
+if profile == 'FUDS':
+    predicting_plot(profile=profile, file_name='Model №4',
+                    model_loc=model_loc,
+                    model_type='GRU Test on US06', iEpoch=f'Test Two-{iEpoch}',
+                    Y=y_test_two,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=gru_model.evaluate(
+                                    x=x_test_two,
+                                    y=y_test_two,
+                                    batch_size=1,
+                                    verbose=1),
+                    TAIL=y_test_two.shape[0],
+                    save_plot=True,
+                    RMS_plot=False)
+else:
+    predicting_plot(profile=profile, file_name='Model №4',
+                    model_loc=model_loc,
+                    model_type='GRU Test on FUDS', iEpoch=f'Test Two-{iEpoch}',
+                    Y=y_test_two,
+                    PRED=PRED,
+                    RMS=RMS,
+                    val_perf=gru_model.evaluate(
+                                    x=x_test_two,
+                                    y=y_test_two,
+                                    batch_size=1,
+                                    verbose=1),
+                    TAIL=y_test_two.shape[0],
+                    save_plot=True,
+                    RMS_plot=False)
+gru_model.reset_states()
+# %%
+# Convert the model to Tensorflow Lite and save.
+with open(f'{model_loc}Model-№4-{profile}.tflite', 'wb') as f:
+    f.write(
+        tf.lite.TFLiteConverter.from_keras_model(
+                model=gru_model
+            ).convert()
+        )

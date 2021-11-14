@@ -48,19 +48,6 @@ for g in dataGenerators:
     Y.append(y)
     
 # %%
-# """ sumN(0.5*(SoC-SoC*)^2) """
-# chemali_loss = lambda y_true, y_pred: tf.keras.backend.sum(
-#         x=tf.math.divide(
-#                 x=tf.keras.backend.square(
-#                         x=tf.math.subtract(
-#                                 x=tf.cast(y_true, y_pred.dtype),
-#                                 y=tf.convert_to_tensor(y_pred)
-#                             )
-#                     ),
-#                 y=2
-#             ),
-#         axis=1
-#     )
 def chemali_loss(y_true, y_pred):
     """ Custom loss based on following formula:
         sumN(0.5*(SoC-SoC*)^2)
@@ -81,43 +68,69 @@ def chemali_loss(y_true, y_pred):
                             ), 
                         y=2
                     )
-    return tf.keras.backend.sum(loss, axis=1)   
-#? Model №1 - Chemali2017    - DST  - 1
+    return tf.keras.backend.sum(loss, axis=1)
+def jiao_loss(y_true : tf.Tensor, y_pred : tf.Tensor) -> tf.Tensor:
+    y_pred = tf.convert_to_tensor(value=y_pred)
+    y_true = tf.dtypes.cast(x=y_true, dtype=y_pred.dtype)        
+    return (tf.math.squared_difference(x=y_pred, y=y_true))/2
+
+#? Root Mean Squared Error loss function
+zhang_loss = lambda y_true, y_pred: tf.sqrt(
+            x=tf.reduce_mean(
+                    input_tensor=tf.square(
+                            x=tf.subtract(
+                                x=tf.cast(x=y_true, dtype=y_pred.dtype),
+                                y=tf.convert_to_tensor(value=y_pred)
+
+                            )
+                        ),
+                    axis=0,
+                    keepdims=False
+                )
+        )
+#? Model №1 - Chemali2017    - DST  - 45
 #?                           - US06 - 50
 #?                           - FUDS - 48
 # author  : str = 'Chemali2017'
 # iEpochs  : list = [1, 50, 48]
 
 #? Model №2 - BinXiao2020    - DST  - 50
-#?                           - US06 - 2 (21)
-#?                           - FUDS - 48
+#?                           - US06 - 50
+#?                           - FUDS - 50
 # author  : str = 'BinXiao2020'
 # iEpochs  : list = [50, 21, 48]
 
-#? Model №3 - TadeleMamo2020 - DST  - 4
+#? Model №3 - TadeleMamo2020 - DST  - 19
 #?                           - US06 - 25
 #?                           - FUDS - 10
 # author  : str = 'TadeleMamo2020'
 # iEpochs  : list = [None, 25, 10]
 
-#? Model №7 - WeiZhang2020   - DST  - 9
-#?                           - US06 - ?
+#? Model №4 - MengJiao2020 -   DST  - 69
+#?                         - d_US06 - 29
+#?                         - d_FUDS - 68
+# author  : str = 'MengJiao2020'
+# iEpochs  : list = [69, 25, 10]
+
+#? Model №5 - GelarehJavid2020 - DST  - 2
+#?                             - US06 - 7 7
+#?                             - FUDS - 7 8
+author  : str = 'GelarehJavid2020'
+iEpochs  : list = [10, 7, 8]
+
+#? Model №6 - WeiZhang2020   - DST  - 9
+#?                           - US06 - 3
 #?                           - FUDS - 3
 # author  : str = 'WeiZhang2020'
-# iEpochs  : list = [9, None, 3]
-
-# author  : str = 'Chemali2017'
-# iEpochs  : list = [1 , 50, 48]
-
-# author  : str = 'BinXiao2020'
-# iEpochs  : list = [50, 21, 48]
-
-author  : str = 'TadeleMamo2020'#'TadeleMamo2020'#'WeiZhang2020'#Chemali2017
-iEpochs  : list = [4 , 25, 10]
+# iEpochs  : list = [9, 3, 3]
 
 models_loc : list = [f'../Models/{author}/DST-models/',
                      f'../Models/{author}/US06-models/',
                      f'../Models/{author}/FUDS-models/']
+#?! Model №4 - MengJiao2020 ONLY
+# models_loc : list = [f'../Models/{author}/DST-models/',
+#                      f'../Models/{author}/d_US06-models/',
+#                      f'../Models/{author}/d_FUDS-models/']
 models = []
 for i in range(3):
     models.append(
@@ -149,20 +162,45 @@ for i in range(3):
     #                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
     #     )
     #! 3) Mamo
-    models[i].compile(loss=tf.keras.losses.MeanAbsoluteError(),
-            optimizer=tf.optimizers.Adam(learning_rate=0.001,
-                    beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
-            metrics=[tf.metrics.MeanAbsoluteError(),
-                     tf.metrics.RootMeanSquaredError(),
-                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+    # models[i].compile(loss=tf.keras.losses.MeanAbsoluteError(),
+    #         optimizer=tf.optimizers.Adam(learning_rate=0.001,
+    #                 beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
+    #         metrics=[tf.metrics.MeanAbsoluteError(),
+    #                  tf.metrics.RootMeanSquaredError(),
+    #                  tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+    #     )
+    #! 4) Jiao
+    # models[i].compile(loss=jiao_loss,
+    #          optimizer=tf.keras.optimizers.SGD(learning_rate=0.001,
+    #                 momentum=0.3, nesterov=False, name='SGDwM'),
+    #           metrics=[tf.metrics.MeanAbsoluteError(),
+    #                    tf.metrics.RootMeanSquaredError(),
+    #                    tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+    #         )
+    #! 5) Javid
+    # models[i].compile(loss=tf.keras.losses.MeanAbsoluteError(),
+    #         optimizer=tf.optimizers.Adam(learning_rate=0.001,
+    #                 beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
+    #         metrics=[tf.metrics.MeanAbsoluteError(),
+    #                     tf.metrics.RootMeanSquaredError(),
+    #                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+    #     )
+    #! 5) Zhang
+    models[i].compile(loss=zhang_loss,
+        optimizer=tf.optimizers.Adam(learning_rate=0.0001,
+                beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
+        metrics=[tf.metrics.MeanAbsoluteError(),
+                    tf.metrics.RootMeanSquaredError(),
+                    tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
         )
 # %%
 #! Performing multipthreaded approach
 devices : list = ['/cpu:0','/gpu:0','/gpu:1']
+r_devices : list = ['/cpu:0','/gpu:1','/gpu:0']
 cpu_thread : threading.Thread = None
 gpu_threads  : list = [threading.Thread]*2
 
-use_cpu : bool = False
+use_cpu : bool = True
 cpu_results : list = [None]
 gpu_US_FUDS_results : list = [None]*2
 
@@ -172,10 +210,10 @@ def worker_evaluate(model, devise : str,
                     ) -> None:
     with tf.device(devise):
         results[index] = model.evaluate(x=X,y=Y,
-                              batch_size=1, verbose=0,
+                              batch_size=1, verbose=1,
                               sample_weight=None, steps=None, callbacks=None,
                               max_queue_size=10, workers=1,
-                              use_multiprocessing=False, return_dict=False)
+                              use_multiprocessing=True, return_dict=False)
 #? models[0] -- DST
 #? models[1] -- US06
 #? models[2] -- FUDS
@@ -211,7 +249,7 @@ for i in range(0, len(gpu_US_FUDS_results)):
 # %% GPU US06 model based
 for i in range(0, len(gpu_threads)):
     gpu_threads[i] = threading.Thread(target=worker_evaluate,
-                             args=[models[1], devices[i+1],
+                             args=[models[1], r_devices[i+1],
                                    X[i+1][:,:,:], Y[i+1][:,:],
                                    gpu_US_FUDS_results, i])
     gpu_threads[i].start()
@@ -247,7 +285,7 @@ for i in range(0, len(gpu_US_FUDS_results)):
 # %% GPU remaining US06 - DST and FUDS - DST
 for i in range(0, len(gpu_threads)):
     gpu_threads[i] = threading.Thread(target=worker_evaluate,
-                             args=[models[i+1], devices[i+1],
+                             args=[models[i+1], r_devices[i+1],
                                    X[0][:,:,:], Y[0][:,:],
                                    gpu_US_FUDS_results, i])
     gpu_threads[i].start()
@@ -265,7 +303,7 @@ for i in range(0, len(gpu_US_FUDS_results)):
 if use_cpu:
     while(cpu_tread.is_alive()):
         pass
-    print(f'results of DST trained model {profiles[0]} data:\n'
+    print(f'5th stage - results of DST trained model {profiles[0]} data:\n'
             f'\tMAE: {cpu_results[0][1]*100}%\n'
             f'\tRMSE:{cpu_results[0][2]*100}%\n'
             f'\tR2:  {cpu_results[0][3]*100}%\n')
@@ -276,7 +314,7 @@ else: #! Complete on GPU last part
                                     cpu_results, 0])
     cpu_tread.start()
     cpu_tread.join()
-    print(f'results of DST trained model {profiles[0]} data:\n'
+    print(f'5th stage - results of DST trained model {profiles[0]} data:\n'
             f'\tMAE: {cpu_results[0][1]*100}%\n'
             f'\tRMSE:{cpu_results[0][2]*100}%\n'
             f'\tR2:  {cpu_results[0][3]*100}%\n')

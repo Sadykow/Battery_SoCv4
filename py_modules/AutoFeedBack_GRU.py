@@ -3,7 +3,6 @@
 # Implementation based on Feedback example from Time Series example.
 # %%
 import tensorflow as tf
-import numpy as np
 
 class AutoFeedBack(tf.keras.Model):
   out_steps   : int
@@ -31,7 +30,6 @@ class AutoFeedBack(tf.keras.Model):
         kernel_constraint=None, recurrent_constraint=None, bias_constraint=None,
         dropout=0.0, recurrent_dropout=0, reset_after=True
       )
-
     # Also wrap the GRUCell in an RNN to simplify the `warmup` method.
     self.gru_rnn = tf.keras.layers.RNN(self.gru_cell,
         return_sequences=False, return_state=True,
@@ -123,5 +121,3 @@ class AutoFeedBack(tf.keras.Model):
   @classmethod
   def from_config(cls, config):
       return cls(**config)
-
-    

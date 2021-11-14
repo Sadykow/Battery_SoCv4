@@ -159,7 +159,7 @@ for _, _, files in os.walk(valid_dir):
         train_X.append(X)
         train_Y.append(Y)
 # %%
-look_back : int = 32
+look_back : int = 500
 scaler_MM : MinMaxScaler = MinMaxScaler(feature_range=(0, 1))
 scaler_SS : StandardScaler = StandardScaler()
 def roundup(x : float, factor : int = 10) -> int:
@@ -215,10 +215,23 @@ for i in range(0, len(train_X)):
 trX, trY = create_Batch_dataset(train_X, train_Y, look_back)
 
 # %%
-author : str = 'WeiZhang2020'#'BinXiao2020' 'TadeleMamo2020' 'Chemali2017'
-profile: str = 'DST'#'d_DST' 'US06' 'FUDS'
-
-model_file : str = f'Models/{author}/{profile}-models/{profile}.tflite'
+#? Model №1 - Chemali2017    - DST  - 45
+#?                           - FUDS - 48
+#? Model №2 - BinXiao2020    - DST  - 50
+#?                           - FUDS - 50
+#? Model №3 - TadeleMamo2020 - DST  - 19
+#?                           - FUDS - 10
+#? Model №5 - GelarehJavid2020 - DST  - 2
+#?                             - FUDS - 7
+#? Model №6 - WeiZhang2020   - DST  - 9
+#?                           - FUDS - 3
+authors : str = [ 'Chemali2017', 'BinXiao2020', 'TadeleMamo2020', None,
+                  'GelarehJavid2020', 'WeiZhang2020']
+profile : str = 'FUDS'#'d_DST' 'US06' 'FUDS'
+# %%
+N : int = 5
+model_file : str = f'../Models/{authors[N]}/{profile}-models/Model-№{N+1}-{profile}.tflite'
+# model_file : str = f'Models/{author}/{profile}-models/{profile}.tflite'
 model_file, *device = model_file.split('@')
 interpreter = tflite.Interpreter(
       model_path=model_file,
@@ -236,7 +249,8 @@ output_details = interpreter.get_output_details()
 print('----INFERENCE TIME----')
 print('Note: The first inference on Edge TPU is slow because it includes',
     'loading the model into Edge TPU memory.')
-for _ in range(5):
+ends = np.zeros(shape=(20, ), dtype=np.float32)
+for j in range(20):
     # Test the mode
     input_shape = input_details[0]['shape']
     output_data : np.ndarray = np.zeros(shape=(trX[0].shape[0],))
@@ -246,12 +260,19 @@ for _ in range(5):
         interpreter.invoke()
         #output_data[i] = interpreter.get_tensor(output_details[0]['index'])
         interpreter.get_tensor(output_details[0]['index'])
-    print('%.1fms' % ((time.perf_counter() - start) * 1000))
+    end = time.perf_counter() - start
+    print('%.1fms' % ((end) * 1000))
+    ends[j] = end*1000
     #print('Time took: {}'.format(time.perf_counter() - start))
     
     # The function `get_tensor()` returns a copy of the tensor data.
     # Use `tensor()` in order to get a pointer to the tensor.    
-    print(output_data[i:i+1])
+    # print(output_data[i:i+1])
+mean = np.mean(ends)
+max  = np.max(ends)-mean
+min  = mean - np.min(ends)
+print(f'Mean: {mean}')
+print(f'Max: {max}; Min: {min}; P-M: {np.mean([max, min])}')
 # %%
 # #! Swithicg a proper kernel even paranoid
 # #? sudo sh -c 'echo 1 >/proc/sys/kernel/perf_event_paranoid'

@@ -17,8 +17,6 @@ import pandas as pd  # File read
 import tensorflow as tf  # Tensorflow and Numpy replacement
 import tensorflow_addons as tfa
 
-from extractor.DataGenerator import *
-from extractor.WindowGenerator import WindowGenerator
 from cy_modules.utils import str2bool
 from py_modules.plotting import predicting_plot
 
@@ -103,6 +101,8 @@ if physical_devices:
 #! For numeric stability, set the default floating-point dtype to float64
 tf.keras.backend.set_floatx('float32')
 # %%
+file_name : str = os.path.basename(__file__)[:-3]
+model_loc : str = f'Models/{file_name}/{profile}-models/'
 def custom_loss(y_true, y_pred):
     """ Custom loss based on following formula:
         sumN(0.5*(SoC-SoC*)^2)
@@ -125,14 +125,27 @@ def custom_loss(y_true, y_pred):
                     )
     return tf.keras.backend.sum(loss, axis=1)
 try:
+    print("Using Post-trained model")
     VIT : tf.keras.models.Sequential = tf.keras.models.load_model(
-            filepath='Models/Chemali2017/FUDS-models/48', compile=True,
-            custom_objects={"RSquare": tfa.metrics.RSquare,
-                            "custom_loss": custom_loss}
-        )
-
+        filepath='Models/Chemali2021/FUDS-models/1', compile=False,
+        custom_objects={"RSquare": tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32),
+                        "custom_loss": custom_loss}
+    )
+    VIT.compile(loss=custom_loss,
+        optimizer=tf.optimizers.Adam(learning_rate=0.001,
+                beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
+        metrics=[tf.metrics.MeanAbsoluteError(),
+                    tf.metrics.RootMeanSquaredError(),
+                    tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
+        #run_eagerly=True
+    )
 except:
-    print('One of the models failed to load.')
+    print('Using pretrained model')
+    VIT : tf.keras.models.Sequential = tf.keras.models.load_model(
+        filepath='Models/Chemali2017/FUDS-models/48', compile=True,
+        custom_objects={"RSquare": tfa.metrics.RSquare,
+                        "custom_loss": custom_loss}
+    )
 MEAN = np.array([-0.35640615,  3.2060466 , 30.660755  ], dtype=np.float32)
 STD  = np.array([ 0.9579658 ,  0.22374259, 13.653275  ], dtype=np.float32)
 # %%
@@ -197,29 +210,33 @@ for BMSid in range(0, 6):
         print(f'============Failed to extract Cycle data of BMS {BMSid}==============')
 
 # %%
-# BMSid   = 0
-# cell = 1
-# Data = BMSsData[BMSid][['Current(A)', f'6-Cell_{cell}', f'Sns_{cell}']].to_numpy()
-
-# for cell in range(2, 11):
-#     Data = np.append(
-#             Data,
-#             BMSsData[BMSid][['Current(A)', f'6-Cell_{cell}', f'Sns_{cell}']].to_numpy(),
-#             axis=0
-#         )
-
-# # newCC = CC[-1,bms] + 
-# # test = 0.98 + ccSoC(current=BMSsData[BMSid]['Current(A)'].to_numpy(), 
-# #       time_s=BMSsData[BMSid]['Cycle_Time(s)'].to_numpy())
-# # plt.plot(test)
-# for BMSid in range(1, 6):
-#     for cell in range(1, 11):
-#         Data = np.append(
-#                 Data,
-#                 BMSsData[BMSid][['Current(A)', f'6-Cell_{cell}', f'Sns_{cell}']].to_numpy(),
-#                 axis=0
-#             )
-
+# N_seconds = BMSsData[0][1:].shape[0]
+# # figure, ((ax1, ax2), (ax3, ax4))
+# fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(14,12), dpi=600)
+# titles = [['Voltage', 'Current'],
+#           ['Temperature', 'State of Charge']]
+# units = [['Volts', 'Amps'],
+#           ['Degrees', 'Percentage']]
+# test_time = np.linspace(0, N_seconds/60, N_seconds)
+# y_axis_data = [[BMSsData[0]['6-Cell_1'][1:], BMSsData[0]['Current(A)'][1:]],
+#                [BMSsData[0]['Sns_1'][1:], BMSsData[0]['SoC_1(%)'][1:]*100]]
+# colors = [['#FF0000', '#0000FF'],
+#           ['m','k']]
+# fig.suptitle('Post training input sample of single cell', fontsize=38)
+# for (ax_row, titles_row,
+#      units_row, y_row, colors_row) in zip(axs, titles,
+#                               units, y_axis_data, colors):
+#     for (ax, title,
+#          unit, y, color) in zip(ax_row, titles_row,
+#                          units_row, y_row, colors_row):
+#         ax.plot(test_time, y, '-', color=color)
+#         ax.set_title(f'{title} snapshot', fontsize=32)
+#         ax.set_ylabel(f'{unit}', fontsize=32)
+#         ax.set_xlabel('Time Slice (min)', fontsize=28)
+#         ax.tick_params(axis='both', labelsize=22)
+# fig.tight_layout()
+# fig.savefig(f'{model_loc}post-training-samples.svg')
+# fig.show()
 # %%
 
 n_samples = (BMSsData[0].shape[0]*10*6)-(500*6*10)
@@ -272,15 +289,6 @@ for BMSid in range(0, 6):
                 ].to_numpy()
 print(f'Data windowing ready')
 # %%
-
-# VIT.compile(loss=custom_loss,
-#         optimizer=tf.optimizers.Adam(learning_rate=0.001,
-#                 beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
-#         metrics=[tf.metrics.MeanAbsoluteError(),
-#                     tf.metrics.RootMeanSquaredError(),
-#                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
-#         #run_eagerly=True
-#     )
 #! CHeck NaN presense
 print('X-Nans')
 print(np.where(np.isnan(X_windows[:, :, :])))
@@ -298,12 +306,9 @@ nanTerminate = tf.keras.callbacks.TerminateOnNaN()
 #                         callbacks=[nanTerminate],
 #                         batch_size=1, shuffle=False, verbose=0
                         # )
-file_name : str = os.path.basename(__file__)[:-3]
-model_loc : str = f'Models/{file_name}/{profile}-models/'
 # %%
 iEpoch = 1
 history = VIT.fit(x=X_windows[:, :, :],
-                        
                   y=Y_windows[:,:],
                         epochs=1,
                         # validation_data=(x_valid, y_valid),
@@ -329,6 +334,24 @@ with open(f'{model_loc}postModel-№1-{profile}.tflite', 'wb') as f:
     #         ).convert()
     #     )
 # %%
-test = VIT.predict(x=X_windows[:8000, :, :], batch_size=1, verbose=1)
-plt.plot(test)
-plt.plot(Y_windows[:8000,:])
+PRED = VIT.predict(x=X_windows[:8000, :, :], batch_size=1, verbose=1)
+# plt.plot(PRED)
+# plt.plot(Y_windows[:8000,:])
+# %%
+RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+            Y_windows[:8000,:]-PRED)))
+PERF = VIT.evaluate(x=X_windows[:8000, :, :],
+                            y=Y_windows[:8000,:],
+                            batch_size=1,
+                            verbose=0)
+# otherwise the right y-label is slightly clipped
+predicting_plot(profile=profile, file_name='postModel №1',
+                model_loc=model_loc,
+                model_type='LSTM Train',
+                iEpoch=f'val-{1}',
+                Y=Y_windows[:8000,:],
+                PRED=PRED,
+                RMS=RMS,
+                val_perf=PERF,
+                TAIL=Y_windows[:8000,:].shape[0],
+                save_plot=True)

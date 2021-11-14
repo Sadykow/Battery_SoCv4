@@ -177,10 +177,20 @@ for i in range(0, len(train_X)):
 
 trX, trY = create_Batch_dataset(train_X, train_Y, look_back)
 # %%
-author : str = 'TadeleMamo2020'#'BinXiao2020'#'WeiZhang2020' 'TadeleMamo2020' 'Chemali2017'
-profile: str = 'US06'#'d_DST' 'US06' 'FUDS'
-version: str = '25'
-model_h5_file : str = f'../Models/{author}/{profile}-models/{version}'
+#? Model №1 - Chemali2017    - DST  - 45
+#?                           - FUDS - 48
+#? Model №2 - BinXiao2020    - DST  - 50
+#?                           - FUDS - 50
+#? Model №3 - TadeleMamo2020 - DST  - 19
+#?                           - FUDS - 10
+#? Model №5 - GelarehJavid2020 - DST  - 2
+#?                             - FUDS - 7
+#? Model №6 - WeiZhang2020   - DST  - 9
+#?                           - FUDS - 3
+authors : str = [ 'Chemali2017', 'BinXiao2020', 'TadeleMamo2020',
+                  'GelarehJavid2020', 'WeiZhang2020']
+profile : str = 'FUDS'#'d_DST' 'US06' 'FUDS'
+versions: str = ['48', '50', '10', '7', '3']
 
 # session  = tf.compat.v1.Session()
 # graph = tf.compat.v1.get_default_graph()
@@ -218,7 +228,9 @@ def get_flops(model):
                 cmd='op', options=opts
             )
         return flops.total_float_ops
-
+# %%
+N : int = 5
+model_h5_file : str = f'../Models/{authors[N]}/{profile}-models/{versions[N]}'
 # lstm_model = tf.keras.models.load_model(model_h5_file, compile=False)
 model : tf.keras.models.Sequential = tf.keras.models.load_model(
         model_h5_file,

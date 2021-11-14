@@ -27,17 +27,17 @@ from cy_modules.utils import str2bool
 from py_modules.plotting import predicting_plot
 # %%
 # Extract params
-try:
-    opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
-                    ["help", "debug=", "epochs=",
-                     "gpu=", "profile="])
-except getopt.error as err: 
-    # output error, and return with an error code 
-    print (str(err)) 
-    print ('EXEPTION: Arguments requied!')
-    sys.exit(2)
+# try:
+#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
+#                     ["help", "debug=", "epochs=",
+#                      "gpu=", "profile="])
+# except getopt.error as err: 
+#     # output error, and return with an error code 
+#     print (str(err)) 
+#     print ('EXEPTION: Arguments requied!')
+#     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '1'), ('-g', '0'), ('-p', 'DST')]
+opts = [('-d', 'False'), ('-e', '1'), ('-g', '1'), ('-p', 'FUDS')]
 mEpoch  : int = 10
 GPU     : int = 0
 profile : str = 'DST'
@@ -163,6 +163,8 @@ try:
     
     lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
             f'{model_loc}{iEpoch}',
+            custom_objects={'AttentionWithContext' : AttentionWithContext,
+                            'Addition' : Addition},
             compile=False)
     firstLog = False
     print("Model Identefied. Continue training.")
@@ -415,7 +417,7 @@ while iEpoch < mEpoch:
     # otherwise the right y-label is slightly clipped
     predicting_plot(profile=profile, file_name='Model №3',
                     model_loc=model_loc,
-                    model_type='LSTM Test - Train dataset',
+                    model_type='LSTM Train',
                     iEpoch=f'val-{iEpoch}',
                     Y=y_valid,
                     PRED=PRED,
@@ -427,7 +429,7 @@ while iEpoch < mEpoch:
         print("RMS droped around 2.4%. Breaking the training")
         break
 # %%
-PRED = lstm_model.predict(x_test_one, batch_size=1)
+PRED = lstm_model.predict(x_test_one, batch_size=1, verbose=1)
 RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_one[::,]-PRED)))
 if profile == 'DST':
     predicting_plot(profile=profile, file_name='Model №3',
@@ -440,7 +442,7 @@ if profile == 'DST':
                                     x=x_test_one,
                                     y=y_test_one,
                                     batch_size=1,
-                                    verbose=0),
+                                    verbose=1),
                     TAIL=y_test_one.shape[0],
                     save_plot=True)
 else:
@@ -454,11 +456,11 @@ else:
                                     x=x_test_one,
                                     y=y_test_one,
                                     batch_size=1,
-                                    verbose=0),
+                                    verbose=1),
                     TAIL=y_test_one.shape[0],
                     save_plot=True)
-# %%
-PRED = lstm_model.predict(x_test_two, batch_size=1)
+
+PRED = lstm_model.predict(x_test_two, batch_size=1, verbose=1)
 RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,]-PRED)))
 if profile == 'FUDS':
     predicting_plot(profile=profile, file_name='Model №3',
@@ -471,7 +473,7 @@ if profile == 'FUDS':
                                     x=x_test_two,
                                     y=y_test_two,
                                     batch_size=1,
-                                    verbose=0),
+                                    verbose=1),
                     TAIL=y_test_two.shape[0],
                     save_plot=True)
 else:
@@ -485,7 +487,7 @@ else:
                                     x=x_test_two,
                                     y=y_test_two,
                                     batch_size=1,
-                                    verbose=0),
+                                    verbose=1),
                     TAIL=y_test_two.shape[0],
                     save_plot=True)
 # %%

@@ -43,7 +43,7 @@ except getopt.error as err:
     print ('EXEPTION: Arguments requied!')
     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '2'), ('-g', '0'), ('-p', 'DST')]
+# opts = [('-d', 'False'), ('-e', '2'), ('-g', '0'), ('-p', 'FUDS')]
 mEpoch  : int = 10
 GPU     : int = 0
 profile : str = 'DST'
@@ -155,6 +155,9 @@ y_test_two = np.array(yy_valid[mid:,:], copy=True, dtype=np.float32)
 # _, x_train, y_train = window.train
 # %%
 #return tf.sqrt(tf.reduce_mean(tf.square(tf.subtract(y_true, y_pred)), axis=0))
+#? DST - try 2 and 8
+#? US06 - 7
+#? FUDS - try 4 and 7
 file_name : str = os.path.basename(__file__)[:-3]
 model_loc : str = f'Models/{file_name}/{profile}-models/'
 iEpoch    : int = 0
@@ -425,6 +428,13 @@ except OSError as identifier:
 # %%
 optimiser = RobustAdam(learning_rate = 0.0001)
 loss_fn = tf.losses.MeanAbsoluteError()
+MAE = tf.metrics.MeanAbsoluteError()
+val_MAE = tf.metrics.MeanAbsoluteError()
+RMSE = tf.metrics.RootMeanSquaredError()
+val_RMSE = tf.metrics.RootMeanSquaredError()
+RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
+val_RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
+loss_value : np.float32 = 1.0
 # tf.optimizers.Adam()
 # for w in gru_model.trainable_weights:
 #     print(w)
@@ -456,19 +466,16 @@ def valid_step(x, y):
     rsquare = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
     for i in trange(y.shape[0]):
         logits[i] = test_step(x[i:i+1,:,:])
-        MAE.update_state(y_true=y[i:i+1], y_pred=logits[i])
-        RMSE.update_state(y_true=y[i:i+1], y_pred=logits[i])
-        RSquare.update_state(y_true=y[i:i+1], y_pred=logits[i])
+        val_MAE.update_state(y_true=y[i:i+1], y_pred=logits[i])
+        val_RMSE.update_state(y_true=y[i:i+1], y_pred=logits[i])
+        val_RSquare.update_state(y_true=y[i:i+1], y_pred=logits[i])
         loss[i] = loss_fn(y[i:i+1], logits[i])
-        mae[i] = MAE.result()
-        rmse[i] = RMSE.result()
-        rsquare[i] = RSquare.result()
+        mae[i] = val_MAE.result()
+        rmse[i] = val_RMSE.result()
+        rsquare[i] = val_RSquare.result()
+    #! Error with RMSE here. No mean should be used.
     return [np.mean(loss), np.mean(mae), np.mean(rmse), np.mean(rsquare), logits]
 
-MAE = tf.metrics.MeanAbsoluteError()
-RMSE = tf.metrics.RootMeanSquaredError()
-RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
-loss_value : np.float32 = 1.0
 while iEpoch < mEpoch:
     iEpoch+=1
     pbar = tqdm(total=y_train.shape[0])
@@ -496,18 +503,22 @@ while iEpoch < mEpoch:
         os.remove(f'{model_loc}{iEpoch-1}.ch')
     os.mknod(f'{model_loc}{iEpoch}.ch')
     
-    PERF = valid_step(x_valid, y_valid)
     hist_df = pd.DataFrame(data={
             'loss'   : [np.array(loss_value)],
             'mae'    : [np.array(MAE.result())],
             'rmse'   : [np.array(RMSE.result())],
             'rsquare': [np.array(RSquare.result())]
         })
+    
+    PERF = valid_step(x_valid, y_valid)
     hist_df['vall_loss'] = PERF[0]
     hist_df['val_mean_absolute_error'] = PERF[1]
     hist_df['val_root_mean_squared_error'] = PERF[2]
     hist_df['val_r_square'] = PERF[3]
     
+    hist_df['last_val_mean_absolute_error'] = np.array(val_MAE.result())
+    hist_df['last_val_root_mean_squared_error'] = np.array(val_RMSE.result())
+    hist_df['last_val_r_square'] = np.array(val_RSquare.result())
     # or save to csv:
     with open(f'{model_loc}history-{profile}.csv', mode='a') as f:
         if(firstLog):
@@ -518,15 +529,15 @@ while iEpoch < mEpoch:
     
     PRED = PERF[4]
     RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-                y_valid[::,]-PRED)))
+                y_valid[::,0]-PRED)))
     # otherwise the right y-label is slightly clipped
     predicting_plot(profile=profile, file_name='Model №5',
                     model_loc=model_loc,
-                    model_type='GRU Test - Train dataset',
+                    model_type='GRU Train',
                     iEpoch=f'val-{iEpoch}',
                     Y=y_valid,
                     PRED=PRED,
-                    RMS=RMS,
+                    RMS=np.expand_dims(RMS,axis=1),
                     val_perf=PERF[:4],
                     TAIL=y_valid.shape[0],
                     save_plot=True,
@@ -683,3 +694,55 @@ while iEpoch < mEpoch:
 #         print("RMS droped around 2.4%. Breaking the training")
 #         break
 # %%
+PRED = valid_step(x_test_one, y_test_one)
+RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_one[::,0]-PRED[4])))
+if profile == 'DST':
+    predicting_plot(profile=profile, file_name='Model №5',
+                    model_loc=model_loc,
+                    model_type='GRU Test on US06', iEpoch=f'Test One-{iEpoch}',
+                    Y=y_test_one,
+                    PRED=PRED[4],
+                    RMS=np.expand_dims(RMS,axis=1),
+                    val_perf=PRED[:4],
+                    TAIL=y_test_one.shape[0],
+                    save_plot=True)
+else:
+    predicting_plot(profile=profile, file_name='Model №5',
+                    model_loc=model_loc,
+                    model_type='GRU Test on DST', iEpoch=f'Test One-{iEpoch}',
+                    Y=y_test_one,
+                    PRED=PRED[4],
+                    RMS=np.expand_dims(RMS,axis=1),
+                    val_perf=PRED[:4],
+                    TAIL=y_test_one.shape[0],
+                    save_plot=True)
+PRED = valid_step(x_test_two, y_test_two)
+RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,0]-PRED[4])))
+if profile == 'FUDS':
+    predicting_plot(profile=profile, file_name='Model №5',
+                    model_loc=model_loc,
+                    model_type='GRU Test on US06', iEpoch=f'Test Two-{iEpoch}',
+                    Y=y_test_two,
+                    PRED=PRED[4],
+                    RMS=np.expand_dims(RMS,axis=1),
+                    val_perf=PRED[:4],
+                    TAIL=y_test_two.shape[0],
+                    save_plot=True)
+else:
+    predicting_plot(profile=profile, file_name='Model №5',
+                    model_loc=model_loc,
+                    model_type='GRU Test on FUDS', iEpoch=f'Test Two-{iEpoch}',
+                    Y=y_test_two,
+                    PRED=PRED[4],
+                    RMS=np.expand_dims(RMS,axis=1),
+                    val_perf=PRED[:4],
+                    TAIL=y_test_two.shape[0],
+                    save_plot=True)
+# %%
+# Convert the model to Tensorflow Lite and save.
+with open(f'{model_loc}Model-№5-{profile}.tflite', 'wb') as f:
+    f.write(
+        tf.lite.TFLiteConverter.from_keras_model(
+                model=gru_model
+            ).convert()
+        )
