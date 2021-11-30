@@ -496,38 +496,88 @@ else:
 # RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
 #             y_test_two[::skip,]-PRED)))
 # vl_test_time = range(0,PRED.shape[0])
-# fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
-# ax1.plot(vl_test_time[:TAIL:skip], y_test_two[::skip,-1],
-#         label="True", color='#0000ff')
-# ax1.plot(vl_test_time[:TAIL:skip],
-#         PRED,
-#         label="Recursive prediction", color='#ff0000')
+# %%
+def format_SoC(value, _):
+    return int(value*100)
+TAIL = y_test_one.shape[0]
+test_time = np.linspace(0, PRED.shape[0]/60, PRED.shape[0])
+skip=1
+fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
+ax1.plot(test_time[:TAIL:skip], y_test_one[::skip,-1],'-',
+        label="Actual", color='#0000ff')
+ax1.plot(test_time[:TAIL:skip],
+        PRED,'--',
+        label="Prediction", color='#ff0000')
 
 # ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
-# ax1.set_xlabel("Time Slice (s)", fontsize=16)
-# ax1.set_ylabel("SoC (%)", fontsize=16)
+ax1.set_xlabel("Time Slice (min)", fontsize=32)
+ax1.set_ylabel("SoC (%)", fontsize=32)
 
-# ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-# ax2.plot(vl_test_time[:TAIL:skip],
-#         RMS,
-#         label="RMS error", color='#698856')
-# ax2.fill_between(vl_test_time[:TAIL:skip],
-#         RMS[:,0],
-#             color='#698856')
-# ax2.set_ylabel('Error', fontsize=16, color='#698856')
-# ax2.tick_params(axis='y', labelcolor='#698856')
+ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+ax2.plot(test_time[:TAIL:skip],
+        RMS,
+        label="RMS error", color='#698856')
+ax2.fill_between(test_time[:TAIL:skip],
+        RMS[:,0],
+            color='#698856')
+ax2.set_ylabel('Error', fontsize=32, color='#698856')
+ax2.tick_params(axis='y', labelcolor='#698856')
 # if profile == 'FUDS':
 #     ax1.set_title(f"{file_name} LSTM Test on US06 - {profile}-trained",
 #                 fontsize=18)
 # else:
 #     ax1.set_title(f"{file_name} LSTM Test on FUDS - {profile}-trained",
 #                 fontsize=18)
-
-# ax1.legend(prop={'size': 16})
+ax1.legend(prop={'size': 32})
+ax1.tick_params(axis='both', labelsize=28)
+ax2.tick_params(axis='y', labelcolor='#698856', labelsize=28)
+ax2.legend(loc='center right', bbox_to_anchor=(1.0,0.80), prop={'size': 32})
 # ax1.set_ylim([-0.1,1.2])
 # ax2.set_ylim([-0.1,1.6])
 # fig.tight_layout()  # otherwise the right y-label is slightly clipped
+ax2.set_xlim([10,45])
+ax2.set_ylim([-0.0,1.6])
+ax1.set_title(
+    f"Accuracy visualisation example",
+    fontsize=36)
+ax1.set_ylim([0.7,1])
+ax1.set_xlim([10,50])
+# ax1.annotate('Actual SoC percent', xy=(25, 0.86),
+#             xycoords='data', fontsize=28, color='#0000ff',
+#             xytext=(0.5, 0.85), textcoords='axes fraction',
+#             arrowprops=dict(facecolor='black', shrink=0.05),
+#             horizontalalignment='right', verticalalignment='top',
+#             )
+# ax1.annotate('Predicted SoC', xy=(24, 0.77),
+#             xycoords='data', fontsize=28, color='#ff0000',
+#             xytext=(0.25, 0.25), textcoords='axes fraction',
+#             arrowprops=dict(facecolor='black', shrink=0.05),
+#             horizontalalignment='right', verticalalignment='top',
+#             )
 
+plt.annotate(s='', xy=(25.5,0.83), xytext=(25.5,0.43),
+                xycoords='data', fontsize=28, 
+                arrowprops=dict(arrowstyle='<->', facecolor='black'),
+                horizontalalignment='right', verticalalignment='top')
+plt.annotate(s='', xy=(20.5,1.02), xytext=(20.5,0.68),
+                xycoords='data', fontsize=28, 
+                arrowprops=dict(arrowstyle='<->', facecolor='black'),
+                horizontalalignment='right', verticalalignment='top')
+ax1.text(19.5, 0.855, r'$\Delta$', fontsize=24)
+ax1.text(24.5, 0.815, r'$\Delta$', fontsize=24)
+ax1.annotate('Difference area fill', xy=(26, 0.82),
+            xycoords='data', fontsize=28, color='#698856',
+            xytext=(0.95, 0.45), textcoords='axes fraction',
+            arrowprops=dict(facecolor='black', shrink=0.05),
+            horizontalalignment='right', verticalalignment='top',
+            )
+ax1.annotate('', xy=(26, 0.72),
+            xycoords='data', fontsize=28,
+            xytext=(0.7, 0.41), textcoords='axes fraction',
+            arrowprops=dict(facecolor='black', shrink=0.05),
+            horizontalalignment='right', verticalalignment='top',
+            )
+ax1.yaxis.set_major_formatter(plt.FuncFormatter(format_SoC))
 # val_perf = lstm_model.evaluate(x=x_test_two,
 #                                 y=y_test_two,
 #                                 batch_size=1,
@@ -539,10 +589,11 @@ else:
 # ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
 #         verticalalignment='top',
 #         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-# fig.savefig(f'{model_loc}{profile}-test_Two-{iEpoch}.svg')
+# fig.savefig(f'tests/figures/plot-example.svg')
 # # Cleaning Memory from plots
 # fig.clf()
 # plt.close()
+# %%
 PRED = lstm_model.predict(x_test_two, batch_size=1, verbose=1)
 RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,]-PRED)))
 if profile == 'FUDS':

@@ -44,7 +44,7 @@ def predicting_plot(profile : str, file_name : str, model_loc : str,
     ax2 = ax1.twinx()
     ax2.plot(test_time[:TAIL:],
           RMS,
-          label="RMS error", color='#698856')
+          label="ABS error", color='#698856')
     ax2.fill_between(test_time[:TAIL:],
           RMS[:,0],
           color='#698856')

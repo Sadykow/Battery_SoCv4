@@ -71,6 +71,7 @@ for opt, arg in opts:
 # Define plot sizes
 mpl.rcParams['figure.figsize'] = (8, 6)
 mpl.rcParams['axes.grid'] = False
+mpl.rcParams['font.family'] = 'Bender'
 
 # Configurage logger and print basics
 logging.basicConfig(level=logging.CRITICAL,        
