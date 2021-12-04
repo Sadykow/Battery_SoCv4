@@ -97,7 +97,6 @@ for opt, arg in opts:
 # Define plot sizes
 mpl.rcParams['figure.figsize'] = (8, 6)
 mpl.rcParams['axes.grid'] = False
-mpl.rcParams['font.family'] = 'Bender'
 
 # Configurage logger and print basics
 logging.basicConfig(level=logging.CRITICAL,        
@@ -516,7 +515,7 @@ ax1.set_ylabel("SoC (%)", fontsize=32)
 ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
 ax2.plot(test_time[:TAIL:skip],
         RMS,
-        label="RMS error", color='#698856')
+        label="ABS error", color='#698856')
 ax2.fill_between(test_time[:TAIL:skip],
         RMS[:,0],
             color='#698856')
@@ -589,7 +588,7 @@ ax1.yaxis.set_major_formatter(plt.FuncFormatter(format_SoC))
 # ax1.text(0.85, 0.75, textstr, transform=ax1.transAxes, fontsize=18,
 #         verticalalignment='top',
 #         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-# fig.savefig(f'tests/figures/plot-example.svg')
+fig.savefig(f'tests/figures/plot-example.svg')
 # # Cleaning Memory from plots
 # fig.clf()
 # plt.close()
