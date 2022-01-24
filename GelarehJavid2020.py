@@ -28,22 +28,23 @@ from tqdm import tqdm, trange
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
 from py_modules.RobustAdam import RobustAdam
-from py_modules.SGOptimizer import SGOptimizer
-from cy_modules.utils import str2bool
+# from py_modules.SGOptimizer import SGOptimizer
+from py_modules.utils import str2bool
 from py_modules.plotting import predicting_plot
+import time
 # %%
 # Extract params
-try:
-    opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
-                    ["help", "debug=", "epochs=",
-                     "gpu=", "profile="])
-except getopt.error as err: 
-    # output error, and return with an error code 
-    print (str(err)) 
-    print ('EXEPTION: Arguments requied!')
-    sys.exit(2)
+# try:
+#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
+#                     ["help", "debug=", "epochs=",
+#                      "gpu=", "profile="])
+# except getopt.error as err: 
+#     # output error, and return with an error code 
+#     print (str(err)) 
+#     print ('EXEPTION: Arguments requied!')
+#     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '2'), ('-g', '0'), ('-p', 'FUDS')]
+opts = [('-d', 'False'), ('-e', '3'), ('-g', '0'), ('-p', 'FUDS')]
 mEpoch  : int = 10
 GPU     : int = 0
 profile : str = 'DST'
@@ -91,12 +92,13 @@ physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
     #! need to research more why.
-    tf.config.experimental.set_visible_devices(
-                            physical_devices[GPU], 'GPU')
+    # tf.config.experimental.set_visible_devices(
+    #                         physical_devices[GPU], 'GPU')
 
     #if GPU == 1:
-    tf.config.experimental.set_memory_growth(
-                            physical_devices[GPU], True)
+    for device in physical_devices:
+        tf.config.experimental.set_memory_growth(
+                            device=device, enable=True)
     logging.info("GPU found and memory growth enabled") 
     
     logical_devices = tf.config.experimental.list_logical_devices('GPU')
@@ -159,7 +161,7 @@ y_test_two = np.array(yy_valid[mid:,:], copy=True, dtype=np.float32)
 #? US06 - 7
 #? FUDS - try 4 and 7
 file_name : str = os.path.basename(__file__)[:-3]
-model_loc : str = f'Models/{file_name}/{profile}-models/'
+model_loc : str = f'NewModels/{file_name}/{profile}-models/'
 iEpoch    : int = 0
 firstLog  : bool= True
 try:
@@ -193,202 +195,6 @@ except OSError as identifier:
                               activation='sigmoid')
     ])
     firstLog = True
-# prev_model = tf.keras.models.clone_model(gru_model,
-#                                     input_tensors=None, clone_function=None)
-
-# checkpoints = tf.keras.callbacks.ModelCheckpoint(
-#         filepath =model_loc+f'{profile}-checkpoints/checkpoint',
-#         monitor='val_loss', verbose=0,
-#         save_best_only=False, save_weights_only=False,
-#         mode='auto', save_freq='epoch', options=None,
-#     )
-
-# tensorboard_callback = tf.keras.callbacks.TensorBoard(
-#         log_dir=model_loc+
-#             f'tensorboard/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}',
-#         histogram_freq=1, write_graph=True, write_images=False,
-#         update_freq='epoch', profile_batch=2, embeddings_freq=0,
-#         embeddings_metadata=None
-#     )
-# nanTerminate = tf.keras.callbacks.TerminateOnNaN()
-
-# gru_model.compile(loss=tf.losses.MeanAbsoluteError(),#custom_loss,
-#             optimizer=RobustAdam(),
-#             metrics=[tf.metrics.MeanAbsoluteError(),
-#                      tf.metrics.RootMeanSquaredError(),
-#                     #  tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
-#                      ]
-#             )
-# gru_model.fit(x=x_train, y=y_train,
-#                     epochs=1,
-#                     batch_size=1, shuffle=True
-#                     )
-# plt.plot(gru_model.predict(x_train, batch_size=1))
-# plt.plot(y_train)
-
-# prev_model.compile(loss=custom_loss,
-#             optimizer=RobustAdam(lr_rate = 0.001,
-#                  beta_1 = 0.9, beta_2 = 0.999, beta_3 = 0.999, epsilon = 1e-7),
-#             metrics=[tf.metrics.MeanAbsoluteError(),
-#                      tf.metrics.RootMeanSquaredError(),
-#                      tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
-#             )
-# %%
-# i_attempts : int = 0
-# n_attempts : int = 3
-# while iEpoch < mEpoch:
-#     iEpoch+=1
-#     print(f"Epoch {iEpoch}/{mEpoch}")
-    
-#     history = gru_model.fit(x=x_train[16800:25000,:,:], y=y_train[16800:25000,:],
-#                         epochs=1,
-#                         validation_data=(x_valid, y_valid),
-#                         callbacks=[nanTerminate],
-#                         batch_size=1, shuffle=True
-#                         )
-#     if (tf.math.is_nan(history.history['loss'])):
-#         print('NaN model')
-#         while i_attempts < n_attempts:
-#             #! Hopw abut reducing input dataset. In this case, by half. Keeping
-#             #!only middle temperatures.
-#             print(f'Attempt {i_attempts}')
-#             gru_model = tf.keras.models.clone_model(prev_model)
-#             gru_model.compile(loss=custom_loss,
-#                     optimizer=tf.optimizers.Adam(learning_rate=0.001,
-#                             beta_1=0.9, beta_2=0.999, epsilon=10e-08,),
-#                     metrics=[tf.metrics.MeanAbsoluteError(),
-#                             tf.metrics.RootMeanSquaredError(),
-#                             tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
-#                 )
-#             history = gru_model.fit(x=x_train[:,:,:], y=y_train[:,:], epochs=1,
-#                             validation_data=None,
-#                             callbacks=[nanTerminate],
-#                             batch_size=1, shuffle=True
-#                             )
-#             if (not tf.math.is_nan(history.history['loss'])):
-#                 print(f'Attempt {i_attempts} Passed')
-#                 break
-#             i_attempts += 1
-#         if (i_attempts == n_attempts) \
-#                 and (tf.math.is_nan(history.history['loss'])):
-#             print("Model reaced the optimim -- Breaking")
-#             break
-#         else:
-#             gru_model.save(filepath=f'{model_loc}{iEpoch}-{i_attempts}',
-#                             overwrite=True, include_optimizer=True,
-#                             save_format='h5', signatures=None, options=None,
-#                             save_traces=True
-#                 )
-#             i_attempts = 0
-#             prev_model = tf.keras.models.clone_model(gru_model)
-#     else:
-#         gru_model.save(filepath=f'{model_loc}{iEpoch}',
-#                         overwrite=True, include_optimizer=True,
-#                         save_format='h5', signatures=None, options=None,
-#                         save_traces=True
-#                 )
-#         prev_model = tf.keras.models.clone_model(gru_model)
-    
-#     if os.path.exists(f'{model_loc}{iEpoch-1}.ch'):
-#         os.remove(f'{model_loc}{iEpoch-1}.ch')
-#     os.mknod(f'{model_loc}{iEpoch}.ch')
-    
-#     # Saving history variable
-#     # convert the history.history dict to a pandas DataFrame:     
-#     hist_df = pd.DataFrame(history.history)
-#     # or save to csv:
-#     with open(f'{model_loc}history-{profile}.csv', mode='a') as f:
-#         if(firstLog):
-#             hist_df.to_csv(f, index=False)
-#             firstLog = False
-#         else:
-#             hist_df.to_csv(f, index=False, header=False)
-    
-#     #! Run the Evaluate function
-#     #! Replace with tf.metric function.
-#     PRED = gru_model.predict(x_valid, batch_size=1)
-#     RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-#                 y_valid[::,]-PRED)))
-#     PERF = gru_model.evaluate(x=x_valid,
-#                                y=y_valid,
-#                                batch_size=1,
-#                                verbose=0)
-#     # otherwise the right y-label is slightly clipped
-#     predicting_plot(profile=profile, file_name='Model №5',
-#                     model_loc=model_loc,
-#                     model_type='GRU Test - Train dataset',
-#                     iEpoch=f'val-{iEpoch}',
-#                     Y=y_valid,
-#                     PRED=PRED,
-#                     RMS=RMS,
-#                     val_perf=PERF,
-#                     TAIL=y_valid.shape[0],
-#                     save_plot=True, RMS_plot=False)
-#     if(PERF[-2] <=0.024): # Check thr RMSE
-#         print("RMS droped around 2.4%. Breaking the training")
-#         break
-
-# PRED = gru_model.predict(x_test_one, batch_size=1)
-# RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_one[::,]-PRED)))
-# if profile == 'DST':
-#     predicting_plot(profile=profile, file_name='Model №5',
-#                     model_loc=model_loc,
-#                     model_type='GRU Test on US06', iEpoch=f'Test One-{iEpoch}',
-#                     Y=y_test_one,
-#                     PRED=PRED,
-#                     RMS=RMS,
-#                     val_perf=gru_model.evaluate(
-#                                     x=x_test_one,
-#                                     y=y_test_one,
-#                                     batch_size=1,
-#                                     verbose=0),
-#                     TAIL=y_test_one.shape[0],
-#                     save_plot=True)
-# else:
-#     predicting_plot(profile=profile, file_name='Model №5',
-#                     model_loc=model_loc,
-#                     model_type='GRU Test on DST', iEpoch=f'Test One-{iEpoch}',
-#                     Y=y_test_one,
-#                     PRED=PRED,
-#                     RMS=RMS,
-#                     val_perf=gru_model.evaluate(
-#                                     x=x_test_one,
-#                                     y=y_test_one,
-#                                     batch_size=1,
-#                                     verbose=0),
-#                     TAIL=y_test_one.shape[0],
-#                     save_plot=True)
-
-# PRED = gru_model.predict(x_test_two, batch_size=1)
-# RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,]-PRED)))
-# if profile == 'FUDS':
-#     predicting_plot(profile=profile, file_name='Model №5',
-#                     model_loc=model_loc,
-#                     model_type='GRU Test on US06', iEpoch=f'Test Two-{iEpoch}',
-#                     Y=y_test_two,
-#                     PRED=PRED,
-#                     RMS=RMS,
-#                     val_perf=gru_model.evaluate(
-#                                     x=x_test_two,
-#                                     y=y_test_two,
-#                                     batch_size=1,
-#                                     verbose=0),
-#                     TAIL=y_test_two.shape[0],
-#                     save_plot=True)
-# else:
-#     predicting_plot(profile=profile, file_name='Model №5',
-#                     model_loc=model_loc,
-#                     model_type='GRU Test on FUDS', iEpoch=f'Test Two-{iEpoch}',
-#                     Y=y_test_two,
-#                     PRED=PRED,
-#                     RMS=RMS,
-#                     val_perf=gru_model.evaluate(
-#                                     x=x_test_two,
-#                                     y=y_test_two,
-#                                     batch_size=1,
-#                                     verbose=0),
-#                     TAIL=y_test_two.shape[0],
-#                     save_plot=True)
 # %%
 # MAE = tf.metrics.MeanAbsoluteError()
 # RMSE = tf.metrics.RootMeanSquaredError()
@@ -426,7 +232,7 @@ except OSError as identifier:
 # plt.plot(gru_model.predict(x_train, batch_size=1))
 # plt.plot(y_train)
 # %%
-optimiser = RobustAdam(learning_rate = 0.0001)
+optimiser = RobustAdam(learning_rate = 0.001) #0.0001
 loss_fn = tf.losses.MeanAbsoluteError()
 MAE = tf.metrics.MeanAbsoluteError()
 val_MAE = tf.metrics.MeanAbsoluteError()
@@ -440,6 +246,7 @@ loss_value : np.float32 = 1.0
 #     print(w)
 #! We can potentialy run 2 models on single GPU getting to 86% utilisation.
 #!Although, check if it safe. Use of tf.function speeds up training by 2.
+# @tf.function
 def train_single_st(x, y, prev_loss):
     with tf.GradientTape() as tape:
         logits = gru_model(x, training=True)
@@ -449,6 +256,9 @@ def train_single_st(x, y, prev_loss):
     # print(f'Losses {prev_loss} and {loss_value}')
     optimiser.update_loss(prev_loss, loss_value)
     optimiser.apply_gradients(zip(grads, gru_model.trainable_weights))
+    # Update learning rate
+    optimiser.learning_rate = 0.0005
+    # optimiser.get_config()
     MAE.update_state(y_true=y[:1], y_pred=logits)
     RMSE.update_state(y_true=y[:1], y_pred=logits)
     RSquare.update_state(y_true=y[:1], y_pred=logits)
@@ -464,7 +274,8 @@ def valid_step(x, y):
     mae = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
     rmse = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
     rsquare = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
-    for i in trange(y.shape[0]):
+    # for i in trange(y.shape[0]):
+    for i in range(y.shape[0]):
         logits[i] = test_step(x[i:i+1,:,:])
         val_MAE.update_state(y_true=y[i:i+1], y_pred=logits[i])
         val_RMSE.update_state(y_true=y[i:i+1], y_pred=logits[i])
@@ -475,13 +286,35 @@ def valid_step(x, y):
         rsquare[i] = val_RSquare.result()
     #! Error with RMSE here. No mean should be used.
     return [np.mean(loss), np.mean(mae), np.mean(rmse), np.mean(rsquare), logits]
+# # Disable AutoShard.
+# strategy = tf.distribute.MirroredStrategy()
+# # options = tf.data.Options()
+# # options.experimental_distribute.auto_shard_policy = \
+# #                     tf.data.experimental.AutoShardPolicy.DATA
+# batch_size : int = strategy.num_replicas_in_sync
+# worker_devices = strategy.extended.worker_devices
 
+# def args_fn(context):
+#     # print(ctx)
+#     #! Return X and Y
+#     x_train[i:i+1,:,:], y_train[i:i+1,:], loss_value
+#     return tf.constant(1.0)
+
+# distributed_values = strategy.experimental_distribute_values_from_function(
+#                             args_fn
+#                         )
+# for i in range(2):      #! Lambda with train single st()
+# #   loss_value = train_single_st(x_train[i:i+1,:,:], y_train[i:i+1,:], loss_value)
+#   result = strategy.run(train_single_st, args=(distributed_values,))
+#   print(result)
+# %%
 while iEpoch < mEpoch:
     iEpoch+=1
     pbar = tqdm(total=y_train.shape[0])
-
+    tic : float = time.perf_counter()
     sh_i = np.arange(y_train.shape[0])
     np.random.shuffle(sh_i)
+    print(f'Commincing Epoch: {iEpoch}')
     for i in sh_i[:]:
         loss_value = train_single_st(x_train[i:i+1,:,:], y_train[i:i+1,:], loss_value)
         # Progress Bar
@@ -493,6 +326,14 @@ while iEpoch < mEpoch:
                              f'rsquare: {RSquare.result():.4f}'
                             )
     pbar.close()
+    toc : float = time.perf_counter() - tic
+    print(f'Epoch {iEpoch}/{mEpoch} :: '
+            f'Elapsed Time: {toc} - '
+            f'loss: {loss_value:.4f} - '
+            f'mae: {MAE.result():.4f} - '
+            f'rmse: {RMSE.result():.4f} - '
+            f'rsquare: {RSquare.result():.4f}'
+        )
     # Saving model
     gru_model.save(filepath=f'{model_loc}{iEpoch}',
                 overwrite=True, include_optimizer=True,

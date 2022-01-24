@@ -8,6 +8,12 @@ import concurrent.futures
 
 from . utils import diffSoC
 
+import sys
+if (sys.version_info[1] < 9):
+  LIST = list
+  from typing import List as list
+  from typing import Tuple as tuple
+  
 def Read_Excel_File(path : str,
                     indexes : range, columns :list[str]
                     ) -> pd.DataFrame:
@@ -84,8 +90,12 @@ def ParseExcelData(directory : str,
     # with concurrent.futures.ThreadPoolExecutor() as executor:
     #! Running multiprocesses (faster by 34 seconds) 8.61
     with concurrent.futures.ProcessPoolExecutor() as executor:
-      data_df = list(executor.map(Read_Excel_File, files,
-                    repeat(indexes), repeat(columns)))
+      if (sys.version_info[1] < 9):
+        data_df = LIST(executor.map(Read_Excel_File, files,
+              repeat(indexes), repeat(columns)))
+      else:
+        data_df = list(executor.map(Read_Excel_File, files,
+                      repeat(indexes), repeat(columns)))
       data_SoC = [
         pd.DataFrame(
           data={'SoC' : diffSoC(

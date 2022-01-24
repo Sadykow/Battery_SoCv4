@@ -60,30 +60,24 @@ from py_modules.plotting import predicting_plot
 
 import sys
 if (sys.version_info[1] < 9):
-    LIST = list
-    from typing import List as list
-    from typing import Tuple as tuple
+  from typing import List as list
+  from typing import Tuple as tuple
   
 # %%
 # Extract params
 # try:
-#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:l:n:a:g:p:",
-#                     ["help", "debug=", "epochs=", "layers=", "neurons=",
-#                      "attempt=", "gpu=", "profile="])
+#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
+#                     ["help", "debug=", "epochs=",
+#                      "gpu=", "profile="])
 # except getopt.error as err: 
 #     # output error, and return with an error code 
 #     print (str(err)) 
 #     print ('EXEPTION: Arguments requied!')
 #     sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '50'), ('-l', '1'), ('-n', '524'), ('-a', '1'),
-        ('-g', '0'), ('-p', 'FUDS')]
-batch   : int = 1
+opts = [('-d', 'False'), ('-e', '50'), ('-g', '0'), ('-p', 'FUDS')]
 mEpoch  : int = 10
-nLayers : int = 1
-nNeurons: int = 262
-attempt : str = '1'
-GPU     : int = None
+GPU     : int = 0
 profile : str = 'DST'
 for opt, arg in opts:
     if opt == '-h':
@@ -101,12 +95,6 @@ for opt, arg in opts:
             logging.warning("Logger Critical")
     elif opt in ("-e", "--epochs"):
         mEpoch = int(arg)
-    elif opt in ("-l", "--layers"):
-        nLayers = int(arg)
-    elif opt in ("-n", "--neurons"):
-        nLayers = int(arg)
-    elif opt in ("-a", "--attempts"):
-        attempt = (arg)
     elif opt in ("-g", "--gpu"):
         #! Another alternative is to use
         #!:$ export CUDA_VISIBLE_DEVICES=0,1 && python *.py
@@ -141,7 +129,7 @@ if physical_devices:
     # tf.config.experimental.set_visible_devices(
     #                         physical_devices[GPU], 'GPU')
 
-    # if GPU == 1:
+    #if GPU == 1:
     for device in physical_devices:
         tf.config.experimental.set_memory_growth(
                             device=device, enable=True)
@@ -168,16 +156,43 @@ dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
                                 ],
                               PROFILE_range = profile)
 # %%
+# file_name : str = os.path.basename(__file__)[:-3]
+# model_loc : str = f'Models/{file_name}/{profile}-models/'
+# N_seconds = 8000
+# fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(14,12), dpi=600)
+# titles = [['Voltage', 'Current'],
+#           ['Temperature', 'State of Charge']]
+# units = [['Volts', 'Amps'],
+#           ['Degrees', 'Percentage']]
+# test_time = np.linspace(0, N_seconds/60, N_seconds)
+# y_axis_data = [[dataGenerator.valid_df[:8000,1], dataGenerator.valid_df[:8000,0]],
+#                [dataGenerator.valid_df[:8000,2], dataGenerator.valid_SoC[:8000,0]*100]]
+# colors = [['#FF0000', '#0000FF'],
+#           ['m','k']]
+# fig.suptitle('Pre training input sample of single cell', fontsize=38)
+# for (ax_row, titles_row,
+#      units_row, y_row, colors_row) in zip(axs, titles,
+#                               units, y_axis_data, colors):
+#     for (ax, title,
+#          unit, y, color) in zip(ax_row, titles_row,
+#                          units_row, y_row, colors_row):
+#         ax.plot(test_time, y, '-', color=color)
+#         ax.set_title(f'{title} snapshot', fontsize=32)
+#         ax.set_ylabel(f'{unit}', fontsize=32)
+#         ax.set_xlabel('Time Slice (min)', fontsize=28)
+#         ax.tick_params(axis='both', labelsize=22)
+# fig.tight_layout()
+# fig.savefig(f'{model_loc}pre-training-samples.svg')
+# %%
 window = WindowGenerator(Data=dataGenerator,
                         input_width=500, label_width=1, shift=0,
                         input_columns=['Current(A)', 'Voltage(V)',
                                                 'Temperature (C)_1'],
-                        label_columns=['SoC(%)'], batch=batch,
+                        label_columns=['SoC(%)'], batch=2,#!See what you can do 
                         includeTarget=False, normaliseLabal=False,
                         shuffleTraining=False)
 ds_train, x_train, y_train = window.train
 ds_valid, x_valid, y_valid = window.valid
-ds_testi, x_testi, y_testi = window.testi
 
 # Wrap data in Dataset objects.
 # ds_train = tf.data.Dataset.from_tensor_slices((x_train, y_train))
@@ -185,8 +200,8 @@ ds_testi, x_testi, y_testi = window.testi
 
 # For validation use same training
 #! See if you can use validation over another battery
-xt_valid = np.array(x_train[16800:25000,:,:], copy=True, dtype=np.float32)
-yt_valid = np.array(y_train[16800:25000,:]  , copy=True, dtype=np.float32)
+x_valid = np.array(x_train[16800:25000,:,:], copy=True, dtype=np.float32)
+y_valid = np.array(y_train[16800:25000,:]  , copy=True, dtype=np.float32)
 
 # For test dataset take the remaining profiles.
 #! See if you can use testing of same profile but another battery
@@ -196,66 +211,107 @@ y_test_one = np.array(y_valid[:mid,:],   copy=True, dtype=np.float32)
 x_test_two = np.array(x_valid[mid:,:,:], copy=True, dtype=np.float32)
 y_test_two = np.array(y_valid[mid:,:],   copy=True, dtype=np.float32)
 # %%
+#! Cross-entropy problem if yo uwant to turn into classification.
+# def custom_loss(y_true, y_pred):
+#     """ Custom loss based on following formula:
+#         sumN(0.5*(SoC-SoC*)^2)
+
+#     Args:
+#         y_true (tf.Tensor): True output values
+#         y_pred (tf.Tensor): Predicted output from model
+
+#     Returns:
+#         tf.Tensor: The calculated Loss Value
+#     """
+#     y_pred = tf.convert_to_tensor(y_pred)
+#     y_true = tf.cast(y_true, y_pred.dtype)
+#     #print(f"True: {y_true[0]}" ) # \nvs Pred: {tf.make_ndarray(y_pred)}")
+#     loss = tf.math.divide(
+#                         x=tf.keras.backend.square(
+#                                 x=tf.math.subtract(x=y_true,
+#                                                    y=y_pred)
+#                             ), 
+#                         y=2
+#                     )
+#     #print("\nInitial Loss: {}".format(loss))    
+#     #loss = 
+#     #print(  "Summed  Loss: {}\n".format(loss))
+#     return tf.keras.backend.sum(loss, axis=1)    
+
 file_name : str = os.path.basename(__file__)[:-3]
 model_loc : str = f'NewModels/{file_name}/{profile}-models/'
 iEpoch = 0
 firstLog : bool = True
 iLr     : float = 0.001
 
-try:
-    for _, _, files in os.walk(model_loc):
-        for file in files:
-            if file.endswith('.ch'):
-                iEpoch = int(os.path.splitext(file)[0])
-    
-    lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
-            f'{model_loc}{iEpoch}',
-            compile=False)
-    firstLog = False
-    print("Model Identefied. Continue training.")
-except OSError as identifier:
-    print("Model Not Found, creating new. {} \n".format(identifier))
-    lstm_model = tf.keras.models.Sequential([
-        # Shape [batch, time, features] => [batch, time, lstm_units]
-        tf.keras.layers.InputLayer(input_shape=(x_train.shape[-2:]),
-                                batch_size=1),
-        tf.keras.layers.LSTM(
-            units=500, activation='tanh', recurrent_activation='sigmoid',
-            use_bias=True, kernel_initializer='glorot_uniform',
-            recurrent_initializer='orthogonal', bias_initializer='zeros',
-            unit_forget_bias=True, kernel_regularizer=None,
-            recurrent_regularizer=None, bias_regularizer=None,
-            activity_regularizer=None, kernel_constraint=None,
-            recurrent_constraint=None, bias_constraint=None, dropout=0.2,
-            recurrent_dropout=0.0, implementation=2, return_sequences=False, #!
-            return_state=False, go_backwards=False, stateful=False,
-            time_major=False, unroll=False#, batch_input_shape=(None, 2, 500, 3)
-        ),
-        #tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
-        # Shape => [batch, time, features]
-        tf.keras.layers.Dense(units=1,
-                            activation='sigmoid')
-    ])
-    firstLog = True
-prev_model = tf.keras.models.clone_model(lstm_model,
-                                input_tensors=None, clone_function=None)
+# Disable AutoShard.
+strategy = tf.distribute.MirroredStrategy(devices=["/gpu:0", "/gpu:1"])
+options = tf.data.Options()
+options.experimental_distribute.auto_shard_policy = \
+                    tf.data.experimental.AutoShardPolicy.DATA
+batch_size : int = 2
+GLOBAL_BATCH_SIZE : int = batch_size#*strategy.num_replicas_in_sync
 
-checkpoints = tf.keras.callbacks.ModelCheckpoint(
-    filepath =model_loc+f'{profile}-checkpoints/checkpoint',
-    monitor='val_loss', verbose=0,
-    save_best_only=False, save_weights_only=False,
-    mode='auto', save_freq='epoch', options=None,
-)
+ds_train = ds_train.with_options(options)
+ds_valid = ds_valid.with_options(options)
+dist_train = strategy.experimental_distribute_dataset(ds_train)
+dist_valid = strategy.experimental_distribute_dataset(ds_train)
 
-tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=model_loc+
-            f'tensorboard/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}',
-        histogram_freq=1, write_graph=True, write_images=False,
-        update_freq='epoch', profile_batch=2, embeddings_freq=0,
-        embeddings_metadata=None
+with strategy.scope():
+    try:
+        for _, _, files in os.walk(model_loc):
+            for file in files:
+                if file.endswith('.ch'):
+                    iEpoch = int(os.path.splitext(file)[0])
+        
+        lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
+                f'{model_loc}{iEpoch}',
+                compile=False)
+        firstLog = False
+        print("Model Identefied. Continue training.")
+    except OSError as identifier:
+        print("Model Not Found, creating new. {} \n".format(identifier))
+        lstm_model = tf.keras.models.Sequential([
+            # Shape [batch, time, features] => [batch, time, lstm_units]
+            tf.keras.layers.InputLayer(input_shape=(x_train.shape[-2:]),
+                                    batch_size=GLOBAL_BATCH_SIZE),
+            tf.keras.layers.LSTM(
+                units=500, activation='tanh', recurrent_activation='sigmoid',
+                use_bias=True, kernel_initializer='glorot_uniform',
+                recurrent_initializer='orthogonal', bias_initializer='zeros',
+                unit_forget_bias=True, kernel_regularizer=None,
+                recurrent_regularizer=None, bias_regularizer=None,
+                activity_regularizer=None, kernel_constraint=None,
+                recurrent_constraint=None, bias_constraint=None, dropout=0.2,
+                recurrent_dropout=0.0, implementation=2, return_sequences=False, #!
+                return_state=False, go_backwards=False, stateful=False,
+                time_major=False, unroll=False#, batch_input_shape=(None, 2, 500, 3)
+            ),
+            #tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
+            # Shape => [batch, time, features]
+            tf.keras.layers.Dense(units=1,
+                                activation='sigmoid')
+        ])
+        firstLog = True
+    prev_model = tf.keras.models.clone_model(lstm_model,
+                                    input_tensors=None, clone_function=None)
+
+    checkpoints = tf.keras.callbacks.ModelCheckpoint(
+        filepath =model_loc+f'{profile}-checkpoints/checkpoint',
+        monitor='val_loss', verbose=0,
+        save_best_only=False, save_weights_only=False,
+        mode='auto', save_freq='epoch', options=None,
     )
 
-nanTerminate = tf.keras.callbacks.TerminateOnNaN()
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(
+            log_dir=model_loc+
+                f'tensorboard/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}',
+            histogram_freq=1, write_graph=True, write_images=False,
+            update_freq='epoch', profile_batch=2, embeddings_freq=0,
+            embeddings_metadata=None
+        )
+
+    nanTerminate = tf.keras.callbacks.TerminateOnNaN()
 
 def tf_round(x : tf.Tensor, decimals : int = 0) -> tf.Tensor:
     """ Round to nearest decimal
@@ -287,7 +343,7 @@ def scheduler(_ : int, lr : float) -> float:
         float: [description]
     """
     #! Think of the better sheduler
-    if (iEpoch < 20):
+    if (iEpoch < 4):
         return iLr
     else:
         # lr = tf_round(x=lr * tf.math.exp(-0.2), decimals=5)
@@ -305,6 +361,23 @@ def scheduler(_ : int, lr : float) -> float:
 #     mode='auto', min_delta=0.001, cooldown=0, min_lr=0.00005
 # )
 reduce_lr = tf.keras.callbacks.LearningRateScheduler(scheduler, verbose=1)
+
+
+# lstm_model.compile(loss=tf.losses.MeanAbsoluteError(),
+#         optimizer=tf.optimizers.Adam(learning_rate=iLr,
+#                 beta_1=0.9, beta_2=0.999, epsilon=1e-07, amsgrad=False),
+#         metrics=[tf.metrics.MeanAbsoluteError(),
+#                     tf.metrics.RootMeanSquaredError(),
+#                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
+#         #run_eagerly=True
+#     )
+# prev_model.compile(loss=tf.losses.MeanAbsoluteError(),
+#         optimizer=tf.optimizers.Adam(learning_rate=iLr,
+#                 beta_1=0.9, beta_2=0.999, epsilon=1e-07, amsgrad=False),
+#         metrics=[tf.metrics.MeanAbsoluteError(),
+#                     tf.metrics.RootMeanSquaredError(),
+#                     tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)],
+#     )
 # %%
 # Turning into batch
 #* axis = 0 --> (1, 2, 500, 3); axis = 1 --> (2, 1, 500, 3)
@@ -332,21 +405,35 @@ reduce_lr = tf.keras.callbacks.LearningRateScheduler(scheduler, verbose=1)
 #                         batch_size=1,
 #                         )
 # %%
-optimiser = tf.optimizers.Adam(learning_rate=iLr,
-            beta_1=0.9, beta_2=0.999, epsilon=1e-07, amsgrad=False)
-loss_fn   = tf.losses.MeanAbsoluteError(
-                    reduction=tf.keras.losses.Reduction.NONE
+with strategy.scope():
+    optimiser = tf.optimizers.Adam(learning_rate=iLr,
+                beta_1=0.9, beta_2=0.999, epsilon=1e-07, amsgrad=False)
+    # loss_fn = tf.losses.MeanAbsoluteError()
+    loss_object = tf.losses.MeanAbsoluteError(
+                    # from_logits=True,
+                    reduction=tf.keras.losses.Reduction.NONE)
+    def loss_fn(labels, predictions):
+        return tf.nn.compute_average_loss(
+                    per_example_loss = loss_object(labels, predictions),
+                    global_batch_size=GLOBAL_BATCH_SIZE
                 )
-MAE = tf.metrics.MeanAbsoluteError()
-val_MAE = tf.metrics.MeanAbsoluteError()
-RMSE = tf.metrics.RootMeanSquaredError()
-val_RMSE = tf.metrics.RootMeanSquaredError()
-RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
-val_RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
-
-@tf.function
+    MAE = tf.metrics.MeanAbsoluteError()
+    val_MAE = tf.metrics.MeanAbsoluteError()
+    RMSE = tf.metrics.RootMeanSquaredError()
+    val_RMSE = tf.metrics.RootMeanSquaredError()
+    RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
+    val_RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
+# loss_value : np.float32 = 1.0
+# tf.optimizers.Adam()
+# for w in gru_model.trainable_weights:
+#     print(w)
+#! We can potentialy run 2 models on single GPU getting to 86% utilisation.
+#!Although, check if it safe. Use of tf.function speeds up training by 2.
+# @tf.function
 def train_single_st(input):
     x, y = input
+    # x, y = list(input.as_numpy_iterator())
+    # print(y)
     with tf.GradientTape() as tape:
         logits = lstm_model(x, training=True)
         loss_value = loss_fn(y, logits)
@@ -361,111 +448,86 @@ def train_single_st(input):
     return loss_value
 
 @tf.function
+def distributed_train_step(distributed_values):
+    return strategy.reduce(
+            reduce_op=tf.distribute.ReduceOp.SUM,
+            value=strategy.run(train_single_st, args=(distributed_values,)),
+            axis=None
+        )
+
+# @tf.function
 def test_step(input):
     x, _ = input
     return lstm_model(x, training=False)
     # return loss_object(y, predictions)
 
 @tf.function
-def valid_step(dist_input):
-    x, y = dist_input
-    logits = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
-    loss = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
-    mae = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
-    rmse = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
-    rsquare = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
-    for i in trange(y.shape[0]):
-    # for ds in dist_input:
-        logits[i] = lstm_model(x[i,:,:,:], training=False)
-        val_MAE.update_state(y_true=y[1], y_pred=logits[i])
-        val_RMSE.update_state(y_true=y[1], y_pred=logits[i])
-        val_RSquare.update_state(y_true=y[1], y_pred=logits[i])
-        loss[i] = loss_fn(y[1], logits[i])
-        mae[i] = val_MAE.result()
-        rmse[i] = val_RMSE.result()
-        rsquare[i] = val_RSquare.result()
-    #! Error with RMSE here. No mean should be used.
-    return [np.mean(loss), np.mean(mae),
-            np.mean(rmse), np.mean(rsquare), logits]
+def distributed_test_step(dataset_inputs):
+    return strategy.run(test_step, args=(dataset_inputs,))
 
+
+# def valid_step(dist_input):
+#     _, y = dist_input
+#     logits = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
+#     loss = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
+#     mae = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
+#     rmse = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
+#     rsquare = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
+#     # for i in trange(y.shape[0]):
+#     for ds in dist_input:
+#         logits[i] = distributed_test_step(ds)
+#         val_MAE.update_state(y_true=ds[1], y_pred=logits[i])
+#         val_RMSE.update_state(y_true=ds[1], y_pred=logits[i])
+#         val_RSquare.update_state(y_true=ds[1], y_pred=logits[i])
+#         loss[i] = loss_fn(ds[1], logits[i])
+#         mae[i] = val_MAE.result()
+#         rmse[i] = val_RMSE.result()
+#         rsquare[i] = val_RSquare.result()
+#     #! Error with RMSE here. No mean should be used.
+#     return [np.mean(loss), np.mean(mae), np.mean(rmse), np.mean(rsquare), logits]
+
+#! MAKE DS_TRAIN WORK!!!
+def args_fn(context : tf.distribute.experimental.ValueContext,
+            ) -> tuple[np.ndarray, np.ndarray]:
+    global i
+    ctx_id : int = context.replica_id_in_sync_group
+    #! Try shape (500, 3) only
+    return x_train[i,ctx_id:ctx_id+1, :,:], y_train[i, ctx_id:ctx_id+1,:]
+    # return x_train[i:i+1,:,:], y_train[i:i+1,:]
+    
+def args_valid_fn(context : tf.distribute.experimental.ValueContext
+            ) -> tuple[np.ndarray, np.ndarray]:
+    global i
+    ctx_id : int = context.replica_id_in_sync_group
+    #! Try shape (500, 3) only
+    return x_valid[i,ctx_id:ctx_id+1, :,:], y_valid[i, ctx_id:ctx_id+1,:]
+    # return x_train[i:i+1,:,:], y_train[i:i+1,:]
 # %%
 iEpoch+=1
-pbar = tqdm(total=y_train.shape[0])
-tic : float = time.perf_counter()
-sh_i = np.arange(y_train.shape[0])
-np.random.shuffle(sh_i)
-print(f'Commincing Epoch: {iEpoch}')
-loss_value : np.float32 = 0.0
-for i in sh_i[::]:
-    loss_value = train_single_st((x_train[i,:,:,:], y_train[i,:]))
-    # Progress Bar
-    pbar.update(1)
-    pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
-                            f'loss: {(loss_value[0]):.4f} - '
-                            f'mae: {MAE.result():.4f} - '
-                            f'rmse: {RMSE.result():.4f} - '
-                            f'rsquare: {RSquare.result():.4f}'
-                        )
-toc : float = time.perf_counter() - tic
-pbar.close()
-print(f'Epoch {iEpoch}/{mEpoch} :: '
-        f'Elapsed Time: {toc} - '
-        f'loss: {loss_value[0]:.4f} - '
-        f'mae: {MAE.result():.4f} - '
-        f'rmse: {RMSE.result():.4f} - '
-        f'rsquare: {RSquare.result():.4f}'
-    )
-
-# Saving model
-lstm_model.save(filepath=f'{model_loc}{iEpoch}',
-            overwrite=True, include_optimizer=True,
-            save_format='h5', signatures=None, options=None,
-            save_traces=True
-    )
-if os.path.exists(f'{model_loc}{iEpoch-1}.ch'):
-    os.remove(f'{model_loc}{iEpoch-1}.ch')
-os.mknod(f'{model_loc}{iEpoch}.ch')
-
-hist_df = pd.DataFrame(data={
-        'loss'   : [np.array(loss_value)],
-        'mae'    : [np.array(MAE.result())],
-        'rmse'   : [np.array(RMSE.result())],
-        'rsquare': [np.array(RSquare.result())],
-        'time(s)': [np.array(toc)]
-    })
-tic : float = time.perf_counter()
-PERF = valid_step((x_valid, y_valid))
-toc : float = time.perf_counter() - tic
-hist_df['vall_loss'] = PERF[0]
-hist_df['val_mean_absolute_error'] = PERF[1]
-hist_df['val_root_mean_squared_error'] = PERF[2]
-hist_df['val_r_square'] = PERF[3]
-hist_df['val_time(s)'] = toc
-# or save to csv:
-with open(f'{model_loc}history-{profile}.csv', mode='a') as f:
-    if(firstLog):
-        hist_df.to_csv(f, index=False)
-        firstLog = False
-    else:
-        hist_df.to_csv(f, index=False, header=False)
-
-PRED = PERF[4]
-RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-            y_valid[:,0,0]-PRED)))
-# otherwise the right y-label is slightly clipped
-predicting_plot(profile=profile, file_name='Model №1',
-                model_loc=model_loc,
-                model_type='LSTM Train',
-                iEpoch=f'val-{iEpoch}',
-                Y=y_valid[:,0],
-                PRED=PRED,
-                RMS=RMS,
-                val_perf=PERF,
-                TAIL=y_valid.shape[0],
-                save_plot=True)
-
-# lstm_model.evaluate()
-# %%
+# pbar = tqdm(total=y_train.shape[0]/GLOBAL_BATCH_SIZE)
+# tic : float = time.perf_counter()
+# sh_i = np.arange(y_train.shape[0])
+# np.random.shuffle(sh_i)
+# print(f'Commincing Epoch: {iEpoch}')
+# loss_value : np.float32 = 0.0
+# num_batches : int = 0
+# for i in sh_i[::]:
+#     loss_value += train_single_st((x_train[i:i+1,:,:], y_train[i:i+1,:]))
+#     # distributed_values = strategy.experimental_distribute_values_from_function(
+#     #                 args_fn
+#     #             )
+#     # loss_value += distributed_train_step(distributed_values)
+#     # num_batches += 1
+#     # Progress Bar
+#     pbar.update(1)
+#     pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
+#                             f'loss: {(loss_value/num_batches):.4f} - '
+#                             f'mae: {MAE.result():.4f} - '
+#                             f'rmse: {RMSE.result():.4f} - '
+#                             f'rsquare: {RSquare.result():.4f}'
+#                             f'index: {i}'
+#                         )
+# pbar.close()
 sh_i = np.arange(y_train.shape[0])
 pbar = tqdm(total=len(ds_train))
 tic : float = time.perf_counter()
@@ -480,9 +542,14 @@ for i in sh_i[::]:
     (x_train[i,ctx.replica_id_in_sync_group:ctx.replica_id_in_sync_group+1, :,:],
     y_train[i,ctx.replica_id_in_sync_group:ctx.replica_id_in_sync_group+1,:])
                 )
+    dvi = strategy.experimental_distribute_values_from_function(
+        lambda ctx :
+    (x_valid[i,ctx.replica_id_in_sync_group:ctx.replica_id_in_sync_group+1, :,:],
+    y_valid[i,ctx.replica_id_in_sync_group:ctx.replica_id_in_sync_group+1,:])
+                )
     loss_value += distributed_train_step(dv)
     num_batches += 1
-    LOGITS[cnt] = distributed_test_step(dv).values[0]
+    LOGITS[cnt] = distributed_test_step(dvi).values[0]
     cnt += 1
     pbar.update(1)
     pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '

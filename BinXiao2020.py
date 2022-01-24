@@ -53,21 +53,21 @@ import tensorflow_addons as tfa
 
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
-from cy_modules.utils import str2bool
+from py_modules.utils import str2bool
 from py_modules.plotting import predicting_plot
 # %%
 # Extract params
-try:
-    opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
-                    ["help", "debug=", "epochs=",
-                     "gpu=", "profile="])
-except getopt.error as err: 
-    # output error, and return with an error code 
-    print (str(err)) 
-    print ('EXEPTION: Arguments requied!')
-    sys.exit(2)
+# try:
+#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
+#                     ["help", "debug=", "epochs=",
+#                      "gpu=", "profile="])
+# except getopt.error as err: 
+#     # output error, and return with an error code 
+#     print (str(err)) 
+#     print ('EXEPTION: Arguments requied!')
+#     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '50'), ('-g', '1'), ('-p', 'FUDS')]
+opts = [('-d', 'False'), ('-e', '50'), ('-g', '1'), ('-p', 'FUDS')]
 mEpoch  : int = 10
 GPU     : int = 0
 profile : str = 'DST'

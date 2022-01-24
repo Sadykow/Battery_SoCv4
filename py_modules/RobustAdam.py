@@ -5,6 +5,12 @@ from tensorflow.python.ops import control_flow_ops
 # from tensorflow.python.util.tf_export import keras_export
 import tensorflow as tf
 from numpy import float32
+
+import sys
+if (sys.version_info[1] < 9):
+  LIST = list
+  from typing import List as list
+
 # @keras_export('tf.keras.optimizers.RobustAdam')
 class RobustAdam(tf.keras.optimizers.Optimizer):
   

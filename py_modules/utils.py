@@ -1,6 +1,6 @@
 from numpy import round, ndarray
 from pandas import read_csv
-from numba import vectorize, jit
+# from numba import vectorize, jit
 
 def str2bool(v : str) -> bool:
   """ Makes an input string to be a boolean variable.
@@ -16,7 +16,7 @@ def str2bool(v : str) -> bool:
   """
   return v.lower() in ("yes", "true", "y", "t", "1")
 
-@vectorize
+# @vectorize
 def diffSoC(chargeData : ndarray, discargeData : ndarray) -> ndarray:
   """ Round the SoC value to range of 0 to 1 with 2 decimal places by 
   subtracking Charge and Discharge

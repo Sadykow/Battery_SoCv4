@@ -2,9 +2,13 @@
 # Supporting functions for determening SoC during data persering.
 # %%
 import pandas as pd
-import tensorflow.experimental.numpy as tnp
-
 from scipy import integrate       # integration with trapizoid
+import tensorflow as tf
+#! Replance Tensorflow Numpy with numpy if version below 2.5
+if(int(tf.__version__[2]) < 5):
+    import numpy as tnp
+else:
+    import tensorflow.experimental.numpy as tnp
 
 def diffSoC(chargeData   : pd.Series,
             discargeData : pd.Series) -> pd.Series:

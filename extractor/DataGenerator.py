@@ -14,6 +14,10 @@ from sklearn.preprocessing import MinMaxScaler
 sys.path.append(os.getcwd() + '/..')
 from py_modules.parse_excel import ParseExcelData
 
+if (sys.version_info[1] < 9):
+  from typing import List as list
+  from typing import Tuple as tuple
+  
 c_DST   : range = range(4 ,6 )    # ONLY Charge Cycle
 d_DST   : range = range(6 ,12)    # ONLY Desciarge Cycle
 r_DST   : range = range(4 ,12)    # Charge-Discharge Continuos cycle
@@ -39,6 +43,7 @@ class DataGenerator():
   columns       : list[str]     # Columns names and their order
   r_profile     : range         # Profile to use for Training
   v_profile     : range         # Profile to use for Validation
+  t_profile     : range         # Profile to use for Testing
 
   float_dtype   : type          # Float variable Type
   int_dtype     : type          # Int variable Type
@@ -56,9 +61,15 @@ class DataGenerator():
   vl_ls_df : list[pd.DataFrame] # List of Validating Dataset
   vl_ls_SoC: list[pd.DataFrame]
   valid_s  : int
-  
+
+  testi_df : np.ndarray       # Testing Dataset Oposite profiles
+  testi_t  : float
+  testi_SoC: np.ndarray
+  ts_ls_df : list[pd.DataFrame] # List of testing Dataset
+  ts_ls_SoC: list[pd.DataFrame]
+  testi_s  : int
+
   gener_t  : float             # Time it took to create np
-  #testi_df : pd.DataFrame      # Testing Dataset Any Size%
   
   def __init__(self, train_dir : str, valid_dir : str, test_dir : str,
                columns : list[str],
@@ -86,25 +97,32 @@ class DataGenerator():
     # Select profile based on string
     if(PROFILE_range == 'DST'):
       self.r_profile = r_DST
-      self.v_profile = r_US_FUDS
+      self.v_profile = r_DST
+      self.t_profile = r_US_FUDS
     elif(PROFILE_range == 'US06'):
       self.r_profile = r_US
-      self.v_profile = None
+      self.v_profile = r_US
+      self.t_profile = None     #! A stub to resolve DST and FUDS
     elif(PROFILE_range == 'FUDS'):
       self.r_profile = r_FUDS
-      self.v_profile = r_DST_US
+      self.v_profile = r_FUDS
+      self.t_profile = r_DST_US
     elif(PROFILE_range == 'd_DST'):
       self.r_profile = d_DST
-      self.v_profile = r_US_FUDS
+      self.v_profile = d_DST
+      self.t_profile = r_US_FUDS
     elif(PROFILE_range == 'd_US06'):
       self.r_profile = d_US
-      self.v_profile = None
+      self.v_profile = d_US
+      self.t_profile = None
     elif(PROFILE_range == 'd_FUDS'):
       self.r_profile = d_FUDS
-      self.v_profile = r_DST_US
+      self.v_profile = d_FUDS
+      self.t_profile = r_DST_US
     else:
       self.r_profile = r_DST_US_FUDS
-      self.v_profile = r_DST_US
+      self.v_profile = r_DST_US_FUDS
+      self.t_profile = r_DST_US
     
     # Variable types to use
     self.float_dtype = float_dtype
@@ -123,27 +141,45 @@ class DataGenerator():
                                                         self.columns)
     self.valid_t = time.perf_counter() - tic
     
+    tic : float = time.perf_counter()
+    self.ts_ls_df, self.ts_ls_SoC = ParseExcelData(self.testi_dir,
+                                                        self.t_profile,
+                                                        self.columns)
+    self.testi_t = time.perf_counter() - tic
+
     # Get number of samples
     self.train_s = 0
     self.valid_s = 0
+    self.testi_s = 0
     for i in range(0, len(self.tr_ls_df)):
       self.train_s += self.tr_ls_df[i].shape[0]    
     for i in range(0, len(self.vl_ls_df)):
       self.valid_s += self.vl_ls_df[i].shape[0]
-    
+    for i in range(0, len(self.ts_ls_df)):
+      self.testi_s += self.ts_ls_df[i].shape[0]
+
     # Creating Numpy arrays for all dataset
     scaller : MinMaxScaler = MinMaxScaler(feature_range=(0,1))
     tic : float = time.perf_counter()
+    #* Training
     self.train_df = np.array(object=self.tr_ls_df[0],
                               dtype=self.float_dtype, copy=True)
     self.tr_ls_SoC[0] = scaller.fit_transform(self.tr_ls_SoC[0])
     self.train_SoC = np.array(object=self.tr_ls_SoC[0],
                               dtype=self.float_dtype, copy=True)
+    #* Valid
     self.valid_df = np.array(object=self.vl_ls_df[0],
                               dtype=self.float_dtype, copy=True)
     self.vl_ls_SoC[0] = scaller.fit_transform(self.vl_ls_SoC[0])
     self.valid_SoC = np.array(object=self.vl_ls_SoC[0],
                               dtype=self.float_dtype, copy=True)
+    #* Test
+    self.testi_df = np.array(object=self.ts_ls_df[0],
+                              dtype=self.float_dtype, copy=True)
+    self.ts_ls_SoC[0] = scaller.fit_transform(self.vl_ls_SoC[0])
+    self.testy_SoC = np.array(object=self.ts_ls_SoC[0],
+                              dtype=self.float_dtype, copy=True)
+
     for i in range(1, len(self.tr_ls_df)):
       self.train_df = np.append(
                               arr=self.train_df,
@@ -180,6 +216,24 @@ class DataGenerator():
                                 ),
                               axis=0
                             )
+    for i in range(1, len(self.ts_ls_df)):
+      self.testi_df = np.append(
+                              arr=self.testi_df,
+                              values=np.array(
+                                    object=self.ts_ls_df[i],
+                                    dtype=self.float_dtype, copy=True
+                                  ),
+                              axis=0
+                            )
+      self.ts_ls_SoC[i] = scaller.fit_transform(self.ts_ls_SoC[i])
+      self.testi_SoC = np.append(
+                              arr=self.testi_SoC,
+                              values=np.array(
+                                  object=self.ts_ls_SoC[i],
+                                  dtype=self.float_dtype, copy=True
+                                ),
+                              axis=0
+                            )
     self.gener_t = time.perf_counter() - tic    
 
   def __repr__(self) -> str:
@@ -189,7 +243,7 @@ class DataGenerator():
     Returns:
         str: New line string with information.
     """
-    total_samples = self.train_s + self.valid_s
+    total_samples = self.train_s + self.valid_s + self.testi_s
     train_proportion = self.train_s/total_samples*100
     valid_proportion = self.valid_s/total_samples*100
     return '\n'.join([
@@ -203,6 +257,7 @@ class DataGenerator():
       f'Data STD: {np.std(self.train_df)}',
       '\n\n'])
 
+  #* Training getters
   @property
   def train_list(self) -> np.ndarray:
     return self.tr_ls_df
@@ -229,6 +284,7 @@ class DataGenerator():
   def train_list_label(self) -> np.ndarray:
     return self.tr_ls_SoC
 
+  #* Validation getters
   @property
   def valid(self) -> np.ndarray:
     """ Validation Dataset
@@ -259,3 +315,35 @@ class DataGenerator():
         pd.DataFrame: valid['SoC', 'SoC(%)' ...]
     """
     return self.vl_ls_SoC
+
+  #* Testing getters
+  @property
+  def testi(self) -> np.ndarray:
+    """ Testing Dataset
+
+    Returns:
+        pd.DataFrame: testi['Current', 'Voltage' ...]
+    """
+    return self.testi_df
+
+  @property
+  def testi_list(self) -> np.ndarray:
+    return self.ts_ls_df
+
+  @property
+  def testi_label(self) -> np.ndarray:
+    """ Testing Dataset
+
+    Returns:
+        pd.DataFrame: testi['SoC', 'SoC(%)' ...]
+    """
+    return self.testi_SoC
+  
+  @property
+  def testi_list_label(self) -> np.ndarray:
+    """ Testing Dataset
+
+    Returns:
+        pd.DataFrame: testi['SoC', 'SoC(%)' ...]
+    """
+    return self.ts_ls_SoC

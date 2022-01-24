@@ -131,6 +131,8 @@ tf-docs
 tf-papers
 
 Models
+NewModels
+
 
 UQ_Endurance
 
@@ -141,3 +143,5 @@ cy_modules/utils.pyx
 
 tests/figures/
 tests/FirstCycler_parsed/
+tests/testWeights/
+tests/Models/
