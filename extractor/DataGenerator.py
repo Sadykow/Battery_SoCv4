@@ -98,19 +98,19 @@ class DataGenerator():
     if(PROFILE_range == 'DST'):
       self.r_profile = r_DST
       self.v_profile = r_DST
-      self.t_profile = r_US_FUDS
+      self.t_profile = [r_US, r_FUDS]#r_US_FUDS
     elif(PROFILE_range == 'US06'):
       self.r_profile = r_US
       self.v_profile = r_US
-      self.t_profile = None     #! A stub to resolve DST and FUDS
+      self.t_profile = [r_DST, r_FUDS]     #! A stub to resolve DST and FUDS
     elif(PROFILE_range == 'FUDS'):
       self.r_profile = r_FUDS
       self.v_profile = r_FUDS
-      self.t_profile = r_DST_US
+      self.t_profile = [r_DST, r_US]#r_DST_US
     elif(PROFILE_range == 'd_DST'):
       self.r_profile = d_DST
       self.v_profile = d_DST
-      self.t_profile = r_US_FUDS
+      self.t_profile = [r_US, r_FUDS]#r_US_FUDS
     elif(PROFILE_range == 'd_US06'):
       self.r_profile = d_US
       self.v_profile = d_US
@@ -143,8 +143,13 @@ class DataGenerator():
     
     tic : float = time.perf_counter()
     self.ts_ls_df, self.ts_ls_SoC = ParseExcelData(self.testi_dir,
-                                                        self.t_profile,
+                                                        self.t_profile[0],
                                                         self.columns)
+    ts_ls_df_2, ts_ls_SoC_2 = ParseExcelData(self.testi_dir,
+                                                        self.t_profile[1],
+                                                        self.columns)
+    self.ts_ls_df.extend(ts_ls_df_2)
+    self.ts_ls_SoC.extend(ts_ls_SoC_2)
     self.testi_t = time.perf_counter() - tic
 
     # Get number of samples
@@ -176,8 +181,8 @@ class DataGenerator():
     #* Test
     self.testi_df = np.array(object=self.ts_ls_df[0],
                               dtype=self.float_dtype, copy=True)
-    self.ts_ls_SoC[0] = scaller.fit_transform(self.vl_ls_SoC[0])
-    self.testy_SoC = np.array(object=self.ts_ls_SoC[0],
+    self.ts_ls_SoC[0] = scaller.fit_transform(self.ts_ls_SoC[0])
+    self.testi_SoC = np.array(object=self.ts_ls_SoC[0],
                               dtype=self.float_dtype, copy=True)
 
     for i in range(1, len(self.tr_ls_df)):

@@ -20,18 +20,21 @@ from sklearn.preprocessing import MinMaxScaler
 from extractor.soc_calc import diffSoC
 
 #! Replance Tensorflow Numpy with numpy if version below 2.5
-if(int(tf.__version__[2]) < 5):
-    import numpy as tnp
-else:
-    import tensorflow.experimental.numpy as tnp # type: ignore
+# if(int(tf.__version__[2]) < 5):
+#     import numpy as tnp
+# else:
+#     import tensorflow.experimental.numpy as tnp # type: ignore
 
 
 #from numba import jit, vectorize
 import sys
 if (sys.version_info[1] < 9):
+  import numpy as tnp
   LIST = list
   from typing import List as list
   from typing import Tuple as tuple
+else:
+  import tensorflow.experimental.numpy as tnp
   
 class WindowGenerator():
   Data : DataGenerator          # Data object containing Parsed data

@@ -50,26 +50,42 @@ import numpy as np
 import pandas as pd  # File read
 import tensorflow as tf  # Tensorflow and Numpy replacement
 import tensorflow_addons as tfa
+from tqdm import tqdm, trange
 
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
-from py_modules.utils import str2bool
+from py_modules.tf_modules import scheduler
+from py_modules.utils import str2bool, Locate_Best_Epoch
 from py_modules.plotting import predicting_plot
+
+import sys
+from typing import Callable
+if (sys.version_info[1] < 9):
+    LIST = list
+    from typing import List as list
+    from typing import Tuple as tuple
+
 # %%
 # Extract params
-# try:
-#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
-#                     ["help", "debug=", "epochs=",
-#                      "gpu=", "profile="])
-# except getopt.error as err: 
-#     # output error, and return with an error code 
-#     print (str(err)) 
-#     print ('EXEPTION: Arguments requied!')
-#     sys.exit(2)
+try:
+    opts, args = getopt.getopt(sys.argv[1:],"hd:e:l:n:a:g:p:",
+                    ["help", "debug=", "epochs=", "layers=", "neurons=",
+                     "attempt=", "gpu=", "profile="])
+except getopt.error as err: 
+    # output error, and return with an error code 
+    print (str(err)) 
+    print ('EXEPTION: Arguments requied!')
+    sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '50'), ('-g', '1'), ('-p', 'FUDS')]
+# opts = [('-d', 'False'), ('-e', '100'), ('-l', '1'), ('-n', '524'), ('-a', '1'),
+#         ('-g', '0'), ('-p', 'FUDS')]
+debug   : int = 0
+batch   : int = 1
 mEpoch  : int = 10
-GPU     : int = 0
+nLayers : int = 1
+nNeurons: int = 262
+attempt : str = '1'
+GPU     : int = None
 profile : str = 'DST'
 for opt, arg in opts:
     if opt == '-h':
@@ -82,11 +98,19 @@ for opt, arg in opts:
             logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s --> %(levelname)s:%(message)s')
             logging.warning("Logger DEBUG")
+            debug = 1
         else:
             logging.basicConfig(level=logging.CRITICAL)
             logging.warning("Logger Critical")
+            debug = 0
     elif opt in ("-e", "--epochs"):
         mEpoch = int(arg)
+    elif opt in ("-l", "--layers"):
+        nLayers = int(arg)
+    elif opt in ("-n", "--neurons"):
+        nNeurons = int(arg)
+    elif opt in ("-a", "--attempts"):
+        attempt = (arg)
     elif opt in ("-g", "--gpu"):
         #! Another alternative is to use
         #!:$ export CUDA_VISIBLE_DEVICES=0,1 && python *.py
@@ -112,18 +136,19 @@ logging.debug("\n\n"
     f"Plot figure size set to {mpl.rcParams['figure.figsize']}\n"
     f"Axes grid: {mpl.rcParams['axes.grid']}"
     )
-#! Select GPU for usage. CPU versions ignores it
+#! Select GPU for usage. CPU versions ignores it.
 #!! Learn to check if GPU is occupied or not.
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
     #! need to research more why.
-    tf.config.experimental.set_visible_devices(
-                            physical_devices[GPU], 'GPU')
+    # tf.config.experimental.set_visible_devices(
+    #                         physical_devices[GPU], 'GPU')
 
-    #if GPU == 1:
-    tf.config.experimental.set_memory_growth(
-                            physical_devices[GPU], True)
+    # if GPU == 1:
+    for device in physical_devices:
+        tf.config.experimental.set_memory_growth(
+                            device=device, enable=True)
     logging.info("GPU found and memory growth enabled") 
     
     logical_devices = tf.config.experimental.list_logical_devices('GPU')
@@ -149,28 +174,86 @@ dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
 # %%
 window = WindowGenerator(Data=dataGenerator,
                         input_width=500, label_width=1, shift=0,
-                        input_columns=['Current(A)', 'Voltage(V)', 'Temperature (C)_1'],
-                        label_columns=['SoC(%)'], batch=1,
+                        input_columns=['Current(A)', 'Voltage(V)',
+                                                'Temperature (C)_1'],
+                        label_columns=['SoC(%)'], batch=batch,
                         includeTarget=False, normaliseLabal=False,
                         shuffleTraining=False)
-_, xx_train, yy_train = window.train
-_, xx_valid, yy_valid = window.valid
+ds_train, x_train, y_train = window.train
+ds_valid, x_valid, y_valid = window.valid
+ds_testi, x_testi, y_testi = window.test
 
-# Entire Training set
-x_train = np.array(xx_train, copy=True, dtype=np.float32)
-y_train = np.array(yy_train, copy=True, dtype=np.float32)
-
-# For validation use same training
-x_valid = np.array(xx_train[16800:25000,:,:], copy=True, dtype=np.float32)
-y_valid = np.array(yy_train[16800:25000,:]  , copy=True, dtype=np.float32)
-
-# For test dataset take the remaining profiles.
-mid = int(xx_valid.shape[0]/2)+350
-x_test_one = np.array(xx_valid[:mid,:,:], copy=True, dtype=np.float32)
-y_test_one = np.array(yy_valid[:mid,:], copy=True, dtype=np.float32)
-x_test_two = np.array(xx_valid[mid:,:,:], copy=True, dtype=np.float32)
-y_test_two = np.array(yy_valid[mid:,:], copy=True, dtype=np.float32)
+# For training-validation if necessary 16800:24800
+xt_valid = np.array(x_train[-8000:,:,:], copy=True, dtype=np.float32)
+yt_valid = np.array(y_train[-8000:,:]  , copy=True, dtype=np.float32)
 # %%
+def create_model(mFunc : Callable, layers : int = 1,
+                 neurons : int = 500, dropout : float = 0.2,
+                 input_shape : tuple = (500, 3), batch : int = 1
+            ) -> tf.keras.models.Sequential:
+    """ Creates Tensorflow 2 based time series models with inputs exception 
+    handeling. Accepts multilayer models.
+    TODO: For Py3.10 correct typing with: func( .. dropout : int | float .. )
+
+    Args:
+        mFunc (Callable): Time series model function. .LSTM or .GRU
+        layers (int, optional): № of layers. Above 1 will create a return
+        sequence based models. Defaults to 1.
+        neurons (int, optional): Total № of neurons across all layers.
+        Value will be splitted evenly across all layers floored with 
+        int() function. Defaults to 500.
+        dropout (float, optional): Percentage dropout to eliminate random
+        values. Defaults to 0.2.
+        input_shape (tuple, optional): Input layer shape typle. Describes:
+        (№_of_samles, №_of_deatues). Defaults to (500, 3).
+        batch (int, optional): Batch size used at input layer. Defaults to 1.
+
+    Raises:
+        ZeroDivisionError: Rise an exception of anticipates unhandeled layer
+        value, which cannot split neurons.
+
+    Returns:
+        tf.keras.models.Sequential: A sequentil model with single output and
+        sigmoind() as an activation function.
+    """
+    # Check layers, neurons, dropout and batch are acceptable
+    layers = 1 if layers == 0 else abs(layers)
+    units : int = int(500/layers) if neurons == 0 else int(abs(neurons)/layers)
+    dropout : float = float(dropout) if dropout >= 0 else float(abs(dropout))
+    #? int(batch) if batch > 0 else ( int(abs(batch)) if batch != 0 else 1 )
+    batch : int = int(abs(batch)) if batch != 0 else 1
+    
+    # Define sequential model with an Input Layer
+    model : tf.keras.models.Sequential = tf.keras.models.Sequential([
+            tf.keras.layers.InputLayer(input_shape=input_shape,
+                                batch_size=1)
+        ])
+    
+    # Fill the layer content
+    if(layers > 1): #* Middle connection layers
+        for _ in range(layers-1):
+            model.add(mFunc(
+                    units=units, activation='tanh',
+                    dropout=dropout, return_sequences=True
+                ))
+    if(layers > 0): #* Last no-connection layer
+        model.add(mFunc(
+                units=units, activation='tanh',
+                dropout=dropout, return_sequences=False
+            ))
+    else:
+        print("Unhaldeled exeption with Layers")
+        raise ZeroDivisionError
+    
+    # Define the last Output layer with sigmoind
+    model.add(tf.keras.layers.Dense(
+            units=1, activation='sigmoid', use_bias=True
+        ))
+    
+    # Return completed model with some info if neededs
+    # print(model.summary())
+    return model
+    
 custom_loss = lambda y_true, y_pred: tf.keras.backend.mean(
             x=tf.math.squared_difference(
                     x=tf.cast(x=y_true, dtype=y_pred.dtype),

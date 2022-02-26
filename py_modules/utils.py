@@ -1,5 +1,5 @@
 from numpy import round, ndarray
-from pandas import read_csv
+from pandas import DataFrame, read_csv
 # from numba import vectorize, jit
 
 def str2bool(v : str) -> bool:
@@ -30,17 +30,21 @@ def diffSoC(chargeData : ndarray, discargeData : ndarray) -> ndarray:
   """
   return round((chargeData - discargeData)*100)/100
 
-def Locate_Best_Epoch(file_path : str) -> int:
+def Locate_Best_Epoch(file_path : str,
+                      metric : str = 'val_root_mean_squared_error'
+                    ) -> tuple[int, float]:
   """ Reads the CSV file with history data and locates the smallest amongs 
   validation RMSE.
 
   Args:
       file_path (str): History file location
+      metric (str): Column name to search by.
+  Default 'val_root_mean_squared_error'.
 
   Returns:
       int: The index or the epoch number which had best result.
   """
-  return read_csv(
+  df : DataFrame = read_csv(
             filepath_or_buffer=file_path, sep=",", delimiter=None,
             # Column and Index Locations and Names
             header="infer", names=None, index_col=None, usecols=None,
@@ -67,4 +71,13 @@ def Locate_Best_Epoch(file_path : str) -> int:
             # Internal
             delim_whitespace=False, low_memory=True, memory_map=False,
             float_precision=None
-        )['val_root_mean_squared_error'].idxmin()
+        )
+  #! Try catch to fix all files
+  try:
+    iEpoch : int = df['Epoch'][df[metric].idxmin()]
+    value  : float = df[metric][df["Epoch"]==iEpoch].values[0]
+  except KeyError:
+    print('>>>> NO EPOCH COLUMN')
+    iEpoch : int = df[metric].idxmin()
+    value  : float = df.iloc[iEpoch][metric]
+  return (iEpoch, value)

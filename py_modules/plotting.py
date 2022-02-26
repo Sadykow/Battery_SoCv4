@@ -1,5 +1,6 @@
 from matplotlib.pyplot import subplots, close, FuncFormatter
 from numpy import ndarray, linspace
+from pandas import DataFrame
 
 def format_SoC(value, _):
   return int(value*100)
@@ -46,7 +47,7 @@ def predicting_plot(profile : str, file_name : str, model_loc : str,
           RMS,
           label="ABS error", color='#698856')
     ax2.fill_between(test_time[:TAIL:],
-          RMS[:,0],
+          RMS,
           color='#698856')
     ax2.set_ylabel('Error', fontsize=32, color='#698856')
     ax2.tick_params(axis='y', labelcolor='#698856', labelsize=28)
@@ -77,5 +78,45 @@ def predicting_plot(profile : str, file_name : str, model_loc : str,
   # Saving figure and cleaning Memory from plots
   if save_plot:
     fig.savefig(f'{model_loc}{profile}-{iEpoch}.svg')
+  fig.clf()
+  close()
+
+def history_plot(profile : str, file_name : str, model_loc : str,
+                 df : DataFrame, save_plot : bool = False) -> None:
+  fig, (ax1, ax2) = subplots(1,2, figsize=(28,12), dpi=600)
+  fig.suptitle(f'{file_name} - {profile} training profile benchmark',
+              fontsize=36)
+  
+  # Plot MAE subfigure
+  ax1.plot(df['mae']*100, '-o',
+      label="Training", color='#0000ff')
+  ax1.plot(df['train_mae']*100, '--o',
+      label="Validation", color='#0000ff')
+  ax1.set_xlabel("Epochs", fontsize=32)
+  ax1.set_ylabel("Error (%)", fontsize=32)
+  ax2.set_xlabel("Epochs", fontsize=32)
+  ax2.set_ylabel("Error (%)", fontsize=32)
+
+  # Plot RMSE subfigure
+  ax2.plot(df['rmse']*100, '-o',
+      label="Training", color='#ff0000')
+  ax2.plot(df['train_rms']*100, '--o',
+      label="Validation", color='#ff0000')
+  ax1.set_ylabel("Error (%)", fontsize=32)
+  ax1.legend(prop={'size': 32})
+  ax2.legend(prop={'size': 32})
+  ax1.tick_params(axis='both', labelsize=28)
+  ax2.tick_params(axis='both', labelsize=28)
+
+  # Tighting the layot
+  ax1.set_title(f"Mean Absoulute Error", fontsize=36)
+  ax2.set_title(f"Root Mean Squared Error", fontsize=36)
+  ax1.set_ylim([-0.1,11])
+  ax2.set_ylim([-0.1,11])
+  fig.tight_layout()
+  
+  # Saving figure and cleaning Memory from plots
+  if save_plot:
+    fig.savefig(f'{model_loc}history-{profile}.svg')
   fig.clf()
   close()
