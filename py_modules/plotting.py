@@ -82,15 +82,18 @@ def predicting_plot(profile : str, file_name : str, model_loc : str,
   close()
 
 def history_plot(profile : str, file_name : str, model_loc : str,
-                 df : DataFrame, save_plot : bool = False) -> None:
+                 df : DataFrame, save_plot : bool = False,
+                 metrics : list = ['mae', 'train_mae',
+                                   'rmse', 'train_rms'],
+                 plot_file_name : str = 'history.svg') -> None:
   fig, (ax1, ax2) = subplots(1,2, figsize=(28,12), dpi=600)
   fig.suptitle(f'{file_name} - {profile} training profile benchmark',
               fontsize=36)
   
   # Plot MAE subfigure
-  ax1.plot(df['mae']*100, '-o',
+  ax1.plot(df[metrics[0]]*100, '-o',
       label="Training", color='#0000ff')
-  ax1.plot(df['train_mae']*100, '--o',
+  ax1.plot(df[metrics[1]]*100, '--o',
       label="Validation", color='#0000ff')
   ax1.set_xlabel("Epochs", fontsize=32)
   ax1.set_ylabel("Error (%)", fontsize=32)
@@ -98,9 +101,9 @@ def history_plot(profile : str, file_name : str, model_loc : str,
   ax2.set_ylabel("Error (%)", fontsize=32)
 
   # Plot RMSE subfigure
-  ax2.plot(df['rmse']*100, '-o',
+  ax2.plot(df[metrics[2]]*100, '-o',
       label="Training", color='#ff0000')
-  ax2.plot(df['train_rms']*100, '--o',
+  ax2.plot(df[metrics[3]]*100, '--o',
       label="Validation", color='#ff0000')
   ax1.set_ylabel("Error (%)", fontsize=32)
   ax1.legend(prop={'size': 32})
@@ -117,6 +120,6 @@ def history_plot(profile : str, file_name : str, model_loc : str,
   
   # Saving figure and cleaning Memory from plots
   if save_plot:
-    fig.savefig(f'{model_loc}history-{profile}.svg')
+    fig.savefig(f'{model_loc}{plot_file_name}')
   fig.clf()
   close()

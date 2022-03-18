@@ -32,7 +32,7 @@ def diffSoC(chargeData : ndarray, discargeData : ndarray) -> ndarray:
 
 def Locate_Best_Epoch(file_path : str,
                       metric : str = 'val_root_mean_squared_error'
-                    ) -> tuple[int, float]:
+                    ):
   """ Reads the CSV file with history data and locates the smallest amongs 
   validation RMSE.
 
@@ -73,11 +73,10 @@ def Locate_Best_Epoch(file_path : str,
             float_precision=None
         )
   #! Try catch to fix all files
-  try:
-    iEpoch : int = df['Epoch'][df[metric].idxmin()]
-    value  : float = df[metric][df["Epoch"]==iEpoch].values[0]
-  except KeyError:
-    print('>>>> NO EPOCH COLUMN')
-    iEpoch : int = df[metric].idxmin()
-    value  : float = df.iloc[iEpoch][metric]
+  iEpoch : int = df['Epoch'][df[metric].idxmin()]
+  value  : float = df[metric][df["Epoch"]==iEpoch].values[0]
+  # except KeyError:
+  #   print('>>>> NO EPOCH COLUMN')
+  #   iEpoch : int = df[metric].idxmin()
+  #   value  : float = df.iloc[iEpoch][metric]
   return (iEpoch, value)

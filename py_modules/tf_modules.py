@@ -1,5 +1,5 @@
 import sys
-from tensorflow import Tensor, constant, round
+from tensorflow import Tensor, constant, round, linspace
 from tensorflow.python.keras.models import Sequential, clone_model
 from tensorflow.python.keras.layers import InputLayer, Dense
 from tensorflow.python.ops.math_ops import exp
@@ -114,7 +114,7 @@ def tf_round(x : Tensor, decimals : int = 0) -> Tensor:
               x=(x * multiplier), name='round_to_decimal'
           ) / multiplier
 
-def scheduler(epoch : int, lr : float) -> float:
+def scheduler(epoch : int, lr : float, type : str = 'mix') -> float:
   """ Scheduler
   round(model.optimizer.lr.numpy(), 5)
 
@@ -126,19 +126,24 @@ def scheduler(epoch : int, lr : float) -> float:
       float: [description]
   """
   #! Think of the better sheduler
-  if (epoch < 20):
-      return lr
+  if type == 'mix':
+    if (epoch < 20):
+        return lr
+    else:
+        # lr = tf_round(x=lr * tf.math.exp(-0.05), decimals=6)
+        lr = lr * exp(-0.05)
+        if lr >= 0.00005:
+            return lr
+        else:
+            return  0.00005
+  elif type == 'linear':
+    return linspace(0.001, 0.0001, 100)[epoch]
   else:
-      # lr = tf_round(x=lr * tf.math.exp(-0.05), decimals=6)
-      lr = lr * exp(-0.05)
-      if lr >= 0.00005:
-          return lr
-      else:
-          return  0.00005
+    return 0.001
   # return np.arange(0.001,0,-0.00002)[iEpoch]
   # return lr * 1 / (1 + decay * iEpoch)
 
-def get_learning_rate(epoch : int, iLr : float) -> float:
+def get_learning_rate(epoch : int, iLr : float, type : str = 'mix') -> float:
   """_summary_
 
   Args:
@@ -149,6 +154,6 @@ def get_learning_rate(epoch : int, iLr : float) -> float:
       float: _description_
   """
   for i in range(0, epoch):
-    iLr = scheduler(i, iLr)
+    iLr = scheduler(i, iLr, type)
   print(f'The Learning rate set to: {iLr}')
   return iLr

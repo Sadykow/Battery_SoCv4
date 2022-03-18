@@ -39,6 +39,14 @@
 #?Approximately 15~20% of provided data.
 #? Testing performed on any datasets.
 # %%
+#! ---------Set Random seed------------
+import random
+random.seed(1)
+import numpy as np
+np.random.seed(1)
+import tensorflow as tf
+tf.random.set_seed(1)
+#! ------------------------------------
 import datetime
 import logging
 import os, sys, getopt    # OS, SYS, argc functions
@@ -63,7 +71,8 @@ if (sys.version_info[1] < 9):
     LIST = list
     from typing import List as list
     from typing import Tuple as tuple
-  
+
+os.environ['TF_DETERMINISTIC_OPS'] = '1'  
 # %%
 # Extract params
 # try:
@@ -76,8 +85,8 @@ if (sys.version_info[1] < 9):
 #     print ('EXEPTION: Arguments requied!')
 #     sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '100'), ('-l', '2'), ('-n', '131'), ('-a', '1'),
-        ('-g', '0'), ('-p', 'FUDS')]
+opts = [('-d', 'False'), ('-e', '100'), ('-l', '1'), ('-n', '262'), ('-a', '2'),
+        ('-g', '0'), ('-p', 'FUDS')] # 2x131
 debug   : int = 0
 batch   : int = 1
 mEpoch  : int = 10
@@ -86,6 +95,7 @@ nNeurons: int = 262
 attempt : str = '1'
 GPU     : int = None
 profile : str = 'DST'
+print(opts)
 for opt, arg in opts:
     if opt == '-h':
         print('HELP: Use following default example.')
@@ -162,7 +172,7 @@ if(platform=='win32'):
     Data    : str = 'DataWin\\'
 else:
     Data    : str = 'Data/'
-dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
+dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Single',
                               valid_dir=f'{Data}A123_Matt_Val',
                               test_dir=f'{Data}A123_Matt_Test',
                               columns=[
@@ -254,9 +264,9 @@ def create_model(mFunc : Callable, layers : int = 1,
     return model
 
 file_name : str = os.path.basename(__file__)[:-3]
-model_name : str = 'Model №1'
+model_name : str = 'Model-№1'
 ####################! ADD model_name to path!!! ################################
-model_loc : str = f'Mods/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
+model_loc : str = f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
 iEpoch = 0
 firstLog : bool = True
 iLr     : float = 0.001
@@ -271,10 +281,10 @@ try:
     lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
             f'{model_loc}{iEpoch}',
             compile=False)
-    iLr = get_learning_rate(iEpoch, iLr)
+    iLr = get_learning_rate(iEpoch, iLr, 'linear')
     firstLog = False
     print(f"Model Identefied at {iEpoch} with {prev_error}. Continue training.")
-except OSError as identifier:
+except (OSError, TypeError) as identifier:
     print("Model Not Found, initiating new. {} \n".format(identifier))
     lstm_model = create_model(
             tf.keras.layers.LSTM, layers=nLayers, neurons=nNeurons,
@@ -289,15 +299,19 @@ prev_model = tf.keras.models.clone_model(lstm_model,
 optimiser = tf.optimizers.Adam(learning_rate=iLr,
             beta_1=0.9, beta_2=0.999, epsilon=1e-07, amsgrad=False)
 loss_fn   = tf.losses.MeanAbsoluteError(
-                    reduction=tf.keras.losses.Reduction.NONE
+                    reduction=tf.keras.losses.Reduction.NONE,
+                    #from_logits=True
                 )
 MAE     = tf.metrics.MeanAbsoluteError()
 RMSE    = tf.metrics.RootMeanSquaredError()
 RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
+CR_ER   = tf.metrics.MeanAbsoluteError()
 
 @tf.function
 def train_single_st(input : tuple[np.ndarray, np.ndarray],
-                    metrics : tf.keras.metrics) -> tf.Tensor:
+                    metrics : tf.keras.metrics,
+                    curr_error : tf.keras.metrics
+                    ) -> tf.Tensor:
     # Execute model as training
     with tf.GradientTape() as tape:
         #? tf.EagerTensor['1,1', tf.float32]
@@ -306,15 +320,20 @@ def train_single_st(input : tuple[np.ndarray, np.ndarray],
         loss_value : tf.Tensor = loss_fn(input[1], logits)
     
     # Get gradients and apply optimiser to model
-    grads : list[tf.Tensor]= tape.gradient(
+    grads : list[tf.Tensor] = tape.gradient(
                     loss_value,
                     lstm_model.trainable_weights
                 )
     optimiser.apply_gradients(zip(grads, lstm_model.trainable_weights))
     
-    # Update metrics
+    # Update metrics before
     for metric in metrics:
         metric.update_state(y_true=input[1], y_pred=logits)
+
+    # Currrent error tracker
+    curr_error.update_state(y_true=input[1],
+                            y_pred=lstm_model(input[0], training=False))
+    
     return loss_value
 
 @tf.function
@@ -349,7 +368,16 @@ def valid_loop(dist_input  : tuple[np.ndarray, np.ndarray],
         # rsquare[i] = val_RSquare.result()
     #! Error with RMSE here. No mean should be used.
     # return [loss, mae, rmse, rsquare, logits]
-    return [loss, val_MAE.result(), val_RMSE.result(), val_RSquare.result(), logits]
+    mae      : float = val_MAE.result()
+    rmse     : float = val_RMSE.result()
+    r_Square : float = val_RSquare.result()
+    
+    # Reset training metrics at the end of each epoch
+    val_MAE.reset_states()
+    val_RMSE.reset_states()
+    val_RSquare.reset_states()
+
+    return [loss, mae, rmse, r_Square, logits]
 
 # %%
 if not os.path.exists(f'{model_loc}'):
@@ -381,14 +409,19 @@ while iEpoch < mEpoch:
     loss_value : np.float32 = 0.0
     for i in sh_i[::]:
         loss_value = train_single_st((x_train[i,:,:,:], y_train[i,:]),
-                                    [MAE,RMSE,RSquare])
+                                    metrics=[MAE,RMSE,RSquare],
+                                    curr_error=CR_ER
+                                    )
         # Progress Bar
         # pbar.update(1)
         # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
         #                         f'loss: {(loss_value[0]):.4f} - '
         #                         f'mae: {MAE.result():.4f} - '
         #                         f'rmse: {RMSE.result():.4f} - '
-        #                         f'rsquare: {RSquare.result():.4f}'
+        #                         f'rsquare: {RSquare.result():.4f} --- '
+        #                         f'mae: {MAE2.result():.4f} - '
+        #                         f'rmse: {RMSE2.result():.4f} - '
+        #                         f'rsquare: {RSquare2.result():.4f}'
         #                     )
     toc : float = time.perf_counter() - tic
     # pbar.close()
@@ -404,25 +437,42 @@ while iEpoch < mEpoch:
     #! If Loss rised from previos - reload with prev_model
     #! Verefy that training is good by comparing previos error
     #? Dealing with NaN state. Give few trials to see if model improves
-    curr_error = MAE.result().numpy()
+    curr_error = CR_ER.result().numpy()
+    print(f'The post optimiser error: {curr_error}')
     if (tf.math.is_nan(loss_value[0]) or curr_error > prev_error):
         print('->> NaN or High error model')
         i_attempts : int = 0
-        firstFaltyLog : True = True
+        firstFaltyLog : bool = True
         while i_attempts < n_attempts:
             print(f'->>> Attempt {i_attempts}')
-            lstm_model.save(filepath=f'{model_loc}{iEpoch}-fail-{i_attempts}',
-                    overwrite=True, include_optimizer=True,
-                    save_format='h5', signatures=None, options=None
-            )
+            try:
+                lstm_model.save(filepath=f'{model_loc}{iEpoch}-fail-{i_attempts}',
+                        overwrite=True, include_optimizer=True,
+                        save_format='h5', signatures=None, options=None
+                )
+            except OSError:
+                os.remove(f'{model_loc}{iEpoch}-fail-{i_attempts}')
+                lstm_model.save(filepath=f'{model_loc}{iEpoch}-fail-{i_attempts}',
+                        overwrite=True, include_optimizer=True,
+                        save_format='h5', signatures=None, options=None
+                )
             lstm_model = tf.keras.models.clone_model(prev_model)
             
             np.random.shuffle(sh_i)
             # pbar = tqdm(total=y_train.shape[0])
+
+            # Reset every metric
+            MAE.reset_states()
+            RMSE.reset_states()
+            RSquare.reset_states()
+            CR_ER.reset_states()
+
             tic = time.perf_counter()
             for i in sh_i[::]:
                 loss_value = train_single_st((x_train[i,:,:,:], y_train[i,:]),
-                                        [MAE,RMSE,RSquare])
+                                        [MAE,RMSE,RSquare],
+                                        curr_error=CR_ER
+                                        )
                 # Progress Bar
                 # pbar.update(1)
                 # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
@@ -430,10 +480,12 @@ while iEpoch < mEpoch:
                 #                     )
             toc = time.perf_counter() - tic
             # pbar.close()
-            #! TODO: Reduce LEarning step.
-            #! TODO: withot scheduler iLr/2
             TRAIN = valid_loop((xt_valid, yt_valid), verbose = debug)
+            
+            # Update learning rate
             iLr /= 2
+            optimiser.learning_rate = iLr
+
             # Log the faulty results
             faulty_hist_df = pd.DataFrame(data={
                     'Epoch'  : [iEpoch],
@@ -454,8 +506,10 @@ while iEpoch < mEpoch:
                     firstFaltyLog = False
                 else:
                     faulty_hist_df.to_csv(f, index=False, header=False)
-            print(faulty_hist_df)
-            curr_error = MAE.result().numpy()
+            # print(faulty_hist_df[['']])
+            curr_error = CR_ER.result().numpy()
+            print(f'The post optimiser error: {curr_error}')
+            # curr_error = np.array(TRAIN[1])
             if (not tf.math.is_nan(loss_value[0]) and
                 not curr_error > prev_error and
                 not TRAIN[1] > 0.20 ):
@@ -468,7 +522,7 @@ while iEpoch < mEpoch:
             break
         else:
             print('->> Model restored -- continue training')
-            lstm_model.save(filepath=f'{model_loc}{iEpoch}-{i_attempts}',
+            lstm_model.save(filepath=f'{model_loc}{iEpoch}',
                             overwrite=True, include_optimizer=True,
                             save_format='h5', signatures=None, options=None
                 )
@@ -483,7 +537,7 @@ while iEpoch < mEpoch:
         prev_error = curr_error
 
     # Update learning rate
-    iLr = scheduler(iEpoch, iLr)
+    iLr = scheduler(iEpoch, iLr, 'linear')
     optimiser.learning_rate = iLr
 
     # #! Stop using that
@@ -514,6 +568,7 @@ while iEpoch < mEpoch:
     # Validating model 
     val_tic : float = time.perf_counter()
     PERF = valid_loop((x_valid, y_valid), verbose = debug)
+    # PERF = valid_loop((x_train, y_train), verbose = debug)
     val_toc : float = time.perf_counter() - val_tic
     #! Verefy RMS shape
     #! if RMS.shape[0] == RMS.shape[1]
@@ -530,6 +585,19 @@ while iEpoch < mEpoch:
                             PERF[2], PERF[3]],
                     TAIL=y_valid.shape[0],
                     save_plot=True)
+    # RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+    #             y_train[:,0,0]-PERF[4])))
+    # predicting_plot(profile=profile, file_name=model_name,
+    #                 model_loc=f'{model_loc}/valdPlots/',
+    #                 model_type='LSTM valid',
+    #                 iEpoch=f'val-{iEpoch}',
+    #                 Y=y_train[:,0],
+    #                 PRED=PERF[4],
+    #                 RMS=RMS,
+    #                 val_perf=[np.mean(PERF[0]), PERF[1],
+    #                         PERF[2], PERF[3]],
+    #                 TAIL=y_train.shape[0],
+    #                 save_plot=True)
     print(f'Epoch {iEpoch}/{mEpoch} :: PERF :: '
             f'Elapsed Time: {val_toc} - '
             f'mae: {PERF[1]:.4f} - '
@@ -593,17 +661,16 @@ while iEpoch < mEpoch:
             f'rmse: {np.mean(np.append(TEST1[2], TEST2[2])):.4f} - '
             f'rsquare: {np.mean(np.append(TEST1[3], TEST2[3])):.4f} - '
         )
-
-    try:
-        hist_df : pd.DataFrame = pd.read_csv(f'{model_loc}history.csv',
-                                             index_col='Epoch')
-        hist_df = hist_df.reset_index()
-    except ValueError:
-    ####################! TEMP FIX!!! ################################
-        hist_df : pd.DataFrame = pd.read_csv(f'{model_loc}history.csv')
-        hist_df.index = hist_df.index+1
-        hist_df = hist_df.reset_index()
-        hist_df = hist_df.rename(columns={'index' : 'Epoch'})
+    
+    hist_df : pd.DataFrame = pd.read_csv(f'{model_loc}history.csv',
+                                            index_col='Epoch')
+    hist_df = hist_df.reset_index()
+    # except ValueError:
+    # ####################! TEMP FIX!!! ################################
+    #     hist_df : pd.DataFrame = pd.read_csv(f'{model_loc}history.csv')
+    #     hist_df.index = hist_df.index+1
+    #     hist_df = hist_df.reset_index()
+    #     hist_df = hist_df.rename(columns={'index' : 'Epoch'})
 
     #! Store the LearningRate
     hist_ser = pd.Series(data={
@@ -632,26 +699,39 @@ while iEpoch < mEpoch:
     if(len(hist_df[hist_df['Epoch']==iEpoch]) == 0):
         hist_df = hist_df.append(hist_ser, ignore_index=True)
     else:
-        try:
-            hist_df[hist_df['Epoch']==iEpoch] = hist_ser
-        except:
-            hist_df['learn_r'] = np.nan
-            hist_df[hist_df['Epoch']==iEpoch] = hist_ser
+        hist_df.loc[iEpoch-1, :] = hist_ser
+        # except:
+        #     hist_df['learn_r'] = np.nan
+        #     hist_df.loc[iEpoch-1, :] = hist_ser
 
     hist_df.to_csv(f'{model_loc}history.csv', index=False)
     
     # Plot History for reference and overwrite if have to    
-    history_plot(profile, model_name, model_loc, hist_df, save_plot=True)
+    history_plot(profile, model_name, model_loc, hist_df, save_plot=True,
+                    plot_file_name=f'history-{profile}-train.svg')
+    history_plot(profile, model_name, model_loc, hist_df, save_plot=True,
+                metrics=['mae', 'val_mae',
+                        'rmse', 'val_rms'],
+                plot_file_name=f'history-{profile}-valid.svg')
 
     pd.DataFrame(TRAIN[4]).to_csv(f'{model_loc}{iEpoch}-train-logits.csv')
     pd.DataFrame(PERF[4]).to_csv(f'{model_loc}{iEpoch}-valid-logits.csv')
     pd.DataFrame(np.append(TEST1[4], TEST2[4])
                 ).to_csv(f'{model_loc}{iEpoch}-test--logits.csv')
+    
+    # Reset every metric and clear memory leak
+    MAE.reset_states()
+    RMSE.reset_states()
+    RSquare.reset_states()
+    CR_ER.reset_states()
+    
+    tf.keras.backend.clear_session()
+
 # %%
 #! Find the lowest error amongs all models in the file and make prediction
 # history.head()
 bestEpoch, _  = Locate_Best_Epoch(f'{model_loc}history.csv', 'mae')
-best_model : tf.keras.models.Sequential = tf.keras.models.load_model(
+lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
         f'{model_loc}{bestEpoch}',
         compile=False)
 profiles: list = ['DST', 'US06', 'FUDS']
