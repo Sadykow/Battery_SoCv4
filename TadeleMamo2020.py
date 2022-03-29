@@ -18,12 +18,12 @@ import numpy as np
 import pandas as pd  # File read
 import tensorflow as tf
 import tensorflow_addons as tfa
-import tensorflow_probability as tfp
+# import tensorflow_probability as tfp
 
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
 from py_modules.Attention import *
-from cy_modules.utils import str2bool
+from py_modules.utils import str2bool
 from py_modules.plotting import predicting_plot
 # %%
 # Extract params
