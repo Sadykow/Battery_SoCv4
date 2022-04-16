@@ -167,7 +167,8 @@ class WindowGenerator():
   
   @tf.autograph.experimental.do_not_convert
   def make_dataset_from_array(self, inputs : np.ndarray,
-                                    labels : np.ndarray
+                                    labels : np.ndarray,
+                                    round : int = 4
               ) -> tf.raw_ops.MapDataset:
 
     input_length : int = len(self.input_columns)    
@@ -184,7 +185,7 @@ class WindowGenerator():
                                   MEAN
                                 ),
                             STD
-                          )
+                          ).round(decimals=round)
     else:
       data : np.ndarray = np.copy(a=inputs[:,:input_length],
                                   order='K', subok=False)
@@ -199,7 +200,7 @@ class WindowGenerator():
             sampling_rate=1,
             batch_size=self.batch, shuffle=False,
             seed=None, start_index=None, end_index=None
-        )
+        ) #8k-samples=8k-windows
 
     ds : tf.raw_ops.MapDataset = ds.map(self.split_window)
     if (sys.version_info[1] < 9):
@@ -209,7 +210,7 @@ class WindowGenerator():
                             ))
       # print('Output Shape ')
       y : np.ndarray = np.asarray(LIST(ds.map(
-                                  lambda _, y: y[:,0]
+                                  lambda _, y: y[:,:,0]
                                 ).as_numpy_iterator()
                             ))
     else:
@@ -219,17 +220,17 @@ class WindowGenerator():
                             ))
       # print('Output Shape ')
       y : np.ndarray = np.asarray(list(ds.map(
-                                  lambda _, y: y[:,0]
+                                  lambda _, y: y[:,:,0]
                                 ).as_numpy_iterator()
                             ))
-    print(f"\n\nData windowing took: {(perf_counter() - tic):.2f} seconds")
+    print(f"\nData windowing took: {(perf_counter() - tic):.2f} seconds")
     return ds, x, y
 
   @tf.autograph.experimental.do_not_convert
   def make_dataset_from_list(self, X : list[np.ndarray],
                                    Y : list[np.ndarray],
-                                   look_back : int = 1
               ) -> tuple[np.ndarray, np.ndarray]:
+    look_back : int = self.input_width
     batch : int = len(X)
     dataX : list[np.ndarray] = []
     dataY : list[np.ndarray] = []
@@ -240,28 +241,34 @@ class WindowGenerator():
                                           keepdims=False)
     STD = np.std(a=self.Data.train[:,:input_length], axis=0,
                                    keepdims=False)
+    print("\n")
     tic : float = perf_counter()
     for i in range(0, batch):
-        d_len : int = X[i].shape[0]-look_back
-        dataX.append(np.zeros(shape=(d_len, look_back, input_length),
-                    dtype=self.float_dtype))
-        dataY.append(np.zeros(shape=(d_len,), dtype=self.float_dtype))
-        for j in range(0, d_len):
-            if self.normaliseInput: #! Spmething wrong here
-              # dataX[i][j,:,:] = (X[i][self.input_columns].to_numpy()[j:(j+look_back), :]-MEAN)/STD
-              dataX[i][j,:,:] =np.divide(
+      d_len : int = X[i].shape[0]-look_back+1
+      dataX.append(np.zeros(shape=(d_len, self.batch, look_back, input_length),
+                  dtype=self.float_dtype))
+      dataY.append(np.zeros(shape=(d_len, self.batch, 1),
+                  dtype=self.float_dtype))
+      #! Reample each with end and beging +500+1
+      for j in range(0, d_len):
+        if self.normaliseInput: #! Spmething wrong here
+          # dataX[i][j,:,:] = (X[i][self.input_columns].to_numpy()[j:(j+look_back), :]-MEAN)/STD
+          dataX[i][j,0,:,:] = np.divide(
                                 np.subtract(
-                                      np.copy(a=X[i][self.input_columns].to_numpy()[j:(j+look_back), :]),
-                                      MEAN
-                                    ),
+                                  np.copy(
+                a=X[i][self.input_columns].to_numpy()[j:(j+look_back), :]
+                                  ),
+                                  MEAN
+                                ),
                                 STD
                               )
-            else:
-              dataX[i][j,:,:] = X[i][self.input_columns].to_numpy()[j:(j+look_back), :]
-            #dataY[i][j]     = Y[i][j+look_back,]
-            dataY[i][j]     = Y[i][j+look_back-1,]
-
-    print(f"\n\nData windowing took: {(perf_counter() - tic):.2f} seconds")
+        else:
+          dataX[i][j,0,:,:] = X[i][self.input_columns].to_numpy()[j:(j+look_back), :]
+        #dataY[i][j]     = Y[i][j+look_back,]
+        dataY[i][j,0,0]     = Y[i][j+look_back-1,]
+      temperature : float = X[i]['Temperature (C)_1'].mean()
+      print(f"Mean temp: {temperature:.2f} degrees")
+    print(f"Data for windowing took: {(perf_counter() - tic):.2f} seconds\n")
     return dataX, dataY
 
   @tf.autograph.experimental.do_not_convert
@@ -337,7 +344,66 @@ class WindowGenerator():
                             ))
     print(f"\n\nData windowing took: {(perf_counter() - tic):.2f} seconds")
     return ds, x, y
+    
+  def produce_single_set(self, inputs, labels):
+    """_summary_
+
+    Args:
+        inputs (_type_): _description_
+        labels (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    length = labels[0].shape[0]
   
+    X = tf.data.Dataset.from_tensor_slices(inputs[0]).repeat(3)
+    Y = tf.data.Dataset.from_tensor_slices(labels[0]).repeat(3)
+    if (sys.version_info[1] < 9):
+      _, X, Y = self.make_dataset_from_array(
+                              inputs=np.array(LIST(X.as_numpy_iterator())),
+                              labels=np.array(LIST(Y.as_numpy_iterator())),
+                              round=4
+                            )
+    else:
+      _, X, Y = self.make_dataset_from_array(
+                              inputs=np.array(list(X.as_numpy_iterator())),
+                              labels=np.array(list(Y.as_numpy_iterator())),
+                              round=4
+                            )
+    X = X[
+      length-self.total_window_size:2*length-self.total_window_size, :, :, :
+      ]    
+    Y = Y[
+      length-self.total_window_size:2*length-self.total_window_size, :, : 
+      ]
+    for x, y in zip(inputs[1:], labels[1:]):
+      length = y.shape[0]
+      x = tf.data.Dataset.from_tensor_slices(x).repeat(3)
+      y = tf.data.Dataset.from_tensor_slices(y).repeat(3)
+
+      if (sys.version_info[1] < 9):
+        _, x, y = self.make_dataset_from_array(
+                                inputs=np.array(LIST(x.as_numpy_iterator())),
+                                labels=np.array(LIST(y.as_numpy_iterator())),
+                                round=4
+                              )
+      else:
+        _, x, y = self.make_dataset_from_array(
+                                inputs=np.array(list(x.as_numpy_iterator())),
+                                labels=np.array(list(y.as_numpy_iterator())),
+                                round=4
+                              )
+      x = x[
+        length-self.total_window_size:2*length-self.total_window_size, :, :, :
+        ]          
+      y = y[
+        length-self.total_window_size:2*length-self.total_window_size, :, : 
+        ]
+      X = np.concatenate([X, x], axis=0)
+      Y = np.concatenate([Y, y], axis=0)
+    return (X, Y)
+
   # @tf.autograph.experimental.do_not_convert
   # def ParseFullData(self, dir : str
   #     ) -> tuple[pd.DataFrame, tf.raw_ops.MapDataset, tnp.ndarray, tnp.ndarray]:
@@ -618,51 +684,43 @@ class WindowGenerator():
 
   @property
   def train(self):
-    if (self.shift == 1 & self.label_width == 1 & self.input_width == 1):
-      print("Maling train dataset from list")
-      x, y = self.make_dataset_from_list(
-                                  X=self.Data.train_list,
-                                  Y=self.Data.train_list_label
-                                )
-      return x, y  
-    else:
-      ds, x, y = self.make_dataset_from_array(
-                                  inputs=self.Data.train,
-                                  labels=self.Data.train_SoC
-                                )
-      return ds, x, y
+    return self.produce_single_set(inputs=self.Data.train_list,
+                                   labels=self.Data.train_list_label)
 
   @property
   def valid(self):
-    if (self.shift == 1 & self.label_width == 1 & self.input_width == 1):
-      print("Maling train dataset from list")
-      x, y = self.make_dataset_from_list(
-                                  X=self.Data.valid_list,
-                                  Y=self.Data.valid_list_label
-                                )
-      return x, y
-    else:
-      ds, x, y = self.make_dataset_from_array(
-                                  inputs=self.Data.valid,
-                                  labels=self.Data.valid_SoC
-                                )
-      return ds, x, y  
+    return self.produce_single_set(inputs=self.Data.valid_list,
+                                   labels=self.Data.valid_list_label)
+
 
   @property
   def test(self):
-    if (self.shift == 1 & self.label_width == 1 & self.input_width == 1):
-      print("Maling train dataset from list")
-      x, y = self.make_dataset_from_list(
-                                  X=self.Data.testi_list,
-                                  Y=self.Data.testi_list_label
-                                )
-      return x, y
-    else:
-      ds, x, y = self.make_dataset_from_array(
-                                  inputs=self.Data.testi,
-                                  labels=self.Data.testi_SoC
-                                )
-      return ds, x, y
+    return self.produce_single_set(inputs=self.Data.testi_list,
+                                   labels=self.Data.testi_list_label)
+
+  @property
+  def train_lists(self):
+    x, y = self.make_dataset_from_list(
+                                X=self.Data.train_list,
+                                Y=self.Data.train_list_label
+                              )
+    return x, y  
+    
+  @property
+  def valid_lists(self):
+    x, y = self.make_dataset_from_list(
+                                X=self.Data.valid_list,
+                                Y=self.Data.valid_list_label
+                              )
+    return x, y
+
+  @property
+  def test_lists(self):
+    x, y = self.make_dataset_from_list(
+                                X=self.Data.testi_list,
+                                Y=self.Data.testi_list_label
+                              )
+    return x, y
 
   # @property
   # def full_train(self):

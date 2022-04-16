@@ -67,11 +67,11 @@ def Locate_Best_Epoch(file_path : str,
             lineterminator=None, quotechar='"', quoting=0, doublequote=True,
             escapechar=None, comment=None, encoding=None, dialect=None,
             # Error Handling
-            error_bad_lines=True, warn_bad_lines=True,
+            error_bad_lines=None, warn_bad_lines=None,
             # Internal
             delim_whitespace=False, low_memory=True, memory_map=False,
             float_precision=None
-        )
+        ) #? FutureWarning: The warn_bad_lines, error_bad_lines argument has been deprecated and will be removed in a future version.
   #! Try catch to fix all files
   iEpoch : int = df['Epoch'][df[metric].idxmin()]
   value  : float = df[metric][df["Epoch"]==iEpoch].values[0]

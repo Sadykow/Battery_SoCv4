@@ -14,6 +14,7 @@ class AutoFeedBack(tf.keras.Model):
   dense       : tf.keras.layers.Dense
   
   units       : int
+  #TODO: Introduce Save/Load
   def __init__(self, units : int, out_steps : int, num_features : int = 1,
               float_dtype : type = tf.float32):
     """ Model cinstructor initialising layers. This one utilises LSTM only.
@@ -217,7 +218,9 @@ class AutoFeedBack(tf.keras.Model):
       predictions = predictions.write(0, prediction)
       
       # Run the rest of the prediction steps
-      for n in range(1, self.out_steps):
+      # for n in range(1, self.out_steps):
+      for n in tf.range(1, self.out_steps, delta=1,
+                        dtype=tf.int32, name='range'):
         # Use the last prediction as input.
         x = tf.concat(
                     values=[
@@ -247,6 +250,7 @@ class AutoFeedBack(tf.keras.Model):
       # print(f'Validation shape: {predictions[0].shape}')
       return self.tf_round(predictions[0], decimals=2)
 
+  @tf.function
   def tf_round(self, x : tf.Tensor, decimals : int = 2):
     """ Direct rounding, similar to the simple tf.round. Resets gradient.
 

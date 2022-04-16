@@ -40,12 +40,13 @@
 #? Testing performed on any datasets.
 # %%
 #! ---------Set Random seed------------
-import random
-random.seed(1)
-import numpy as np
-np.random.seed(1)
-import tensorflow as tf
-tf.random.set_seed(1)
+# import random
+# random.seed(1)
+# import numpy as np
+# np.random.seed(1)
+# import tensorflow as tf
+# tf.random.set_seed(1)
+# os.environ['TF_DETERMINISTIC_OPS'] = '1'
 #! ------------------------------------
 import datetime
 import logging
@@ -72,7 +73,6 @@ if (sys.version_info[1] < 9):
     from typing import List as list
     from typing import Tuple as tuple
 
-os.environ['TF_DETERMINISTIC_OPS'] = '1'  
 # %%
 # Extract params
 # try:
@@ -85,8 +85,8 @@ os.environ['TF_DETERMINISTIC_OPS'] = '1'
 #     print ('EXEPTION: Arguments requied!')
 #     sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '100'), ('-l', '1'), ('-n', '262'), ('-a', '2'),
-        ('-g', '0'), ('-p', 'FUDS')] # 2x131
+opts = [('-d', 'False'), ('-e', '100'), ('-l', '1'), ('-n', '1572'), ('-a', '786'),
+        ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
 debug   : int = 0
 batch   : int = 1
 mEpoch  : int = 10
@@ -151,13 +151,15 @@ physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
     #! need to research more why.
-    # tf.config.experimental.set_visible_devices(
-    #                         physical_devices[GPU], 'GPU')
+    tf.config.experimental.set_visible_devices(
+                            physical_devices[GPU], 'GPU')
 
     # if GPU == 1:
-    for device in physical_devices:
-        tf.config.experimental.set_memory_growth(
-                            device=device, enable=True)
+    # for device in physical_devices:
+    #     tf.config.experimental.set_memory_growth(
+    #                         device=device, enable=True)
+    tf.config.experimental.set_memory_growth(
+                        device=physical_devices[GPU], enable=True)
     logging.info("GPU found and memory growth enabled") 
     
     logical_devices = tf.config.experimental.list_logical_devices('GPU')
@@ -167,12 +169,12 @@ if physical_devices:
 #! For numeric stability, set the default floating-point dtype to float64
 tf.keras.backend.set_floatx('float32')
 # %%
-#! Check OS to change SymLink usage
+Data : str = ''
 if(platform=='win32'):
-    Data    : str = 'DataWin\\'
+    Data = 'DataWin\\'
 else:
-    Data    : str = 'Data/'
-dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Single',
+    Data = 'Data/'
+dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
                               valid_dir=f'{Data}A123_Matt_Val',
                               test_dir=f'{Data}A123_Matt_Test',
                               columns=[
@@ -181,6 +183,54 @@ dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Single',
                                 ],
                               PROFILE_range = profile)
 # %%
+# columns=[ 'Step_Time(s)', 
+#                                 'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
+#                                 'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
+#                                 ]
+# temp = pd.read_excel(io=f'{Data}A123_Matt_Single/A1-007-DST-US06-FUDS-25-20120827.xlsx',
+#                       sheet_name=1,
+#                       header=0, names=None, index_col=None,
+#                       usecols=['Step_Index'] + columns,
+#                       squeeze=False,
+#                       dtype=np.float32,
+#                       engine='openpyxl', converters=None, true_values=None,
+#                       false_values=None, skiprows=None, nrows=None,
+#                       na_values=None, keep_default_na=True, na_filter=True,
+#                       verbose=False, parse_dates=False, date_parser=None,
+#                       thousands=None, comment=None, skipfooter=0,
+#                       convert_float=None, mangle_dupe_cols=True
+#                   ) #? FutureWarning: convert_float is deprecated and will be
+#                     #? removed in a future version
+# c_FUDS  : range = [19, 20, 21, 23]# ONLY Charge Cycle
+# d_FUDS  : range = range(24,26)    # ONLY Desciarge Cycle
+# r_FUDS  : range = [range(19,24),
+#                    range(24,28)]  # Charge-Discharge Continuos cycle
+# temp = temp[temp['Step_Index'].isin(c_FUDS)]
+
+# diff = (temp-temp.shift())[1:]
+# diff.reset_index(drop=True, inplace=True)
+# diff = pd.concat([diff, diff.iloc[-1:, :]])
+# diff=diff*0.05  # 5% offset
+# spacing = 5
+# diff['reindex'] = np.arange(0, spacing*len(diff), spacing)
+
+# diff = diff.set_index('reindex').reindex(
+#     np.arange(0, spacing*len(diff), 1)
+# ).interpolate('pad')
+# sign = np.zeros(shape=diff.shape)
+# a = -25
+# b = 25
+# for i in range(sign.shape[0]):
+#     s = np.random.uniform(a, b, sign.shape[1]).round(2)
+#     while( any(s > -0.01) & any(s < 0.01) ):
+#         s = np.random.uniform(a, b, sign.shape[1]).round(2)
+#     sign[i, :] = s
+
+# diff = diff*sign
+# diff.reset_index(drop=True, inplace=True)
+
+# Interpolate with a fill method * with random value of -1 and +1
+# %%
 window = WindowGenerator(Data=dataGenerator,
                         input_width=500, label_width=1, shift=0,
                         input_columns=['Current(A)', 'Voltage(V)',
@@ -188,13 +238,24 @@ window = WindowGenerator(Data=dataGenerator,
                         label_columns=['SoC(%)'], batch=batch,
                         includeTarget=False, normaliseLabal=False,
                         shuffleTraining=False)
-ds_train, x_train, y_train = window.train
-ds_valid, x_valid, y_valid = window.valid
-ds_testi, x_testi, y_testi = window.test
+x_train, y_train = window.train
+x_valid, y_valid = window.valid
+x_testi, y_testi = window.test
+
+# x_train, y_train = window.train_lists
+# x_valid, y_valid = window.valid_lists
+# x_testi, y_testi = window.test_lists
 
 # For training-validation if necessary 16800:24800
-xt_valid = np.array(x_train[-8000:,:,:], copy=True, dtype=np.float32)
-yt_valid = np.array(y_train[-8000:,:]  , copy=True, dtype=np.float32)
+tv_length = len(x_valid)
+xt_valid = np.array(x_train[-tv_length:,:,:], copy=True, dtype=np.float32)
+yt_valid = np.array(y_train[-tv_length:,:]  , copy=True, dtype=np.float32)
+
+# xt_valid = x_train[-1].copy()
+# yt_valid = y_train[-1].copy()
+
+# For recovering from Nan or High
+# _, xr_train, yr_train = window.train
 # %%
 def create_model(mFunc : Callable, layers : int = 1,
                  neurons : int = 500, dropout : float = 0.2,
@@ -264,19 +325,14 @@ def create_model(mFunc : Callable, layers : int = 1,
     return model
 
 file_name : str = os.path.basename(__file__)[:-3]
-model_name : str = 'Model-№1'
+model_name : str = 'Models-№1-2'
 ####################! ADD model_name to path!!! ################################
-model_loc : str = f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
+model_loc : str = f'Modds/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
 iEpoch = 0
 firstLog : bool = True
 iLr     : float = 0.001
 prev_error : np.float32 = 1.0
 try:
-    #! Try Locating Best Epoch instead and going from it
-    # for _, _, files in os.walk(model_loc):
-    #     for file in files:
-    #         if file.endswith('.ch'):
-    #             iEpoch = int(os.path.splitext(file)[0])
     iEpoch, prev_error  = Locate_Best_Epoch(f'{model_loc}history.csv', 'mae')
     lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
             f'{model_loc}{iEpoch}',
@@ -286,14 +342,17 @@ try:
     print(f"Model Identefied at {iEpoch} with {prev_error}. Continue training.")
 except (OSError, TypeError) as identifier:
     print("Model Not Found, initiating new. {} \n".format(identifier))
+    if type(x_train) == list:
+        input_shape : tuple = x_train[0].shape[-2:]
+    else:
+        input_shape : tuple = x_train.shape[-2:]
     lstm_model = create_model(
             tf.keras.layers.LSTM, layers=nLayers, neurons=nNeurons,
-            dropout=0.2, input_shape=x_train.shape[-2:], batch=1
+            dropout=0.2, input_shape=input_shape, batch=1
         )
     iLr = 0.001
     firstLog = True
-prev_model = tf.keras.models.clone_model(lstm_model,
-                                input_tensors=None, clone_function=None)
+prev_model = tf.keras.models.clone_model(lstm_model)
 
 # %%
 optimiser = tf.optimizers.Adam(learning_rate=iLr,
@@ -305,12 +364,12 @@ loss_fn   = tf.losses.MeanAbsoluteError(
 MAE     = tf.metrics.MeanAbsoluteError()
 RMSE    = tf.metrics.RootMeanSquaredError()
 RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
-CR_ER   = tf.metrics.MeanAbsoluteError()
+# CR_ER   = tf.metrics.MeanAbsoluteError()
 
 @tf.function
 def train_single_st(input : tuple[np.ndarray, np.ndarray],
                     metrics : tf.keras.metrics,
-                    curr_error : tf.keras.metrics
+                    # curr_error : tf.keras.metrics
                     ) -> tf.Tensor:
     # Execute model as training
     with tf.GradientTape() as tape:
@@ -331,8 +390,8 @@ def train_single_st(input : tuple[np.ndarray, np.ndarray],
         metric.update_state(y_true=input[1], y_pred=logits)
 
     # Currrent error tracker
-    curr_error.update_state(y_true=input[1],
-                            y_pred=lstm_model(input[0], training=False))
+    # curr_error.update_state(y_true=input[1],
+    #                         y_pred=lstm_model(input[0], training=False))
     
     return loss_value
 
@@ -379,6 +438,39 @@ def valid_loop(dist_input  : tuple[np.ndarray, np.ndarray],
 
     return [loss, mae, rmse, r_Square, logits]
 
+def fast_valid(dist_input  : tuple[np.ndarray, np.ndarray],
+               verbose : int = 0) -> tf.Tensor:
+    x, y = dist_input
+    logits  : np.ndarray = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
+    loss    : np.ndarray = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
+    val_MAE     = tf.metrics.MeanAbsoluteError()
+    val_RMSE    = tf.metrics.RootMeanSquaredError()
+
+    # Debug verbose param
+    if verbose == 1:
+        rangeFunc : Callable = trange
+    else:
+        rangeFunc : Callable = range
+    
+    #! Prediction on this part can be paralylised across two GPUs. Like OpenMP
+    tic : float = time.perf_counter()
+    for i in rangeFunc(y.shape[0]):
+        logits[i] = test_step(x[i,:,:,:])
+        val_MAE.update_state(y_true=y[i],     y_pred=logits[i])
+        val_RMSE.update_state(y_true=y[i],    y_pred=logits[i])
+        
+        loss[i] = loss_fn(y[i], logits[i])
+
+    toc : float = time.perf_counter() - tic
+    mae      : float = val_MAE.result()
+    rmse     : float = val_RMSE.result()
+
+    # Reset training metrics at the end of each epoch
+    val_MAE.reset_states()
+    val_RMSE.reset_states()
+
+    return [loss, mae, rmse, toc, logits]
+
 # %%
 if not os.path.exists(f'{model_loc}'):
     os.makedirs(f'{model_loc}')
@@ -396,49 +488,119 @@ if not os.path.exists(f'{model_loc}history.csv'):
                 'train_l,train_mae,train_rms,train_r_s,'
                 'vall_l,val_mae,val_rms,val_r_s,val_t_s,'
                 'test_l,tes_mae,tes_rms,tes_r_s,tes_t_s,learn_r\n')
-
+if not os.path.exists(f'{model_loc}history-cycles.csv'):
+    print("Cycle-History not created. Making")
+    with open(f'{model_loc}history-cycles.csv', mode='w') as f:
+        f.write('Epoch,Cycle,'
+                'train_l,train_mae,train_rms,train_t_s,'
+                'vall_l,val_mae,val_rms,val_t_s,'
+                'learn_r\n')
+if not os.path.exists(f'{model_loc}cycles-log'):
+    os.mkdir(f'{model_loc}cycles-log')
 n_attempts : int = 10
-
 while iEpoch < mEpoch:
     iEpoch+=1
-    # pbar = tqdm(total=y_train.shape[0])
-    tic : float = time.perf_counter()
-    sh_i = np.arange(y_train.shape[0])
-    np.random.shuffle(sh_i)
-    print(f'Commincing Epoch: {iEpoch}')
-    loss_value : np.float32 = 0.0
-    for i in sh_i[::]:
-        loss_value = train_single_st((x_train[i,:,:,:], y_train[i,:]),
-                                    metrics=[MAE,RMSE,RSquare],
-                                    curr_error=CR_ER
-                                    )
-        # Progress Bar
-        # pbar.update(1)
-        # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
-        #                         f'loss: {(loss_value[0]):.4f} - '
-        #                         f'mae: {MAE.result():.4f} - '
-        #                         f'rmse: {RMSE.result():.4f} - '
-        #                         f'rsquare: {RSquare.result():.4f} --- '
-        #                         f'mae: {MAE2.result():.4f} - '
-        #                         f'rmse: {RMSE2.result():.4f} - '
-        #                         f'rsquare: {RSquare2.result():.4f}'
-        #                     )
-    toc : float = time.perf_counter() - tic
-    # pbar.close()
-    cLr = optimiser.get_config()['learning_rate']
-    print(f'Epoch {iEpoch}/{mEpoch} :: '
-            f'Elapsed Time: {toc} - '
-            f'loss: {loss_value[0]:.4f} - '
-            f'mae: {MAE.result():.4f} - '
-            f'rmse: {RMSE.result():.4f} - '
-            f'rsquare: {RSquare.result():.4f} - '
-            f'Lear-Rate: {cLr} - '
-        )
-    #! If Loss rised from previos - reload with prev_model
-    #! Verefy that training is good by comparing previos error
-    #? Dealing with NaN state. Give few trials to see if model improves
-    curr_error = CR_ER.result().numpy()
-    print(f'The post optimiser error: {curr_error}')
+#?================== cycle by cycle way=================================
+    if type(x_train) == list:        
+        outer_tic : float = time.perf_counter()
+        for j in range(len(x_train)):
+            sh_i = np.arange(y_train[j].shape[0])
+            np.random.shuffle(sh_i)
+            print(f'Commincing Epoch: {iEpoch}, Cycle: {j+1}')
+            loss_value : np.float32 = 0.0
+            for i in sh_i[::]:
+                loss_value = train_single_st((x_train[j][i,:,:,:], y_train[j][i,:]),
+                                            metrics=[MAE,RMSE,RSquare],
+                                            #curr_error=CR_ER
+                                            )
+            #! Measure performance
+            #* Same cell [loss, mae, rmse, toc, logits]
+            CYCLE_train = fast_valid((xt_valid, yt_valid), verbose = debug)
+            #* Another cell
+            CYCLE_valid = fast_valid((x_valid, y_valid), verbose = debug)
+            hist_cycle : pd.DataFrame = pd.read_csv(f'{model_loc}history-cycles.csv',
+                                                # index_col='Epoch'
+                                                )
+            # hist_cycle = hist_cycle.reset_index()
+            hist_ser = pd.Series(data={
+                    'Epoch'  : iEpoch,
+                    'Cycle'  : j+1,
+                    'loss'   : np.round(loss_value[0], 5),
+                    'mae'    : np.round(MAE.result(), 5),
+                    'rmse'   : np.round(RMSE.result(), 5),
+                    'train_l' : np.round(np.mean(CYCLE_train[0]), 5),
+                    'train_mae': np.round(CYCLE_train[1], 5),
+                    'train_rms': np.round(CYCLE_train[2], 5),
+                    'train_t_s': np.round(CYCLE_train[3], 2),
+                    'vall_l' : np.round(np.mean(CYCLE_valid[0]), 5),
+                    'val_mae': np.round(CYCLE_valid[1], 5),
+                    'val_rms': np.round(CYCLE_valid[2], 5),
+                    'val_t_s': np.round(CYCLE_valid[3], 5),
+                    'learn_r': np.round(
+                            optimiser.get_config()['learning_rate'], 6
+                        ),
+                }, name=0)
+            #! Need to through this part
+            df_temp = hist_cycle[hist_cycle['Epoch']==iEpoch]
+            df_temp = df_temp[df_temp['Cycle']==(j+1)]
+            if(len(df_temp) == 0):
+                hist_cycle = hist_cycle.append(hist_ser, ignore_index=True)
+            else:
+                # hist_cycle.loc[iEpoch-1, :] = hist_ser
+                hist_cycle.loc[
+                    (hist_cycle['Epoch']==iEpoch) & (hist_cycle['Cycle']==(j+1)), :
+                    ] = hist_ser
+            hist_cycle.to_csv(f'{model_loc}history-cycles.csv', index=False)
+            
+            pd.DataFrame(CYCLE_train[4]).to_csv(f'{model_loc}cycles-log/{iEpoch}-{j+1}-train-logits.csv')
+            pd.DataFrame(CYCLE_train[4]).to_csv(f'{model_loc}cycles-log/{iEpoch}-{j+1}-valid-logits.csv')
+            
+            print(f'Epoch {iEpoch}/{mEpoch} : Cycle {j}/{len(x_train)}:: '
+                  f'Elapsed Time: {toc} - '
+                  f'loss: {loss_value[0]:.4f} - '
+                  f'mae: {MAE.result():.4f} - '
+                  f'train_mae: {CYCLE_train[1]:.4f} - '
+                  f'val_mae: {CYCLE_valid[1]:.4f} - '
+                )
+        toc : float = time.perf_counter() - outer_tic
+#?==================                    =======================================
+    else:
+#?================== Full data way ===========================================
+        pbar = tqdm(total=y_train.shape[0])
+        tic : float = time.perf_counter()
+        sh_i = np.arange(y_train.shape[0])
+        np.random.shuffle(sh_i)
+        print(f'Commincing Epoch: {iEpoch}')
+        loss_value : np.float32 = [0.0]
+        for i in sh_i[::]:
+            loss_value = train_single_st((x_train[i,:,:,:], y_train[i,:]),
+                                        metrics=[MAE,RMSE,RSquare],
+                                        #curr_error=CR_ER
+                                        )
+            # Progress Bar
+            pbar.update(1)
+            pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
+                                    # f'loss: {(loss_value[0]):.4f} - '
+                                    f'mae: {MAE.result():.4f} - '
+                                    f'rmse: {RMSE.result():.4f} - '
+                                    # f'rsquare: {RSquare.result():.4f} --- '
+                                )
+        toc : float = time.perf_counter() - tic
+        pbar.close()
+        cLr = optimiser.get_config()['learning_rate']
+        print(f'Epoch {iEpoch}/{mEpoch} :: '
+                f'Elapsed Time: {toc} - '
+                # f'loss: {loss_value[0]:.4f} - '
+                f'mae: {MAE.result():.4f} - '
+                f'rmse: {RMSE.result():.4f} - '
+                f'rsquare: {RSquare.result():.4f} - '
+                f'Lear-Rate: {cLr} - '
+            )
+#?==================                ===========================================
+    #* Dealing with NaN state. Give few trials to see if model improves
+    curr_error = MAE.result().numpy()
+    # curr_error = CR_ER.result().numpy()
+    print(f'The post optimiser error: {curr_error}', flush=True)
     if (tf.math.is_nan(loss_value[0]) or curr_error > prev_error):
         print('->> NaN or High error model')
         i_attempts : int = 0
@@ -465,13 +627,30 @@ while iEpoch < mEpoch:
             MAE.reset_states()
             RMSE.reset_states()
             RSquare.reset_states()
-            CR_ER.reset_states()
+            # CR_ER.reset_states()
 
+            # if type(x_train) == list:
+            #     tic = time.perf_counter()
+            #     for j in range(len(x_train)):
+            #         sh_i = np.arange(y_train[j].shape[0])
+            #         np.random.shuffle(sh_i)
+            #         print(f'Commincing Epoch: {iEpoch}, Cycle: {j+1}')
+            #         loss_value : np.float32 = 0.0
+            #         for i in sh_i[::]:
+            #             loss_value = train_single_st((x_train[j][i,:,:,:],
+            #                                         y_train[j][i,:]),
+            #                                         metrics=[MAE,RMSE,RSquare],
+            #                                         #curr_error=CR_ER
+            #                                         )
+            #     toc = time.perf_counter() - tic
+            # else:
+            #! At this point, use dataset entire instead cycle by cycle.
             tic = time.perf_counter()
             for i in sh_i[::]:
-                loss_value = train_single_st((x_train[i,:,:,:], y_train[i,:]),
+                loss_value = train_single_st(
+                                        (x_train[i,:,:,:], y_train[i,:]),
                                         [MAE,RMSE,RSquare],
-                                        curr_error=CR_ER
+                                        # curr_error=CR_ER
                                         )
                 # Progress Bar
                 # pbar.update(1)
@@ -507,8 +686,11 @@ while iEpoch < mEpoch:
                 else:
                     faulty_hist_df.to_csv(f, index=False, header=False)
             # print(faulty_hist_df[['']])
-            curr_error = CR_ER.result().numpy()
-            print(f'The post optimiser error: {curr_error}')
+            curr_error = MAE.result().numpy()
+            print(
+                f'The post optimiser error: {curr_error}'
+                f'with L-rate {optimiser.get_config()["learning_rate"]}'
+                )
             # curr_error = np.array(TRAIN[1])
             if (not tf.math.is_nan(loss_value[0]) and
                 not curr_error > prev_error and
@@ -540,11 +722,6 @@ while iEpoch < mEpoch:
     iLr = scheduler(iEpoch, iLr, 'linear')
     optimiser.learning_rate = iLr
 
-    # #! Stop using that
-    # if os.path.exists(f'{model_loc}{iEpoch-1}.ch'):
-    #     os.remove(f'{model_loc}{iEpoch-1}.ch')
-    # os.mknod(f'{model_loc}{iEpoch}.ch')
-
     # Validating trained model 
     TRAIN = valid_loop((xt_valid, yt_valid), verbose = debug)
     RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
@@ -564,6 +741,7 @@ while iEpoch < mEpoch:
             f'mae: {TRAIN[1]:.4f} - '
             f'rmse: {TRAIN[2]:.4f} - '
             f'rsquare: {TRAIN[3]:.4f} - '
+            f'\n'
         )
     # Validating model 
     val_tic : float = time.perf_counter()
@@ -603,6 +781,7 @@ while iEpoch < mEpoch:
             f'mae: {PERF[1]:.4f} - '
             f'rmse: {PERF[2]:.4f} - '
             f'rsquare: {PERF[3]:.4f} - '
+            f'\n'
         )
     #! PErform testing and also save to log file
     # Testing model 
@@ -660,19 +839,13 @@ while iEpoch < mEpoch:
             f'mae: {np.mean(np.append(TEST1[1], TEST2[1])):.4f} - '
             f'rmse: {np.mean(np.append(TEST1[2], TEST2[2])):.4f} - '
             f'rsquare: {np.mean(np.append(TEST1[3], TEST2[3])):.4f} - '
+            f'\n'
         )
     
     hist_df : pd.DataFrame = pd.read_csv(f'{model_loc}history.csv',
                                             index_col='Epoch')
     hist_df = hist_df.reset_index()
-    # except ValueError:
-    # ####################! TEMP FIX!!! ################################
-    #     hist_df : pd.DataFrame = pd.read_csv(f'{model_loc}history.csv')
-    #     hist_df.index = hist_df.index+1
-    #     hist_df = hist_df.reset_index()
-    #     hist_df = hist_df.rename(columns={'index' : 'Epoch'})
 
-    #! Store the LearningRate
     hist_ser = pd.Series(data={
             'Epoch'  : iEpoch,
             'loss'   : np.array(loss_value[0]),
@@ -700,9 +873,6 @@ while iEpoch < mEpoch:
         hist_df = hist_df.append(hist_ser, ignore_index=True)
     else:
         hist_df.loc[iEpoch-1, :] = hist_ser
-        # except:
-        #     hist_df['learn_r'] = np.nan
-        #     hist_df.loc[iEpoch-1, :] = hist_ser
 
     hist_df.to_csv(f'{model_loc}history.csv', index=False)
     
@@ -713,6 +883,12 @@ while iEpoch < mEpoch:
                 metrics=['mae', 'val_mae',
                         'rmse', 'val_rms'],
                 plot_file_name=f'history-{profile}-valid.svg')
+    
+    #! Plot history of cycles
+    # history_plot(profile, model_name, model_loc, hist_df, save_plot=True,
+    #             metrics=['mae', 'val_mae',
+    #                     'rmse', 'val_rms'],
+    #             plot_file_name=f'history-{profile}-valid.svg')
 
     pd.DataFrame(TRAIN[4]).to_csv(f'{model_loc}{iEpoch}-train-logits.csv')
     pd.DataFrame(PERF[4]).to_csv(f'{model_loc}{iEpoch}-valid-logits.csv')
@@ -723,9 +899,11 @@ while iEpoch < mEpoch:
     MAE.reset_states()
     RMSE.reset_states()
     RSquare.reset_states()
-    CR_ER.reset_states()
+    # CR_ER.reset_states()
     
-    tf.keras.backend.clear_session()
+    # Flush and clean
+    print('\n', flush=True)
+    # tf.keras.backend.clear_session()
 
 # %%
 #! Find the lowest error amongs all models in the file and make prediction

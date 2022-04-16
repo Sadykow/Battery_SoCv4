@@ -4,7 +4,6 @@
 # # #
 # #
 # %%
-from cProfile import label
 import os, sys
 import matplotlib as mpl  # Plot functionality
 import matplotlib.pyplot as plt
@@ -20,33 +19,47 @@ mpl.rcParams['axes.grid'] = False
 plt.rcParams['figure.facecolor'] = 'white'
 # %%
 Data    : str = 'Data/'
-profiles: list = ['DST', 'US06', 'FUDS']
-neurons : list = [ 16, 32, 65, 131, 262, 524 ]
-layers : range = range(1, 5)
-attempt : str = '1'
+profiles: list = ['DST', 'US06']
+neurons : list = [ 131, 262, 524 ]
+layers : range = range(1, 4)
+attempts : str = range(1, 4)
 profile : str = 'FUDS'
 
-file_name : str = 'Chemali2017'
-model_name: str = 'Model №1'
+file_name : str = 'testHyperParams'
+model_name: str = 'ModelsUp-№1'
 
 # %%
-names     : list = []
-histories : list = []
-profile : str = 'FUDS'
+profile : str = 'DST'
 metric : str = 'mae'
-for nLayers in layers:
-    nNames = []
-    nHistories = []
-    for nNeurons in neurons:
-        nNames.append(f'{nLayers}x({nNeurons})-{attempt}')
-        nHistories.append(
-            pd.read_csv(f'Mods/{nLayers}x{file_name}-({nNeurons})/'
-                        f'{attempt}-{profile}/history.csv')
-            )
-    names.append(nNames)
-    histories.append(nHistories)
-nNames = []
-nHistories = []
+attempt : int = 0
+titles = {}
+data = {}
+for profile in profiles:
+    names     : list = []
+    histories : list = []
+    for nLayers in layers:
+        nNames = []
+        nHistories = []
+        for nNeurons in neurons:
+            # nNames.append(f'{nLayers}x({nNeurons})-{attempt}')
+            nNames.append(f'{nLayers}x({nNeurons})')
+            longest = 0
+            for a in attempts:
+                #! Pick the best
+                #! Plot SoC curve at axes[4]
+                rows = pd.read_csv(f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                            f'{a}-{profile}/history.csv').shape[0]
+                if rows > longest:
+                    longest = rows
+                    attempt = a
+            nHistories.append(
+                pd.read_csv(f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                            f'{attempt}-{profile}/history.csv')
+                )
+        names.append(nNames)
+        histories.append(nHistories)
+    titles[profile] = names.copy()
+    data[profile] = histories.copy()
 # %%
 #? MAE
 def non_zero_min_idx(values : np.array) -> tuple[np.float32, int]:
@@ -66,13 +79,12 @@ def non_zero_min_idx(values : np.array) -> tuple[np.float32, int]:
     return (idx_v, min_v)
 
 def plot_bar(neurons, profile, names, histories, metric, limits):
-    fig, axes = plt.subplots(3,2, figsize=(14,12), dpi=600)
-    axes[2][1].set_visible(False)
+    fig, axes = plt.subplots(2,2, figsize=(14,12), dpi=600)
+    # axes[1][1].set_visible(False)
     # axes[2][0].set_position([0.24,0.125,0.228,0.343])
-    fig.suptitle(profile)
     minimals : list = []
     indexes : list = []
-    for l, ax in enumerate(fig.axes[:-2]):
+    for l, ax in enumerate(fig.axes[:-1]):
         for n in range(len(neurons)):
         # try:
             ax.plot(histories[l][n].loc[:, f'{metric}']*100, label=names[l][n])
@@ -96,23 +108,24 @@ def plot_bar(neurons, profile, names, histories, metric, limits):
         ax.set_ylim(limits)
         ax.legend()
     # fig.show()
-    # labels = list(chain.from_iterable(names))
+    labels = list(chain.from_iterable(names))
     labels = []
     for l in names:
         for n in l:
             labels.append(n)
         labels.append('')
-    y_pos = np.arange(len(labels))
     
-    _, ax2 = plt.subplots(figsize=(14,12), dpi=600)
-    # hbars = axes[2][0].barh(y_pos, minimals, xerr=indexes, align='center')
-    # [v*100 if v > 0 else None for v in [0, 1 ,2 ,3]]
+    # _, ax2 = plt.subplots(figsize=(14,12), dpi=600)
+    # # hbars = axes[2][0].barh(y_pos, minimals, xerr=indexes, align='center')
+    # # [v*100 if v > 0 else None for v in [0, 1 ,2 ,3]]
+    ax2 = axes[1][1]
     values = [v*100 for v in minimals]
+    y_pos = np.arange(len(labels))
     hbars = ax2.barh(y_pos, values, align='center')
     ax2.set_yticks(y_pos, labels=labels)
     ax2.invert_yaxis()  # labels read top-to-bottom
     ax2.set_xlabel('Error(%)')
-    ax2.set_title('Minimal Epoch')
+    ax2.set_title('Minimal Epoch with corresponding index')
 
     # Label with specially formatted floats
     ax2.bar_label(hbars, fmt='%.2f')
@@ -121,15 +134,19 @@ def plot_bar(neurons, profile, names, histories, metric, limits):
             ax2.text(s=indexes[i], x=0.1, y=y_pos[i], verticalalignment="center", color='w')
     # ax2.set_xlim(right=15)  # adjust xlim to fit labels
     idx, value = non_zero_min_idx(values)
-    print(f'The minimal set is {labels[idx]} with error: {value}%')
-    #! TODO: Make gaps in the between layers
-    print('TODO: Make gaps between layer')
+    text = f'The minimal set is {labels[idx]} with error: {value}%'
+    # print(text)
+    fig.suptitle(text)
+    fig.tight_layout()
+    # #! TODO: Make gaps in the between layers
+    # print('TODO: Make gaps between layer')
 
-plot_bar(neurons, profile, names, histories, 'mae', [0, 5])
-# plot_bar(neurons, profile, names, histories, 'train_mae', [0, 5])
+profile = 'US06'
 # plot_bar(neurons, profile, names, histories, 'val_mae', [0, 10])
 # plot_bar(neurons, profile, names, histories, 'tes_mae', [0, 10])
-
+# plot_bar(neurons, profile, titles[profile], data[profile], 'mae', [0, 5])
+plot_bar(neurons, profile, titles[profile], data[profile], 'tes_mae', [0, 8])
+#!!!!!!!!!!!!!!!!!! How do I calculate the trend?
 # %%
 bars1 = histories[0][0]['mae']
 bars2 = histories[0][0]['train_mae']
@@ -153,7 +170,7 @@ plt.rcParams['figure.figsize'] = [25, 7]
 plt.axhline(y=0, color='gray')
 plt.legend(frameon=False, loc='lower center', bbox_to_anchor=(0.25, -0.3, 0.5, 0.5), prop={'size':20})
 plt.box(False)
-plt.savefig('plt', bbox_inches = "tight")
+# plt.savefig('plt', bbox_inches = "tight")
 plt.show()
 
 # %%
@@ -181,9 +198,9 @@ profile : str = 'FUDS'
 metric : str = 'mae'
 nLayers : str = '2'
 file_name : str = 'Chemali2017'
-nNeurons : str = '262'
-for attempt in range(1, 9):
-    hist_path = f'Mods/Model-№1-1/{nLayers}x{file_name}-({nNeurons})/' \
+nNeurons : str = '524'
+for attempt in range(1, 6):
+    hist_path = f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/' \
                 f'{attempt}-{profile}/history.csv'
     
     histories.append(
@@ -193,17 +210,19 @@ for attempt in range(1, 9):
     iEpoch, prev_error  = Locate_Best_Epoch(hist_path, 'train_mae')
     
     logits.append(
-            pd.read_csv(f'Mods/Model-№1-1/{nLayers}x{file_name}-({nNeurons})/' \
+            pd.read_csv(f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/' \
                 f'{attempt}-{profile}/{iEpoch}-train-logits.csv')
         )
     iEpoch, prev_error  = Locate_Best_Epoch(hist_path, 'val_mae')
     logits_val.append(
-            pd.read_csv(f'Mods/Model-№1-1/{nLayers}x{file_name}-({nNeurons})/' \
+            pd.read_csv(f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/' \
                 f'{attempt}-{profile}/{iEpoch}-valid-logits.csv')
         )
     print(iEpoch)
 
 # %%
+#plt.rcParams['figure.figsize'] = [25, 7]
+plt.rcParams['figure.figsize'] = [10, 7]
 criteria : str = 'val_mae'
 avg = pd.DataFrame(data={ '0' : histories[0][criteria]} )
 print(histories[0].shape)
@@ -276,4 +295,25 @@ plt.title('Best performance')
 plt.plot(dataGenerator.valid_SoC)
 plt.plot(np.mean(avg_logits, axis=1), linewidth=5)
 # plt.savefig('mean_logits2.png')
+# %%
+# Read throug cycles
+# df = pd.read_csv(f'Mods/Model-№1/1xChemali2017-(262)/3-FUDS/history.csv')
+# df_c = pd.read_csv(f'Mods/Model-№1/1xChemali2017-(262)/3-FUDS/history-cycles.csv')
+
+df = pd.read_csv(f'Mods/Model-№1/2xChemali2017-(262)/1-FUDS/history.csv')
+df_c = pd.read_csv(f'Mods/Model-№1/2xChemali2017-(262)/1-FUDS/history-cycles.csv')
+
+#! IT"S FIXXED!! Use it for future references
+metric = 'train_mae'
+epochs = len(df[metric])
+cycles = 5*epochs
+x_cycles = np.linspace(0, epochs, cycles)
+x_epoch = np.linspace(x_cycles[4], epochs, epochs)
+
+
+plt.plot(x_epoch, df[metric])
+plt.plot(x_epoch, df_c[metric][4:cycles:5])
+plt.plot(x_cycles, df_c[metric][:cycles:])
+
+plt.plot(x_cycles[4::], df_c[metric][4:cycles:])
 # %%

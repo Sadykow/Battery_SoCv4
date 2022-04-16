@@ -39,8 +39,9 @@ def Read_Excel_File(path : str,
                       na_values=None, keep_default_na=True, na_filter=True,
                       verbose=False, parse_dates=False, date_parser=None,
                       thousands=None, comment=None, skipfooter=0,
-                      convert_float=True, mangle_dupe_cols=True
-                  )
+                      convert_float=None, mangle_dupe_cols=True
+                  ) #? FutureWarning: convert_float is deprecated and will be
+                    #? removed in a future version
   if(indexes == None):       #!r_DST_FUDS Nasty fix
     df = df[df['Step_Index'].isin(chain(range(4 , 12), range(18, 25)))]
   else:
