@@ -28,7 +28,7 @@ profile : str = 'FUDS'
 file_name : str = 'testHyperParams'
 model_name: str = 'ModelsUp-№1'
 
-# %%
+# %% [histories]
 profile : str = 'DST'
 metric : str = 'mae'
 attempt : int = 0
@@ -60,6 +60,53 @@ for profile in profiles:
         histories.append(nHistories)
     titles[profile] = names.copy()
     data[profile] = histories.copy()
+# %% 
+file_name : str = 'testHyperParams'
+model_name: str = 'ModelsUp-№1'
+titles = {}
+data = {}
+for profile in ['DST']:
+    names : list = []
+    train : list = []
+    for nLayers in range(1,4):
+        nNames = []
+        nHistories = []
+        for nNeurons in [ 131, 262, 524, 1048, 1572]:
+            nNames.append(f'{nLayers}x({nNeurons})')
+            
+            length = pd.read_csv(
+                    f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                    f'1-{profile}/1-train-logits.csv').shape[0]
+            logits = np.empty(shape=(length,))
+            for a in attempts:
+                #! Need to make use of the Error. If it is above 25%, 
+                #! it needs to be ignored
+                bestEpoch, err  = Locate_Best_Epoch(
+                    f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                    f'{a}-{profile}/history.csv', 'train_mae')
+                if err < 0.20:
+                    logits.append(pd.read_csv(
+                        f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                        f'{a}-{profile}/{bestEpoch}-train-logits.csv').iloc[:, -1].values)
+
+                    print(f'Best epoch for {nLayers}x({nNeurons})-{a} is: {bestEpoch}')
+                else:
+                    print(f'Failed model at {nLayers}x({nNeurons})-{a}')
+                    plt.plot(pd.read_csv(
+                        f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                        f'{a}-{profile}/{bestEpoch}-train-logits.csv').iloc[:, -1].values)
+            
+            nHistories.append(
+                logits.mean(axis=1)
+                )
+        names.append(nNames)
+        train.append(nHistories)
+    titles[profile] = names.copy()
+    data[profile] = train.copy()
+
+for i in range(5):
+    plt.plot(data['DST'][0][i])
+plt.legend()
 # %%
 #? MAE
 def non_zero_min_idx(values : np.array) -> tuple[np.float32, int]:
@@ -141,7 +188,7 @@ def plot_bar(neurons, profile, names, histories, metric, limits):
     # #! TODO: Make gaps in the between layers
     # print('TODO: Make gaps between layer')
 
-profile = 'US06'
+profile = 'DST'
 # plot_bar(neurons, profile, names, histories, 'val_mae', [0, 10])
 # plot_bar(neurons, profile, names, histories, 'tes_mae', [0, 10])
 # plot_bar(neurons, profile, titles[profile], data[profile], 'mae', [0, 5])

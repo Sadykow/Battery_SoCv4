@@ -73,10 +73,13 @@ def Locate_Best_Epoch(file_path : str,
             float_precision=None
         ) #? FutureWarning: The warn_bad_lines, error_bad_lines argument has been deprecated and will be removed in a future version.
   #! Try catch to fix all files
-  iEpoch : int = df['Epoch'][df[metric].idxmin()]
-  value  : float = df[metric][df["Epoch"]==iEpoch].values[0]
-  # except KeyError:
-  #   print('>>>> NO EPOCH COLUMN')
-  #   iEpoch : int = df[metric].idxmin()
-  #   value  : float = df.iloc[iEpoch][metric]
-  return (iEpoch, value)
+  try:
+    iEpoch : int = df['Epoch'][df[metric].idxmin()]
+    value  : float = df[metric][df["Epoch"]==iEpoch].values[0]
+    # except KeyError:
+    #   print('>>>> NO EPOCH COLUMN')
+    #   iEpoch : int = df[metric].idxmin()
+    #   value  : float = df.iloc[iEpoch][metric]
+    return (iEpoch, value)
+  except TypeError:
+    raise TypeError("Empty history")
