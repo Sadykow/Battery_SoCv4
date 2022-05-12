@@ -10,8 +10,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd  # File read
 from itertools import chain
+import tensorflow as tf
 
 from py_modules.utils import Locate_Best_Epoch
+
 
 # Define plot sizes
 mpl.rcParams['figure.figsize'] = (8, 6)
@@ -65,7 +67,8 @@ file_name : str = 'testHyperParams'
 model_name: str = 'ModelsUp-№1'
 titles = {}
 data = {}
-for profile in ['DST']:
+for profile in ['US06']:
+# for profile in ['FUDS']:
     names : list = []
     train : list = []
     for nLayers in range(1,4):
@@ -77,36 +80,64 @@ for profile in ['DST']:
             length = pd.read_csv(
                     f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
                     f'1-{profile}/1-train-logits.csv').shape[0]
-            logits = np.empty(shape=(length,))
+            logits = np.empty(shape=(length,1))
             for a in attempts:
                 #! Need to make use of the Error. If it is above 25%, 
                 #! it needs to be ignored
                 bestEpoch, err  = Locate_Best_Epoch(
                     f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
-                    f'{a}-{profile}/history.csv', 'train_mae')
+                    f'{a}-{profile}/history.csv', 'mae')
                 if err < 0.20:
-                    logits.append(pd.read_csv(
+                    logits = np.append(logits, pd.read_csv(
                         f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
-                        f'{a}-{profile}/{bestEpoch}-train-logits.csv').iloc[:, -1].values)
-
-                    print(f'Best epoch for {nLayers}x({nNeurons})-{a} is: {bestEpoch}')
+                        f'{a}-{profile}/{bestEpoch}-train-logits.csv').iloc[:, -1:].values,
+                        axis=1)
+                    plt.plot(logits[:,-1], label=nNames)
+                    print(f'Best epoch for {nLayers}x({nNeurons})-{a} is: {bestEpoch} with {err}')
+                    
                 else:
-                    print(f'Failed model at {nLayers}x({nNeurons})-{a}')
-                    plt.plot(pd.read_csv(
-                        f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
-                        f'{a}-{profile}/{bestEpoch}-train-logits.csv').iloc[:, -1].values)
-            
+                    print(f'XXX--->> Failed model at {nLayers}x({nNeurons})-{a} with {err}')
+                    # plt.plot(pd.read_csv(
+                    #     f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                    #     f'{a}-{profile}/{bestEpoch}-train-logits.csv').iloc[:, -1].values)
+            # plt.figure()
+            # plt.plot(logits.mean(axis=1), label=nNames)
             nHistories.append(
-                logits.mean(axis=1)
+                logits[:,1:].mean(axis=1)
                 )
         names.append(nNames)
         train.append(nHistories)
     titles[profile] = names.copy()
     data[profile] = train.copy()
+# %%
+profile = 'US06'
+y_data = pd.read_csv(f'Data/validation/{profile}_yt_valid.csv')
 
-for i in range(5):
-    plt.plot(data['DST'][0][i])
-plt.legend()
+MAE = tf.metrics.MeanAbsoluteError()
+lowest, index, lay = 1,0,0
+fig, axs = plt.subplots(5,3, figsize=(24,48), dpi=600)
+for l in range(3):
+    # for i, ax in enumerate(axs):
+    for i in range(5):
+        MAE.update_state(y_true=y_data.iloc[:,-1], y_pred = data[profile][l][i])
+        axs[i, l].plot(y_data.iloc[:,-1],'-',
+                    label="Actual", color='#0000ff')
+        axs[i, l].plot(data[profile][l][i], '--', label=titles[profile][l][i],
+                       color='#ff0000')
+        textstr = '\n'.join((
+            '$MAE  = {0:.2f}%$'.format(MAE.result()*100, ),
+            ))
+        axs[i, l].text(0.54, 0.93, textstr, transform=axs[i, l].transAxes, fontsize=30,
+                verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+        if MAE.result() < lowest:
+            index = i
+            lay = l
+            lowest = MAE.result()
+        MAE.reset_state()
+        axs[i, l].legend(prop={'size': 32})
+
+print(f'The best model is {titles[profile][lay][index]} with error {lowest*100}')
 # %%
 #? MAE
 def non_zero_min_idx(values : np.array) -> tuple[np.float32, int]:
@@ -188,7 +219,7 @@ def plot_bar(neurons, profile, names, histories, metric, limits):
     # #! TODO: Make gaps in the between layers
     # print('TODO: Make gaps between layer')
 
-profile = 'DST'
+profile = 'US06'
 # plot_bar(neurons, profile, names, histories, 'val_mae', [0, 10])
 # plot_bar(neurons, profile, names, histories, 'tes_mae', [0, 10])
 # plot_bar(neurons, profile, titles[profile], data[profile], 'mae', [0, 5])

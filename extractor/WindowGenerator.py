@@ -16,7 +16,7 @@ import numpy as np
 from dataclasses import dataclass
 
 from extractor.DataGenerator import DataGenerator
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from extractor.soc_calc import diffSoC
 
 #! Replance Tensorflow Numpy with numpy if version below 2.5
@@ -61,7 +61,9 @@ class WindowGenerator():
   #input_indices : list[int]
   labels_slice  : slice
   #label_indices : list[int]
-
+  # scaler = MinMaxScaler()
+  scaler = StandardScaler()
+  
   def __init__(self, Data : DataGenerator,
                input_width : int, label_width : int, shift : int,
                input_columns : list[str], label_columns : list[str],
@@ -144,7 +146,8 @@ class WindowGenerator():
     # self.label_indices = tnp.arange(start=0,
     #                     stop=self.total_window_size,
     #                     dtype=int_dtype)[self.labels_slice]
-
+    #? Normalisation by MinMax
+    self.scaler.fit(self.Data.train[:,:len(self.input_columns)])
   def __repr__(self) -> str:
     """ A return from the constructor. Information of the storage like:
     Total windows size, input and label indices, Label/output column names.
@@ -174,17 +177,24 @@ class WindowGenerator():
     input_length : int = len(self.input_columns)    
     tic : float = perf_counter()    
     if self.normaliseInput: # Normalise Inputs
-      MEAN = np.mean(a=self.Data.train[:,:input_length], axis=0,
-                                      dtype=self.float_dtype,
-                                      keepdims=False)
-      STD = np.std(a=self.Data.train[:,:input_length], axis=0,
-                                    keepdims=False)
-      data : np.ndarray = np.divide(
-                            np.subtract(
-                                  np.copy(a=inputs[:,:input_length]),
-                                  MEAN
-                                ),
-                            STD
+      #? Normalisation by MEAN and STD
+      # MEAN = np.mean(a=self.Data.train[:,:input_length], axis=0,
+      #                                 dtype=self.float_dtype,
+      #                                 keepdims=False)
+      # STD = np.std(a=self.Data.train[:,:input_length], axis=0,
+      #                               keepdims=False)
+      # data : np.ndarray = np.divide(
+      #                       np.subtract(
+      #                             np.copy(a=inputs[:,:input_length]),
+      #                             MEAN
+      #                           ),
+      #                       STD
+      #                     ).round(decimals=round)
+      #? Normalisation by MinMax
+      data : np.ndarray = np.copy(
+                            a=self.scaler.transform(
+                              X=inputs[:,:input_length]
+                            )
                           ).round(decimals=round)
     else:
       data : np.ndarray = np.copy(a=inputs[:,:input_length],
@@ -236,12 +246,12 @@ class WindowGenerator():
     dataY : list[np.ndarray] = []
     
     input_length : int = len(self.input_columns)
-    MEAN = np.mean(a=self.Data.train[:,:input_length], axis=0,
-                                          dtype=self.float_dtype,
-                                          keepdims=False)
-    STD = np.std(a=self.Data.train[:,:input_length], axis=0,
-                                   keepdims=False)
-    print("\n")
+    #? Normalisation by MEAN and STD
+    # MEAN = np.mean(a=self.Data.train[:,:input_length], axis=0,
+    #                                       dtype=self.float_dtype,
+    #                                       keepdims=False)
+    # STD = np.std(a=self.Data.train[:,:input_length], axis=0,
+    #                                keepdims=False)
     tic : float = perf_counter()
     for i in range(0, batch):
       d_len : int = X[i].shape[0]-look_back+1
@@ -253,15 +263,20 @@ class WindowGenerator():
       for j in range(0, d_len):
         if self.normaliseInput: #! Spmething wrong here
           # dataX[i][j,:,:] = (X[i][self.input_columns].to_numpy()[j:(j+look_back), :]-MEAN)/STD
-          dataX[i][j,0,:,:] = np.divide(
-                                np.subtract(
-                                  np.copy(
-                a=X[i][self.input_columns].to_numpy()[j:(j+look_back), :]
-                                  ),
-                                  MEAN
-                                ),
-                                STD
-                              )
+          #? Normalisation by MEAN and STD
+          # dataX[i][j,0,:,:] = np.divide(
+          #                       np.subtract(
+          #                         np.copy(
+          #       a=X[i][self.input_columns].to_numpy()[j:(j+look_back), :]
+          #                         ),
+          #                         MEAN
+          #                       ),
+          #                       STD
+          #                     )
+          #? Normalisation by MinMax
+          dataX[i][j,0,:,:] = self.scaler.transform(
+                X=X[i][self.input_columns].to_numpy()[j:(j+look_back), :]
+                                  )
         else:
           dataX[i][j,0,:,:] = X[i][self.input_columns].to_numpy()[j:(j+look_back), :]
         #dataY[i][j]     = Y[i][j+look_back,]
@@ -363,13 +378,13 @@ class WindowGenerator():
       _, X, Y = self.make_dataset_from_array(
                               inputs=np.array(LIST(X.as_numpy_iterator())),
                               labels=np.array(LIST(Y.as_numpy_iterator())),
-                              round=4
+                              round=5
                             )
     else:
       _, X, Y = self.make_dataset_from_array(
                               inputs=np.array(list(X.as_numpy_iterator())),
                               labels=np.array(list(Y.as_numpy_iterator())),
-                              round=4
+                              round=5
                             )
     X = X[
       length-self.total_window_size:2*length-self.total_window_size, :, :, :
@@ -386,13 +401,13 @@ class WindowGenerator():
         _, x, y = self.make_dataset_from_array(
                                 inputs=np.array(LIST(x.as_numpy_iterator())),
                                 labels=np.array(LIST(y.as_numpy_iterator())),
-                                round=4
+                                round=5
                               )
       else:
         _, x, y = self.make_dataset_from_array(
                                 inputs=np.array(list(x.as_numpy_iterator())),
                                 labels=np.array(list(y.as_numpy_iterator())),
-                                round=4
+                                round=5
                               )
       x = x[
         length-self.total_window_size:2*length-self.total_window_size, :, :, :

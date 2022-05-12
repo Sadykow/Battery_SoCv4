@@ -55,6 +55,7 @@ from sys import platform  # Get type of OS
 
 import matplotlib as mpl  # Plot functionality
 import matplotlib.pyplot as plt
+plt.switch_backend('agg')       #! FIX in the no-X env: RuntimeError: Invalid DISPLAY variable
 import numpy as np
 import pandas as pd  # File read
 import tensorflow as tf  # Tensorflow and Numpy replacement
@@ -85,8 +86,8 @@ if (sys.version_info[1] < 9):
 #     print ('EXEPTION: Arguments requied!')
 #     sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '100'), ('-l', '1'), ('-n', '1572'), ('-a', '786'),
-        ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
+opts = [('-d', 'False'), ('-e', '100'), ('-l', '1'), ('-n', '262'), ('-a', '3'),
+        ('-g', '0'), ('-p', 'US06')] # 2x131 1x1572 
 debug   : int = 0
 batch   : int = 1
 mEpoch  : int = 10
@@ -158,8 +159,8 @@ if physical_devices:
     # for device in physical_devices:
     #     tf.config.experimental.set_memory_growth(
     #                         device=device, enable=True)
-    tf.config.experimental.set_memory_growth(
-                        device=physical_devices[GPU], enable=True)
+    # tf.config.experimental.set_memory_growth(
+    #                     device=physical_devices[GPU], enable=True)
     logging.info("GPU found and memory growth enabled") 
     
     logical_devices = tf.config.experimental.list_logical_devices('GPU')
@@ -183,6 +184,28 @@ dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
                                 ],
                               PROFILE_range = profile)
 # %%
+# [MinMax Normalization]
+# from sklearn.preprocessing import MinMaxScaler
+
+# scaler = MinMaxScaler()
+# pd.DataFrame(dataGenerator.train[:,:3]).plot(subplots=True)
+# print(scaler.fit(dataGenerator.train[:,:3]))
+# print(scaler.data_max_)
+# print(scaler.data_min_)
+
+# train = scaler.transform(dataGenerator.train[:,:3])
+# pd.DataFrame(train).plot(subplots=True)
+
+# valid = scaler.transform(dataGenerator.valid[:,:3])
+# pd.DataFrame(valid).plot(subplots=True)
+
+# test = scaler.transform(dataGenerator.testi[:,:3])
+# pd.DataFrame(test).plot(subplots=True)
+
+# inverse_valid = scaler.inverse_transform(valid)
+# pd.DataFrame(inverse_valid).plot(subplots=True)
+# %%
+# [resampling]
 # columns=[ 'Step_Time(s)', 
 #                                 'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
 #                                 'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
@@ -237,7 +260,8 @@ window = WindowGenerator(Data=dataGenerator,
                                                 'Temperature (C)_1'],
                         label_columns=['SoC(%)'], batch=batch,
                         includeTarget=False, normaliseLabal=False,
-                        shuffleTraining=False)
+                        shuffleTraining=False,
+                        normaliseInput=True) #! DO NOT FORGET TO REMOVE THIS
 x_train, y_train = window.train
 x_valid, y_valid = window.valid
 x_testi, y_testi = window.test
@@ -325,7 +349,7 @@ def create_model(mFunc : Callable, layers : int = 1,
     return model
 
 file_name : str = os.path.basename(__file__)[:-3]
-model_name : str = 'Models-№1-2'
+model_name : str = 'ModelsUp-№1'
 ####################! ADD model_name to path!!! ################################
 model_loc : str = f'Modds/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
 iEpoch = 0

@@ -32,7 +32,6 @@ def Read_Excel_File(path : str,
                       sheet_name=1,
                       header=0, names=None, index_col=None,
                       usecols=['Step_Index'] + columns,
-                      squeeze=False,
                       dtype=float32,
                       engine='openpyxl', converters=None, true_values=None,
                       false_values=None, skiprows=None, nrows=None,
@@ -42,6 +41,10 @@ def Read_Excel_File(path : str,
                       convert_float=None, mangle_dupe_cols=True
                   ) #? FutureWarning: convert_float is deprecated and will be
                     #? removed in a future version
+                    
+                    #? FutureWarning: The squeeze argument has been deprecated
+                    #? and will be removed in a future version. Append
+                    #? .squeeze("columns") to the call to squeeze.
   if(indexes == None):       #!r_DST_FUDS Nasty fix
     df = df[df['Step_Index'].isin(chain(range(4 , 12), range(18, 25)))]
   else:

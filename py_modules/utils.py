@@ -48,7 +48,7 @@ def Locate_Best_Epoch(file_path : str,
             filepath_or_buffer=file_path, sep=",", delimiter=None,
             # Column and Index Locations and Names
             header="infer", names=None, index_col=None, usecols=None,
-            squeeze=False, prefix=None, mangle_dupe_cols=True,
+            prefix=None, mangle_dupe_cols=True,
             # General Parsing Configuration
             dtype=None, engine=None, converters=None, true_values=None,
             false_values=None, skipinitialspace=False, skiprows=None,
@@ -72,6 +72,7 @@ def Locate_Best_Epoch(file_path : str,
             delim_whitespace=False, low_memory=True, memory_map=False,
             float_precision=None
         ) #? FutureWarning: The warn_bad_lines, error_bad_lines argument has been deprecated and will be removed in a future version.
+          #? FutureWarning: The squeeze argument has been deprecated and will be removed in a future version. Append .squeeze("columns") to the call to squeeze.
   #! Try catch to fix all files
   try:
     iEpoch : int = df['Epoch'][df[metric].idxmin()]
