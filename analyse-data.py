@@ -21,7 +21,7 @@ mpl.rcParams['axes.grid'] = False
 plt.rcParams['figure.facecolor'] = 'white'
 # %%
 Data    : str = 'Data/'
-profiles: list = ['DST', 'US06']
+profiles: list = ['DST', 'US06', 'FUDS']
 neurons : list = [ 131, 262, 524 ]
 layers : range = range(1, 4)
 attempts : str = range(1, 4)
@@ -63,12 +63,169 @@ for profile in profiles:
     titles[profile] = names.copy()
     data[profile] = histories.copy()
 # %% 
+def avr_attempts(profile, file_name, model_name, nLayers, nNeurons, criteria='mae'):
+    length = pd.read_csv(
+                    f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                    f'1-{profile}/1-train-logits.csv').shape[0]
+    logits = np.empty(shape=(length,1))
+    for a in attempts:
+        file = (f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                f'{a}-{profile}/history.csv')
+        bestEpoch, err  = Locate_Best_Epoch(file, 'mae')
+        
+        if err < 0.20:
+            logits = np.append(logits, pd.read_csv(
+                        f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                        f'{a}-{profile}/{bestEpoch}-train-logits.csv').iloc[:, -1:].values,
+                        axis=1)
+            # plt.plot(logits[:,-1], label=nNames)
+            print(f'Best epoch for {nLayers}x({nNeurons})-{a} is: {bestEpoch} with {err}')
+                    
+        else:
+            print(f'XXX--->> Failed model at {nLayers}x({nNeurons})-{a} with {err}')
+                    # plt.plot(pd.read_csv(
+                    #     f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                    #     f'{a}-{profile}/{bestEpoch}-train-logits.csv').iloc[:, -1].values)
+            # plt.figure()
+    # plt.plot(logits.mean(axis=1), label=nNames)
+    return bestEpoch, logits
+
+def fit_line(profile, file_name, model_name, nLayers, nNeurons):
+    thetas = np.zeros(shape=(3,2))
+    for a in attempts:
+        data = pd.read_csv(f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                        f'{a}-{profile}/history.csv')
+        Y = data['train_rms'][2:]
+        X = data['Epoch'][2:]
+        thetas[a-1,0], thetas[a-1,1] = np.polyfit(X,Y,1)
+        # plt.plot(thetas[a-1,0]*X + thetas[a-1,1])
+        # plt.plot(Y)
+    # print(thetas)
+    #y_line = theta[0] * X + theta[1]
+    return thetas[np.argmin(thetas[:,0]),:]
+
 file_name : str = 'testHyperParams'
 model_name: str = 'ModelsUp-№1'
 titles = {}
 data = {}
-for profile in ['US06']:
-# for profile in ['FUDS']:
+profile = 'DST'
+nLayers = 1
+nNeurons= 131
+TableRecords = pd.DataFrame(
+        columns = ['Layers', 'Neurons', 'minEpochs',   # Information
+                    'size', 'tr_time', 'Success_rate', # Propertirs
+                    'alpha', 'c',    # Line Fit
+                    'Ts_time/sample', # Speed
+                    #'BestEpoch', 'Lowest_tr_mae', 'Lowest_vl_mae',
+                    'DST_tr_mae(%)', 'US06_tr_mae(%)', 'FUDS_tr_mae(%)',
+                    #'DST_vl_mae(%)', 'US06_vl_mae(%)', 'FUDS_vl_mae(%)',
+                    #'avr_tr_mae(%)'
+                    ]
+    )
+MAE = tf.metrics.MeanAbsoluteError()
+BestMAE = tf.metrics.MeanAbsoluteError()
+for nLayers in range(1,4):
+    for nNeurons in [ 131, 262, 524, 1048, 1572]:
+        minEpochs = 1000
+        dict_MAE = {}
+        dict_vMAE = {}
+        for profile in ['DST','US06','FUDS']:
+            epochs, logits = avr_attempts(profile, file_name, model_name,
+                                    nLayers, nNeurons, 'mae')
+            # BestEpoch, BestLogits = avr_attempts(profile, file_name, model_name,
+            #                         nLayers, nNeurons, 'train_mae')
+            #* Minimal Epochs
+            if(epochs < minEpochs):
+                minEpochs = epochs
+            
+            #* Getting MAE
+            y_true = pd.read_csv(
+                            f'Data/validation/{profile}_yt_valid.csv'
+                        ).iloc[:,-1]
+            MAE.update_state(
+                    y_true = y_true,
+                    y_pred = logits[:,1:].mean(axis=1)
+                )
+            dict_MAE[f'{profile}_tr_mae'] = np.array(MAE.result()*100)
+            MAE.reset_state()
+            
+            #! Sample per seconds
+            
+        #! Recording the results
+        a=1
+        file = (f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                f'{a}-{profile}/1')
+        hist = (f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                f'{a}-{profile}/history.csv')
+        #* Get size
+        mSize = os.stat(file).st_size/1000000 # bytes
+
+        #* Get time
+        tr_rime = np.mean(pd.read_csv(hist)['time(s)'].values[1:])
+        while (np.isnan(tr_rime) and a < 4):
+            a +=1
+            hist = (f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                f'{a}-{profile}/history.csv')
+            tr_rime = np.mean(pd.read_csv(hist)['time(s)'].values[1:])
+
+        time_per_samples = np.mean(pd.read_csv(hist)['val_t_s'].values[1:])/pd.read_csv(f'Data/validation/{profile}_y_valid.csv').shape[0]
+
+        #* Determine trend
+        try:
+            alpha, c = fit_line(profile, file_name, model_name,
+                                        nLayers, nNeurons)
+        except:
+            alpha = 0
+            c = 0
+        #* Succes rate
+        rate = logits[:,1:].shape[1]/3
+        TableRecords.loc[len(TableRecords)] = pd.Series(data={
+                'Layers' : nLayers, 'Neurons' : nNeurons, 'minEpochs' : minEpochs,
+                'alpha': alpha, 'c' : c,    # Line Fit
+                'size' : mSize, 'tr_time' : tr_rime, 'Success_rate' : rate,
+                'DST_tr_mae(%)' : dict_MAE.get('DST_tr_mae'),
+                'US06_tr_mae(%)': dict_MAE.get('US06_tr_mae'),
+                'FUDS_tr_mae(%)': dict_MAE.get('FUDS_tr_mae'),
+                #'avr_tr_mae(%)' : np.mean(dict_MAE.get('DST_tr_mae'),dict_MAE.get('US06_tr_mae'),dict_MAE.get('FUDS_tr_mae')),
+                'Ts_time/sample': time_per_samples
+            })
+TableRecords['avr_tr_mae(%)'] = np.mean(TableRecords.iloc[:,-3:], axis=1)
+# TableRecords.iloc[np.argmin(TableRecords['avr_tr_mae(%)'],3)]
+#! Printing bests
+criterias = ['avr_tr_mae(%)', 'size', 'alpha', 'Ts_time/sample']
+for criteria in criterias:
+    print(f'Best by {criteria}')
+    TableRecords.iloc[TableRecords.sort_values(by=criteria, ascending=True).index[:3]].head()
+# %%
+# %% 
+def avr_attempts(profile, file_name, model_name, nLayers, nNeurons, criteria='mae'):
+    length = pd.read_csv(
+                    f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                    f'1-{profile}/1-train-logits.csv').shape[0]
+    logits = np.empty(shape=(length,1))
+    for a in attempts:
+        file = (f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                f'{a}-{profile}/history.csv')
+        bestEpoch, err  = Locate_Best_Epoch(file, 'mae')
+        
+        if err < 0.20:
+            logits = np.append(logits, pd.read_csv(
+                        f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                        f'{a}-{profile}/{bestEpoch}-train-logits.csv').iloc[:, -1:].values,
+                        axis=1)
+            # plt.plot(logits[:,-1], label=nNames)
+            print(f'Best epoch for {nLayers}x({nNeurons})-{a} is: {bestEpoch} with {err}')
+                    
+        else:
+            print(f'XXX--->> Failed model at {nLayers}x({nNeurons})-{a} with {err}')
+                    # plt.plot(pd.read_csv(
+                    #     f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                    #     f'{a}-{profile}/{bestEpoch}-train-logits.csv').iloc[:, -1].values)
+            # plt.figure()
+    # plt.plot(logits.mean(axis=1), label=nNames)
+    return logits
+
+for profile in ['DST','US06','FUDS']:
     names : list = []
     train : list = []
     for nLayers in range(1,4):
@@ -77,31 +234,8 @@ for profile in ['US06']:
         for nNeurons in [ 131, 262, 524, 1048, 1572]:
             nNames.append(f'{nLayers}x({nNeurons})')
             
-            length = pd.read_csv(
-                    f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
-                    f'1-{profile}/1-train-logits.csv').shape[0]
-            logits = np.empty(shape=(length,1))
-            for a in attempts:
-                #! Need to make use of the Error. If it is above 25%, 
-                #! it needs to be ignored
-                bestEpoch, err  = Locate_Best_Epoch(
-                    f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
-                    f'{a}-{profile}/history.csv', 'mae')
-                if err < 0.20:
-                    logits = np.append(logits, pd.read_csv(
-                        f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
-                        f'{a}-{profile}/{bestEpoch}-train-logits.csv').iloc[:, -1:].values,
-                        axis=1)
-                    plt.plot(logits[:,-1], label=nNames)
-                    print(f'Best epoch for {nLayers}x({nNeurons})-{a} is: {bestEpoch} with {err}')
-                    
-                else:
-                    print(f'XXX--->> Failed model at {nLayers}x({nNeurons})-{a} with {err}')
-                    # plt.plot(pd.read_csv(
-                    #     f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
-                    #     f'{a}-{profile}/{bestEpoch}-train-logits.csv').iloc[:, -1].values)
-            # plt.figure()
-            # plt.plot(logits.mean(axis=1), label=nNames)
+            logits = avr_attempts(profile, file_name, model_name,
+                                  nLayers, nNeurons)
             nHistories.append(
                 logits[:,1:].mean(axis=1)
                 )
@@ -110,7 +244,7 @@ for profile in ['US06']:
     titles[profile] = names.copy()
     data[profile] = train.copy()
 # %%
-profile = 'US06'
+profile = 'FUDS'
 y_data = pd.read_csv(f'Data/validation/{profile}_yt_valid.csv')
 
 MAE = tf.metrics.MeanAbsoluteError()
@@ -138,6 +272,26 @@ for l in range(3):
         axs[i, l].legend(prop={'size': 32})
 
 print(f'The best model is {titles[profile][lay][index]} with error {lowest*100}')
+# %%
+# Line Fitter
+data = pd.read_csv(f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                        f'{a}-{profile}/history.csv')
+Y = data['mae'][3:]
+X = data['Epoch'][3:]
+theta = np.polyfit(X,Y,1)
+print(theta)
+y_line = theta[1] + theta[0] * X
+plt.plot(X,Y)
+plt.plot(X, y_line)
+# 0: -0.016
+# 1: -0.0107
+# 2: -0.005791
+# 3: -0.004529
+
+mSize = os.stat(f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                        f'{a}-{profile}/10').st_size/1000000 # bytes
+print(f"{mSize:.4}-Mbytes")
+
 # %%
 #? MAE
 def non_zero_min_idx(values : np.array) -> tuple[np.float32, int]:

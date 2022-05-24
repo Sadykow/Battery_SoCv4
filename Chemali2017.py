@@ -86,8 +86,8 @@ if (sys.version_info[1] < 9):
 #     print ('EXEPTION: Arguments requied!')
 #     sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '100'), ('-l', '1'), ('-n', '262'), ('-a', '3'),
-        ('-g', '0'), ('-p', 'US06')] # 2x131 1x1572 
+opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '1'),
+        ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
 debug   : int = 0
 batch   : int = 1
 mEpoch  : int = 10
@@ -96,6 +96,7 @@ nNeurons: int = 262
 attempt : str = '1'
 GPU     : int = None
 profile : str = 'DST'
+rounding: int = 6
 print(opts)
 for opt, arg in opts:
     if opt == '-h':
@@ -182,12 +183,14 @@ dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
                                 'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
                                 'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
                                 ],
-                              PROFILE_range = profile)
+                              PROFILE_range = profile,
+                              round=rounding)
 # %%
 # [MinMax Normalization]
-# from sklearn.preprocessing import MinMaxScaler
+# from sklearn.preprocessing import MinMaxScaler, MaxAbsScaler
 
-# scaler = MinMaxScaler()
+# scaler = MinMaxScaler(feature_range=(-1, 1), copy=True, clip=False)
+# # scaler = MaxAbsScaler(copy=True)
 # pd.DataFrame(dataGenerator.train[:,:3]).plot(subplots=True)
 # print(scaler.fit(dataGenerator.train[:,:3]))
 # print(scaler.data_max_)
@@ -261,7 +264,8 @@ window = WindowGenerator(Data=dataGenerator,
                         label_columns=['SoC(%)'], batch=batch,
                         includeTarget=False, normaliseLabal=False,
                         shuffleTraining=False,
-                        normaliseInput=True) #! DO NOT FORGET TO REMOVE THIS
+                        normaliseInput=True,
+                        round=rounding)
 x_train, y_train = window.train
 x_valid, y_valid = window.valid
 x_testi, y_testi = window.test
@@ -568,7 +572,7 @@ while iEpoch < mEpoch:
             df_temp = hist_cycle[hist_cycle['Epoch']==iEpoch]
             df_temp = df_temp[df_temp['Cycle']==(j+1)]
             if(len(df_temp) == 0):
-                hist_cycle = hist_cycle.append(hist_ser, ignore_index=True)
+                hist_cycle = pd.concat([hist_cycle, hist_ser], ignore_index=True)
             else:
                 # hist_cycle.loc[iEpoch-1, :] = hist_ser
                 hist_cycle.loc[
@@ -894,7 +898,7 @@ while iEpoch < mEpoch:
             'learn_r': np.array(iLr),
         }, name=0)
     if(len(hist_df[hist_df['Epoch']==iEpoch]) == 0):
-        hist_df = hist_df.append(hist_ser, ignore_index=True)
+        hist_df = pd.concat([hist_df, hist_ser], ignore_index=True)
     else:
         hist_df.loc[iEpoch-1, :] = hist_ser
 

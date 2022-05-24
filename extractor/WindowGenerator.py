@@ -16,7 +16,7 @@ import numpy as np
 from dataclasses import dataclass
 
 from extractor.DataGenerator import DataGenerator
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, MaxAbsScaler
 from extractor.soc_calc import diffSoC
 
 #! Replance Tensorflow Numpy with numpy if version below 2.5
@@ -61,9 +61,11 @@ class WindowGenerator():
   #input_indices : list[int]
   labels_slice  : slice
   #label_indices : list[int]
-  # scaler = MinMaxScaler()
-  scaler = StandardScaler()
-  
+  # scaler = MinMaxScaler(feature_range=(-1, 1), copy=True, clip=False)
+  scaler = StandardScaler(copy=True, with_mean=True, with_std=True) #! Add this call to constructor to pass
+  # scaler = MaxAbsScaler(copy=True)
+  round : int = 0
+
   def __init__(self, Data : DataGenerator,
                input_width : int, label_width : int, shift : int,
                input_columns : list[str], label_columns : list[str],
@@ -72,7 +74,8 @@ class WindowGenerator():
                normaliseInput : bool = True, normaliseLabal : bool = True,
                shuffleTraining : bool = False,
                float_dtype : type = None,
-               int_dtype : type = None) -> None:
+               int_dtype : type = None,
+               round : int = 4) -> None:
     """ Window Constructor used to store data sets and properties of the 
         window, which will be used for processing.
 
@@ -148,6 +151,7 @@ class WindowGenerator():
     #                     dtype=int_dtype)[self.labels_slice]
     #? Normalisation by MinMax
     self.scaler.fit(self.Data.train[:,:len(self.input_columns)])
+    self.round = round
   def __repr__(self) -> str:
     """ A return from the constructor. Information of the storage like:
     Total windows size, input and label indices, Label/output column names.
@@ -170,8 +174,7 @@ class WindowGenerator():
   
   @tf.autograph.experimental.do_not_convert
   def make_dataset_from_array(self, inputs : np.ndarray,
-                                    labels : np.ndarray,
-                                    round : int = 4
+                                    labels : np.ndarray
               ) -> tf.raw_ops.MapDataset:
 
     input_length : int = len(self.input_columns)    
@@ -189,16 +192,17 @@ class WindowGenerator():
       #                             MEAN
       #                           ),
       #                       STD
-      #                     ).round(decimals=round)
+      #                     ).round(decimals=self.round)
+      # data : np.ndarray = np.subtract(
+      #                             np.copy(a=inputs[:,:input_length]),
+      #                             MEAN
+      #                           ).round(decimals=self.round)
       #? Normalisation by MinMax
-      data : np.ndarray = np.copy(
-                            a=self.scaler.transform(
+      data : np.ndarray = self.scaler.transform(
                               X=inputs[:,:input_length]
-                            )
-                          ).round(decimals=round)
+                            ).round(decimals=self.round)
     else:
-      data : np.ndarray = np.copy(a=inputs[:,:input_length],
-                                  order='K', subok=False)
+      data : np.ndarray = np.copy(a=inputs[:,:input_length].round(decimals=self.round))
     
     data = np.append(arr=data,
                       values=labels,
@@ -278,9 +282,9 @@ class WindowGenerator():
                 X=X[i][self.input_columns].to_numpy()[j:(j+look_back), :]
                                   )
         else:
-          dataX[i][j,0,:,:] = X[i][self.input_columns].to_numpy()[j:(j+look_back), :]
+          dataX[i][j,0,:,:] = np.copy(X[i][self.input_columns].to_numpy()[j:(j+look_back), :])
         #dataY[i][j]     = Y[i][j+look_back,]
-        dataY[i][j,0,0]     = Y[i][j+look_back-1,]
+        dataY[i][j,0,0]     = np.copy(Y[i][j+look_back-1,])
       temperature : float = X[i]['Temperature (C)_1'].mean()
       print(f"Mean temp: {temperature:.2f} degrees")
     print(f"Data for windowing took: {(perf_counter() - tic):.2f} seconds\n")
@@ -377,14 +381,12 @@ class WindowGenerator():
     if (sys.version_info[1] < 9):
       _, X, Y = self.make_dataset_from_array(
                               inputs=np.array(LIST(X.as_numpy_iterator())),
-                              labels=np.array(LIST(Y.as_numpy_iterator())),
-                              round=5
+                              labels=np.array(LIST(Y.as_numpy_iterator()))
                             )
     else:
       _, X, Y = self.make_dataset_from_array(
                               inputs=np.array(list(X.as_numpy_iterator())),
-                              labels=np.array(list(Y.as_numpy_iterator())),
-                              round=5
+                              labels=np.array(list(Y.as_numpy_iterator()))
                             )
     X = X[
       length-self.total_window_size:2*length-self.total_window_size, :, :, :
@@ -400,14 +402,12 @@ class WindowGenerator():
       if (sys.version_info[1] < 9):
         _, x, y = self.make_dataset_from_array(
                                 inputs=np.array(LIST(x.as_numpy_iterator())),
-                                labels=np.array(LIST(y.as_numpy_iterator())),
-                                round=5
+                                labels=np.array(LIST(y.as_numpy_iterator()))
                               )
       else:
         _, x, y = self.make_dataset_from_array(
                                 inputs=np.array(list(x.as_numpy_iterator())),
-                                labels=np.array(list(y.as_numpy_iterator())),
-                                round=5
+                                labels=np.array(list(y.as_numpy_iterator()))
                               )
       x = x[
         length-self.total_window_size:2*length-self.total_window_size, :, :, :

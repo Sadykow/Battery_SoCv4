@@ -140,15 +140,17 @@ class DataGenerator():
     self.tr_ls_df, self.tr_ls_SoC = ParseExcelData(self.train_dir,
                                                    self.r_profile[0],
                                                    self.columns)
-    self.interpolate_charge(self.tr_ls_df, self.spacing)
-    self.interpolate_charge(self.tr_ls_SoC, self.spacing, noise=False)
+    self.interpolate_charge(self.tr_ls_df, self.spacing, round=round)
+    self.interpolate_charge(self.tr_ls_SoC, self.spacing, noise=False, round=round)
     ds_ls_df, ds_ls_SoC = ParseExcelData(self.train_dir,
                                          self.r_profile[1],
                                          self.columns)
     for i in range(len(self.tr_ls_df)):
-      self.tr_ls_df[i] = self.tr_ls_df[i].append(ds_ls_df[i])
+      # self.tr_ls_df[i] = self.tr_ls_df[i].append(ds_ls_df[i])
+      self.tr_ls_df[i] = pd.concat([self.tr_ls_df[i], ds_ls_df[i]], ignore_index=True)
       self.tr_ls_df[i].reset_index(drop=True, inplace=True)
-      self.tr_ls_SoC[i] = self.tr_ls_SoC[i].append(ds_ls_SoC[i])
+      # self.tr_ls_SoC[i] = self.tr_ls_SoC[i].append(ds_ls_SoC[i])
+      self.tr_ls_SoC[i] = pd.concat([self.tr_ls_SoC[i], ds_ls_SoC[i]], ignore_index=True)
       self.tr_ls_SoC[i].reset_index(drop=True, inplace=True)
     self.train_t = time.perf_counter() - tic
     
@@ -157,15 +159,17 @@ class DataGenerator():
     self.vl_ls_df, self.vl_ls_SoC = ParseExcelData(self.valid_dir,
                                                    self.v_profile[0],
                                                    self.columns)
-    self.interpolate_charge(self.vl_ls_df, self.spacing)
-    self.interpolate_charge(self.vl_ls_SoC, self.spacing, noise=False)
+    self.interpolate_charge(self.vl_ls_df, self.spacing, round=round)
+    self.interpolate_charge(self.vl_ls_SoC, self.spacing, noise=False, round=round)
     ds_ls_df, ds_ls_SoC = ParseExcelData(self.valid_dir,
                                          self.v_profile[1],
                                          self.columns)
     for i in range(len(self.vl_ls_df)):
-      self.vl_ls_df[i] = self.vl_ls_df[i].append(ds_ls_df[i])
+      # self.vl_ls_df[i] = self.vl_ls_df[i].append(ds_ls_df[i])
+      self.vl_ls_df[i] = pd.concat([self.vl_ls_df[i], ds_ls_df[i]], ignore_index=True)
       self.vl_ls_df[i].reset_index(drop=True, inplace=True)
-      self.vl_ls_SoC[i] = self.vl_ls_SoC[i].append(ds_ls_SoC[i])
+      # self.vl_ls_SoC[i] = self.vl_ls_SoC[i].append(ds_ls_SoC[i])
+      self.vl_ls_SoC[i] = pd.concat([self.vl_ls_SoC[i], ds_ls_SoC[i]], ignore_index=True)
       self.vl_ls_SoC[i].reset_index(drop=True, inplace=True)
     self.valid_t = time.perf_counter() - tic
     
@@ -175,30 +179,34 @@ class DataGenerator():
     self.ts_ls_df, self.ts_ls_SoC = ParseExcelData(self.testi_dir,
                                                    self.t_profile[0][0],
                                                    self.columns)
-    self.interpolate_charge(self.ts_ls_df, self.spacing)
-    self.interpolate_charge(self.ts_ls_SoC, self.spacing, noise=False)
+    self.interpolate_charge(self.ts_ls_df, self.spacing, round=round)
+    self.interpolate_charge(self.ts_ls_SoC, self.spacing, noise=False, round=round)
     ds_ls_df, ds_ls_SoC = ParseExcelData(self.testi_dir,
                                          self.t_profile[0][1],
                                          self.columns)
     for i in range(len(self.ts_ls_df)):
-      self.ts_ls_df[i] = self.ts_ls_df[i].append(ds_ls_df[i])
+      # self.ts_ls_df[i] = self.ts_ls_df[i].append(ds_ls_df[i])
+      self.ts_ls_df[i] = pd.concat([self.ts_ls_df[i], ds_ls_df[i]], ignore_index=True)
       self.ts_ls_df[i].reset_index(drop=True, inplace=True)
-      self.ts_ls_SoC[i] = self.ts_ls_SoC[i].append(ds_ls_SoC[i])
+      # self.ts_ls_SoC[i] = self.ts_ls_SoC[i].append(ds_ls_SoC[i])
+      self.ts_ls_SoC[i] = pd.concat([self.ts_ls_SoC[i], ds_ls_SoC[i]], ignore_index=True)
       self.ts_ls_SoC[i].reset_index(drop=True, inplace=True)
     
     #** Part 2
     ts_ls_df_2, ts_ls_SoC_2 = ParseExcelData(self.testi_dir,
                                              self.t_profile[1][0],
                                              self.columns)
-    self.interpolate_charge(ts_ls_df_2, self.spacing)
-    self.interpolate_charge(ts_ls_SoC_2, self.spacing, noise=False)
+    self.interpolate_charge(ts_ls_df_2, self.spacing, round=round)
+    self.interpolate_charge(ts_ls_SoC_2, self.spacing, noise=False, round=round)
     ds_ls_df, ds_ls_SoC = ParseExcelData(self.testi_dir,
                                          self.t_profile[1][1],
                                          self.columns)
     for i in range(len(ts_ls_df_2)):
-      ts_ls_df_2[i] = ts_ls_df_2[i].append(ds_ls_df[i])
+      # ts_ls_df_2[i] = ts_ls_df_2[i].append(ds_ls_df[i])
+      ts_ls_df_2[i] = pd.concat([ts_ls_df_2[i], ds_ls_df[i]], ignore_index=True)
       ts_ls_df_2[i].reset_index(drop=True, inplace=True)
-      ts_ls_SoC_2[i] = ts_ls_SoC_2[i].append(ds_ls_SoC[i])
+      # ts_ls_SoC_2[i] = ts_ls_SoC_2[i].append(ds_ls_SoC[i])
+      ts_ls_SoC_2[i] = pd.concat([ts_ls_SoC_2[i], ds_ls_SoC[i]], ignore_index=True)
       ts_ls_SoC_2[i].reset_index(drop=True, inplace=True)
 
     #** Combine two lists to one
@@ -345,7 +353,7 @@ class DataGenerator():
       ls_df[i].reset_index(drop=True, inplace=True)
 
   def interpolate_charge(self, ls_df : list[np.ndarray], spacing : int,
-                         noise : bool = True):
+                         noise : bool = True, round : int = 4):
     # 
     # a = -diff
     # b = diff
@@ -356,8 +364,7 @@ class DataGenerator():
       # Prep noise
       if noise:
         diff = (ls_df[i].copy()-ls_df[i].shift().copy())[1:].copy()
-        diff = pd.concat([diff, diff.iloc[-1:, :]])
-        # diff=diff*0.25 # 25% <<<33.4% offset
+        diff = pd.concat([diff, diff.iloc[-1:, :]], ignore_index=True)   #? Adress the index, see if needed.
         spacing = 5
         diff['reindex'] = np.arange(0, spacing*len(diff), spacing)
         diff = diff.set_index('reindex').reindex(
@@ -366,20 +373,20 @@ class DataGenerator():
         diff.reset_index(drop=True, inplace=True)
         
         sign = np.zeros(shape=diff.shape)
-        b = 0.25
-        a = -b
+        b = 0.251
+        a = -0.25
         for j in range(sign.shape[0]):
           if j % spacing == 0:
             s = np.zeros(shape=sign.shape[1])
           else:
             # s = np.random.randint(low=-1, high=2,
             #                     size=sign.shape[1])
-            s = np.random.uniform(a, b, sign.shape[1]).round(4)
+            s = np.random.uniform(a, b, sign.shape[1]).round(round)
             # while( (s == 0).any() ):
             while( any(s > -0.0001) & any(s < 0.0001) ):
               # s = np.random.randint(low=-1, high=2,
               #                       size=sign.shape[1])
-              s = np.random.uniform(a, b, sign.shape[1]).round(4)
+              s = np.random.uniform(a, b, sign.shape[1]).round(round)
           sign[j, :] = s
         diff = diff*sign
       ls_df[i]['reindex'] = np.arange(0, spacing*len(ls_df[i]), spacing)

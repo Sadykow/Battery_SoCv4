@@ -8,6 +8,7 @@ from sys import platform  # Get type of OS
 
 import matplotlib as mpl  # Plot functionality
 import matplotlib.pyplot as plt
+plt.switch_backend('agg')       #! FIX in the no-X env: RuntimeError: Invalid DISPLAY variable
 import numpy as np
 import pandas as pd  # File read
 import tensorflow as tf
@@ -40,8 +41,8 @@ if (sys.version_info[1] < 9):
 #     print ('EXEPTION: Arguments requied!')
 #     sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '100'), ('-l', '2'), ('-n', '524'), ('-a', '4'),
-        ('-g', '0'), ('-p', 'FUDS'), ('-s', '30')] # *x524
+opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '24-1'),
+        ('-g', '0'), ('-p', 'US06'), ('-s', '30')] # *x524
 debug   : int = 0
 batch   : int = 1
 mEpoch    : int = 10
@@ -51,6 +52,7 @@ attempt : str = '1'
 GPU       : int = 0
 profile   : str = 'DST'
 out_steps : int = 10
+rounding: int = 6
 print(opts)
 for opt, arg in opts:
     if opt == '-h':
@@ -113,8 +115,8 @@ if physical_devices:
                             physical_devices[GPU], 'GPU')
 
     #if GPU == 1:
-    tf.config.experimental.set_memory_growth(
-                            physical_devices[GPU], True)
+    # tf.config.experimental.set_memory_growth(
+    #                         physical_devices[GPU], True)
     logging.info("GPU found and memory growth enabled") 
     
     logical_devices = tf.config.experimental.list_logical_devices('GPU')
@@ -136,7 +138,8 @@ dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
                                 'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
                                 'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
                                 ],
-                              PROFILE_range = profile)
+                              PROFILE_range = profile,
+                              round=rounding)
 # %%
 window = WindowGenerator(Data=dataGenerator,
                         input_width=500, label_width=out_steps, shift=1,
@@ -144,7 +147,9 @@ window = WindowGenerator(Data=dataGenerator,
                                                 'Temperature (C)_1'],
                         label_columns=['SoC(%)'], batch=1,
                         includeTarget=True, normaliseLabal=False,
-                        shuffleTraining=False)
+                        shuffleTraining=False,
+                        normaliseInput=True,
+                        round=rounding)
 x_train, y_train = window.train
 x_valid, y_valid = window.valid
 x_testi, y_testi = window.test
@@ -386,10 +391,10 @@ if not os.path.exists(f'{model_loc}history-cycles.csv'):
 if not os.path.exists(f'{model_loc}cycles-log'):
     os.mkdir(f'{model_loc}cycles-log')
 n_attempts : int = 10
-
+# %%
 while iEpoch < mEpoch:
     iEpoch+=1
-    # pbar = tqdm(total=y_train.shape[0])
+    pbar = tqdm(total=y_train.shape[0])
     tic : float = time.perf_counter()
     sh_i = np.arange(y_train.shape[0])
     np.random.shuffle(sh_i)
@@ -402,15 +407,15 @@ while iEpoch < mEpoch:
                                     # curr_error=loss_value
                                     )
         # Progress Bar
-        # pbar.update(1)
-        # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
-        #                         # f'loss: {(loss_value):.4f} - '
-        #                         f'mae: {MAE.result():.4f} - '
-        #                         f'rmse: {RMSE.result():.4f} - '
-        #                         # f'rsquare: {RSquare.result():.4f} --- '
-        #                     )
+        pbar.update(1)
+        pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
+                                # f'loss: {(loss_value):.4f} - '
+                                f'mae: {MAE.result():.4f} - '
+                                f'rmse: {RMSE.result():.4f} - '
+                                # f'rsquare: {RSquare.result():.4f} --- '
+                            )
     toc : float = time.perf_counter() - tic
-    # pbar.close()
+    pbar.close()
     cLr = optimiser.get_config()['learning_rate']
     print(f'Epoch {iEpoch}/{mEpoch} :: '
             f'Elapsed Time: {toc} - '
