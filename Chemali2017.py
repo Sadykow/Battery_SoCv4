@@ -76,18 +76,18 @@ if (sys.version_info[1] < 9):
 
 # %%
 # Extract params
-# try:
-#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:l:n:a:g:p:",
-#                     ["help", "debug=", "epochs=", "layers=", "neurons=",
-#                      "attempt=", "gpu=", "profile="])
-# except getopt.error as err: 
-#     # output error, and return with an error code 
-#     print (str(err)) 
-#     print ('EXEPTION: Arguments requied!')
-#     sys.exit(2)
+try:
+    opts, args = getopt.getopt(sys.argv[1:],"hd:e:l:n:a:g:p:",
+                    ["help", "debug=", "epochs=", "layers=", "neurons=",
+                     "attempt=", "gpu=", "profile="])
+except getopt.error as err: 
+    # output error, and return with an error code 
+    print (str(err)) 
+    print ('EXEPTION: Arguments requied!')
+    sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '1'),
-        ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
+# opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '1'),
+#         ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
 debug   : int = 0
 batch   : int = 1
 mEpoch  : int = 10
@@ -96,7 +96,7 @@ nNeurons: int = 262
 attempt : str = '1'
 GPU     : int = None
 profile : str = 'DST'
-rounding: int = 6
+rounding: int = 5
 print(opts)
 for opt, arg in opts:
     if opt == '-h':
@@ -160,8 +160,8 @@ if physical_devices:
     # for device in physical_devices:
     #     tf.config.experimental.set_memory_growth(
     #                         device=device, enable=True)
-    # tf.config.experimental.set_memory_growth(
-    #                     device=physical_devices[GPU], enable=True)
+    tf.config.experimental.set_memory_growth(
+                        device=physical_devices[GPU], enable=True)
     logging.info("GPU found and memory growth enabled") 
     
     logical_devices = tf.config.experimental.list_logical_devices('GPU')
@@ -353,9 +353,9 @@ def create_model(mFunc : Callable, layers : int = 1,
     return model
 
 file_name : str = os.path.basename(__file__)[:-3]
-model_name : str = 'ModelsUp-№1'
+model_name : str = 'ModelsUp-1'
 ####################! ADD model_name to path!!! ################################
-model_loc : str = f'Modds/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
+model_loc : str = f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
 iEpoch = 0
 firstLog : bool = True
 iLr     : float = 0.001
@@ -594,7 +594,7 @@ while iEpoch < mEpoch:
 #?==================                    =======================================
     else:
 #?================== Full data way ===========================================
-        pbar = tqdm(total=y_train.shape[0])
+        # pbar = tqdm(total=y_train.shape[0])
         tic : float = time.perf_counter()
         sh_i = np.arange(y_train.shape[0])
         np.random.shuffle(sh_i)
@@ -606,15 +606,15 @@ while iEpoch < mEpoch:
                                         #curr_error=CR_ER
                                         )
             # Progress Bar
-            pbar.update(1)
-            pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
-                                    # f'loss: {(loss_value[0]):.4f} - '
-                                    f'mae: {MAE.result():.4f} - '
-                                    f'rmse: {RMSE.result():.4f} - '
-                                    # f'rsquare: {RSquare.result():.4f} --- '
-                                )
+            # pbar.update(1)
+            # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
+            #                         # f'loss: {(loss_value[0]):.4f} - '
+            #                         f'mae: {MAE.result():.4f} - '
+            #                         f'rmse: {RMSE.result():.4f} - '
+            #                         # f'rsquare: {RSquare.result():.4f} --- '
+            #                     )
         toc : float = time.perf_counter() - tic
-        pbar.close()
+        # pbar.close()
         cLr = optimiser.get_config()['learning_rate']
         print(f'Epoch {iEpoch}/{mEpoch} :: '
                 f'Elapsed Time: {toc} - '
