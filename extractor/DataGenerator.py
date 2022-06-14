@@ -353,7 +353,7 @@ class DataGenerator():
       ls_df[i].reset_index(drop=True, inplace=True)
 
   def interpolate_charge(self, ls_df : list[np.ndarray], spacing : int,
-                         noise : bool = True, round : int = 4):
+                         noise : bool = False, round : int = 4):#! SET DEFAULT BACK TO TRUE
     # 
     # a = -diff
     # b = diff

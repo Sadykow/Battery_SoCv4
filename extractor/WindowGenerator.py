@@ -181,26 +181,26 @@ class WindowGenerator():
     tic : float = perf_counter()    
     if self.normaliseInput: # Normalise Inputs
       #? Normalisation by MEAN and STD
-      # MEAN = np.mean(a=self.Data.train[:,:input_length], axis=0,
-      #                                 dtype=self.float_dtype,
-      #                                 keepdims=False)
-      # STD = np.std(a=self.Data.train[:,:input_length], axis=0,
-      #                               keepdims=False)
-      # data : np.ndarray = np.divide(
-      #                       np.subtract(
-      #                             np.copy(a=inputs[:,:input_length]),
-      #                             MEAN
-      #                           ),
-      #                       STD
-      #                     ).round(decimals=self.round)
+      MEAN = np.mean(a=self.Data.train[:,:input_length], axis=0,
+                                      dtype=self.float_dtype,
+                                      keepdims=False)
+      STD = np.std(a=self.Data.train[:,:input_length], axis=0,
+                                    keepdims=False)
+      data : np.ndarray = np.divide(
+                            np.subtract(
+                                  np.copy(a=inputs[:,:input_length]),
+                                  MEAN
+                                ),
+                            STD
+                          ).round(decimals=self.round)
       # data : np.ndarray = np.subtract(
       #                             np.copy(a=inputs[:,:input_length]),
       #                             MEAN
       #                           ).round(decimals=self.round)
       #? Normalisation by MinMax
-      data : np.ndarray = self.scaler.transform(
-                              X=inputs[:,:input_length]
-                            ).round(decimals=self.round)
+      # data : np.ndarray = self.scaler.transform(
+      #                         X=inputs[:,:input_length]
+      #                       ).round(decimals=self.round)
     else:
       data : np.ndarray = np.copy(a=inputs[:,:input_length].round(decimals=self.round))
     

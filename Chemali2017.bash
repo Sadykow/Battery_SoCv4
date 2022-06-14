@@ -1,11 +1,11 @@
 #!/bin/bash -l
 script='Chemali2017.py'
 attempt=1
-profiles='FUDS'
+profiles='DST US06 FUDS'
 
 # A100
 GPU='A100'
-hours=100
+hours=200
 index=1
 
 for profile in $profiles

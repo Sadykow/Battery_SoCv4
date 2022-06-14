@@ -55,7 +55,7 @@ from sys import platform  # Get type of OS
 
 import matplotlib as mpl  # Plot functionality
 import matplotlib.pyplot as plt
-plt.switch_backend('agg')       #! FIX in the no-X env: RuntimeError: Invalid DISPLAY variable
+# plt.switch_backend('agg')       #! FIX in the no-X env: RuntimeError: Invalid DISPLAY variable
 import numpy as np
 import pandas as pd  # File read
 import tensorflow as tf  # Tensorflow and Numpy replacement
@@ -86,7 +86,7 @@ except getopt.error as err:
     print ('EXEPTION: Arguments requied!')
     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '1'),
+# opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '11'),
 #         ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
 debug   : int = 0
 batch   : int = 1
@@ -153,15 +153,15 @@ physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
     #! need to research more why.
-    tf.config.experimental.set_visible_devices(
-                            physical_devices[GPU], 'GPU')
+    # tf.config.experimental.set_visible_devices(
+    #                         physical_devices[GPU], 'GPU')
 
     # if GPU == 1:
     # for device in physical_devices:
     #     tf.config.experimental.set_memory_growth(
     #                         device=device, enable=True)
-    tf.config.experimental.set_memory_growth(
-                        device=physical_devices[GPU], enable=True)
+    # tf.config.experimental.set_memory_growth(
+    #                     device=physical_devices[GPU], enable=True)
     logging.info("GPU found and memory growth enabled") 
     
     logical_devices = tf.config.experimental.list_logical_devices('GPU')
@@ -525,7 +525,14 @@ if not os.path.exists(f'{model_loc}history-cycles.csv'):
                 'learn_r\n')
 if not os.path.exists(f'{model_loc}cycles-log'):
     os.mkdir(f'{model_loc}cycles-log')
-n_attempts : int = 10
+
+#* Save the valid logits to separate files. Just annoying
+pd.DataFrame(y_train[:,0,0]).to_csv(f'{model_loc}y_train.csv', sep = ",", na_rep = "", line_terminator = '\n')
+pd.DataFrame(yt_valid[:,0,0]).to_csv(f'{model_loc}yt_valid.csv', sep = ",", na_rep = "", line_terminator = '\n')
+pd.DataFrame(y_valid[:,0,0]).to_csv(f'{model_loc}y_valid.csv', sep = ",", na_rep = "", line_terminator = '\n')
+pd.DataFrame(y_testi[:,0,0]).to_csv(f'{model_loc}y_testi.csv', sep = ",", na_rep = "", line_terminator = '\n')
+
+n_attempts : int = 50
 while iEpoch < mEpoch:
     iEpoch+=1
 #?================== cycle by cycle way=================================
@@ -874,6 +881,7 @@ while iEpoch < mEpoch:
                                             index_col='Epoch')
     hist_df = hist_df.reset_index()
 
+    #! Rewrite as add, not a new, similar to the one I found on web with data analysis
     hist_ser = pd.Series(data={
             'Epoch'  : iEpoch,
             'loss'   : np.array(loss_value[0]),
@@ -895,15 +903,17 @@ while iEpoch < mEpoch:
             'tes_rms': np.mean(np.append(TEST1[2], TEST2[2])),
             'tes_r_s': np.mean(np.append(TEST1[3], TEST2[3])),
             'tes_t_s': ts_toc,
-            'learn_r': np.array(iLr),
-        }, name=0)
+            'learn_r': np.array(iLr)
+        })
     if(len(hist_df[hist_df['Epoch']==iEpoch]) == 0):
-        hist_df = pd.concat([hist_df, hist_ser], ignore_index=True)
+        # hist_df = pd.concat([hist_df, hist_ser], ignore_index=True)
+        hist_df = hist_df.append(hist_ser, ignore_index=True)
+        # hist_df.loc[hist_df['Epoch']==iEpoch] = hist_ser
     else:
-        hist_df.loc[iEpoch-1, :] = hist_ser
-
-    hist_df.to_csv(f'{model_loc}history.csv', index=False)
-    
+        hist_df.loc[len(hist_df)] = hist_ser
+    hist_df.to_csv(f'{model_loc}history.csv', index=False, sep = ",", na_rep = "", line_terminator = '\n')
+    # print(hist_df)
+    # print(hist_df.head())
     # Plot History for reference and overwrite if have to    
     history_plot(profile, model_name, model_loc, hist_df, save_plot=True,
                     plot_file_name=f'history-{profile}-train.svg')

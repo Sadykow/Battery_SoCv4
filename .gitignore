@@ -138,6 +138,7 @@ Modds
 UQ_Endurance
 
 .vscode
+.Trash-1000/
 
 cy_modules/utils.html
 cy_modules/utils.pyx

@@ -21,14 +21,14 @@ mpl.rcParams['axes.grid'] = False
 plt.rcParams['figure.facecolor'] = 'white'
 # %%
 Data    : str = 'Data/'
-profiles: list = ['DST', 'US06', 'FUDS']
-neurons : list = [ 131, 262, 524 ]
-layers : range = range(1, 4)
-attempts : str = range(1, 4)
+profiles: list = ['FUDS']#['DST', 'US06', 'FUDS']
+neurons : list = [131]#[ 131, 262, 524 ]
+layers : range = [3]#range(1, 4)
+attempts : str = range(1,11)#range(1, 4)
 profile : str = 'FUDS'
 
-file_name : str = 'testHyperParams'
-model_name: str = 'ModelsUp-№1'
+file_name : str = 'Chemali2017'#'testHyperParams'
+model_name: str = 'ModelsUp-1'
 
 # %% [histories]
 profile : str = 'DST'
@@ -104,11 +104,11 @@ def fit_line(profile, file_name, model_name, nLayers, nNeurons):
     #y_line = theta[0] * X + theta[1]
     return thetas[np.argmin(thetas[:,0]),:]
 
-file_name : str = 'testHyperParams'
-model_name: str = 'ModelsUp-№1'
+file_name : str = 'Chemali2017'#'testHyperParams'
+model_name: str = 'ModelsUp-1'
 titles = {}
 data = {}
-profile = 'DST'
+profile = 'FUDS'
 nLayers = 1
 nNeurons= 131
 TableRecords = pd.DataFrame(
@@ -225,13 +225,13 @@ def avr_attempts(profile, file_name, model_name, nLayers, nNeurons, criteria='ma
     # plt.plot(logits.mean(axis=1), label=nNames)
     return logits
 
-for profile in ['DST','US06','FUDS']:
+for profile in profiles:
     names : list = []
     train : list = []
-    for nLayers in range(1,4):
+    for nLayers in layers:
         nNames = []
         nHistories = []
-        for nNeurons in [ 131, 262, 524, 1048, 1572]:
+        for nNeurons in neurons:
             nNames.append(f'{nLayers}x({nNeurons})')
             
             logits = avr_attempts(profile, file_name, model_name,
@@ -549,3 +549,31 @@ plt.plot(x_cycles, df_c[metric][:cycles:])
 
 plt.plot(x_cycles[4::], df_c[metric][4:cycles:])
 # %%
+length = pd.read_csv(
+                f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                f'1-{profile}/1-train-logits.csv').shape[0]
+logits = np.empty(shape=(length,1))
+for a in range(1,11):
+    count = 0
+    dir_path = (f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                        f'{a}-{profile}/traiPlots')
+    for path in os.scandir(dir_path):
+        if path.is_file():
+            count += 1
+
+    logits = np.append(logits, pd.read_csv(
+                f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                f'{a}-{profile}/{count}-train-logits.csv').iloc[:, -1:].values,
+                axis=1)
+#* Getting MAE
+y_true = pd.read_csv(
+                f'/mnt/LibrarySM/SHARED/Data/validation/{profile}_yt_valid.csv'
+            ).iloc[:,-1]
+MAE = tf.metrics.MeanAbsoluteError()
+MAE.update_state(
+        y_true = y_true,
+        y_pred = logits[:,1:].mean(axis=1)
+    )
+plt.plot(y_true)
+plt.plot(logits[:,1:].mean(axis=1))
+plt.title(f'MAE: {MAE.result()*100:.4}% across {logits[:,1:].shape[1]} attempts')
