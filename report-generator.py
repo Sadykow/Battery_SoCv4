@@ -11,8 +11,10 @@ import numpy as np
 import pandas as pd  # File read
 from itertools import chain
 import tensorflow as tf
+import tensorflow_addons as tfa
 
 from py_modules.utils import Locate_Best_Epoch
+from py_modules.plotting import predicting_plot
 
 # Define plot sizes
 mpl.rcParams['figure.figsize'] = (8, 6)
@@ -78,12 +80,18 @@ TableRecords = pd.DataFrame(
 
 # %%
 # Create average plots
-
-for profile in ['US06']:
+MAE     = tf.metrics.MeanAbsoluteError()
+RMSE    = tf.metrics.RootMeanSquaredError()
+RSquare = tfa.metrics.RSquare(dtype=tf.float32)
+for profile in profiles:
     length = pd.read_csv(
                     f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
                     f'1-{profile}/1-train-logits.csv').shape[0]
     logits = np.empty(shape=(length,1))
+    if profile == 'FUDS':
+        attempts = range(1,10)
+    else: 
+        attempts = range(1,11)
     for a in attempts:
         file = (f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
                 f'{a}-{profile}/history.csv')
@@ -97,6 +105,28 @@ for profile in ['US06']:
                     f'{a}-{profile}/{bestEpoch}-train-logits.csv').iloc[:, -1:].values,
                     axis=1)
     y_data = pd.read_csv(f'{Data}/validation/{profile}_yt_valid.csv').iloc[:,-1]
-    plt.plot(y_data)
-    plt.plot(logits[:,1:].mean(axis=1))
+    # for i in attempts:
+    #     print(np.mean(y_data-logits[:,i]))
+    y_result = logits[:,1:].mean(axis=1)
+    MAE.update_state(y_true=y_data,     y_pred=y_result)
+    RMSE.update_state(y_true=y_data,    y_pred=y_result)
+    RSquare.update_state(y_true=y_data, y_pred=y_result)
+    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+            y_data-y_result)))
+    predicting_plot(profile=profile, file_name=model_name,
+            model_loc=f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/',
+            model_type='LSTM average',
+            iEpoch=f'10-attempts',
+            Y=y_data,
+            PRED=y_result,
+            RMS=RMS,
+            val_perf=[0,
+                      MAE.result(),
+                      RMSE.result(),
+                      RSquare.result()],
+            TAIL=y_data.shape[0],
+            save_plot=True)
+    # plt.plot(y_data)
+    # plt.plot(logits[:,1:].mean(axis=1))
+
 # %%

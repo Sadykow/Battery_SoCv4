@@ -46,6 +46,7 @@ from sys import platform  # Get type of OS
 
 import matplotlib as mpl  # Plot functionality
 import matplotlib.pyplot as plt
+# plt.switch_backend('agg')       #! FIX in the no-X env: RuntimeError: Invalid DISPLAY variable
 import numpy as np
 import pandas as pd  # File read
 import tensorflow as tf  # Tensorflow and Numpy replacement
@@ -54,9 +55,9 @@ from tqdm import tqdm, trange
 
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
-from py_modules.tf_modules import scheduler
+from py_modules.tf_modules import scheduler, get_learning_rate
 from py_modules.utils import str2bool, Locate_Best_Epoch
-from py_modules.plotting import predicting_plot
+from py_modules.plotting import predicting_plot, history_plot
 
 import sys
 from typing import Callable
@@ -67,18 +68,18 @@ if (sys.version_info[1] < 9):
 
 # %%
 # Extract params
-try:
-    opts, args = getopt.getopt(sys.argv[1:],"hd:e:l:n:a:g:p:",
-                    ["help", "debug=", "epochs=", "layers=", "neurons=",
-                     "attempt=", "gpu=", "profile="])
-except getopt.error as err: 
-    # output error, and return with an error code 
-    print (str(err)) 
-    print ('EXEPTION: Arguments requied!')
-    sys.exit(2)
+# try:
+#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:l:n:a:g:p:",
+#                     ["help", "debug=", "epochs=", "layers=", "neurons=",
+#                      "attempt=", "gpu=", "profile="])
+# except getopt.error as err: 
+#     # output error, and return with an error code 
+#     print (str(err)) 
+#     print ('EXEPTION: Arguments requied!')
+#     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '100'), ('-l', '1'), ('-n', '524'), ('-a', '1'),
-#         ('-g', '0'), ('-p', 'FUDS')]
+opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '11'),
+        ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
 debug   : int = 0
 batch   : int = 1
 mEpoch  : int = 10
@@ -87,6 +88,7 @@ nNeurons: int = 262
 attempt : str = '1'
 GPU     : int = None
 profile : str = 'DST'
+rounding: int = 5
 for opt, arg in opts:
     if opt == '-h':
         print('HELP: Use following default example.')
@@ -158,7 +160,7 @@ if physical_devices:
 #! For numeric stability, set the default floating-point dtype to float64
 tf.keras.backend.set_floatx('float32')
 # %%
-#! Check OS to change SymLink usage
+Data : str = ''
 if(platform=='win32'):
     Data    : str = 'DataWin\\'
 else:
@@ -170,7 +172,8 @@ dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
                                 'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
                                 'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
                                 ],
-                              PROFILE_range = profile)
+                              PROFILE_range = profile,
+                              round=rounding)
 # %%
 window = WindowGenerator(Data=dataGenerator,
                         input_width=500, label_width=1, shift=0,
@@ -178,14 +181,16 @@ window = WindowGenerator(Data=dataGenerator,
                                                 'Temperature (C)_1'],
                         label_columns=['SoC(%)'], batch=batch,
                         includeTarget=False, normaliseLabal=False,
-                        shuffleTraining=False)
-ds_train, x_train, y_train = window.train
-ds_valid, x_valid, y_valid = window.valid
-ds_testi, x_testi, y_testi = window.test
+                        shuffleTraining=False,
+                        normaliseInput=True,
+                        round=rounding)
+x_train, y_train = window.train
+x_valid, y_valid = window.valid
+x_testi, y_testi = window.test
 
-# For training-validation if necessary 16800:24800
-xt_valid = np.array(x_train[-8000:,:,:], copy=True, dtype=np.float32)
-yt_valid = np.array(y_train[-8000:,:]  , copy=True, dtype=np.float32)
+tv_length = len(x_valid)
+xt_valid = np.array(x_train[-tv_length:,:,:], copy=True, dtype=np.float32)
+yt_valid = np.array(y_train[-tv_length:,:]  , copy=True, dtype=np.float32)
 # %%
 def create_model(mFunc : Callable, layers : int = 1,
                  neurons : int = 500, dropout : float = 0.2,
@@ -264,69 +269,113 @@ custom_loss = lambda y_true, y_pred: tf.keras.backend.mean(
         )
 
 file_name : str = os.path.basename(__file__)[:-3]
-model_loc : str = f'Models/{file_name}/{profile}-models/'
+model_name : str = 'ModelsUp-2'
+####################! ADD model_name to path!!! ################################
+model_loc : str = f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
+firstLog : bool = True
+iLr     : float = 0.001
+prev_error : np.float32 = 1.0
 
 iEpoch : int = 0
 p2     : int = int(mEpoch/3)
 skipCompile1, skipCompile2 = False, False
 try:
-    for _, _, files in os.walk(model_loc):
-        for file in files:
-            if file.endswith('.ch'):
-                iEpoch = int(os.path.splitext(file)[0])
-    
-    gru_model : tf.keras.models.Sequential = tf.keras.models.load_model(
+    iEpoch, prev_error  = Locate_Best_Epoch(f'{model_loc}history.csv', 'mae')
+    lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
             f'{model_loc}{iEpoch}',
             compile=False)
-    print("Model Identefied. Continue training.")
+    iLr = get_learning_rate(iEpoch, iLr, 'linear')
+    firstLog = False
+    print(f"Model Identefied at {iEpoch} with {prev_error}. Continue training.")
 except OSError as identifier:
     print("Model Not Found, creating new. {} \n".format(identifier))
-    gru_model = tf.keras.models.Sequential([
-        tf.keras.layers.InputLayer(input_shape=x_train.shape[-2:],
-                                   batch_size=None),
-        tf.keras.layers.GRU(    #?260 by BinXia, times by 2 or 3
-            units=560, activation='tanh', recurrent_activation='sigmoid',
-            use_bias=True, kernel_initializer='glorot_uniform',
-            recurrent_initializer='orthogonal', bias_initializer='zeros',
-            kernel_regularizer=None,
-            recurrent_regularizer=None, bias_regularizer=None,
-            activity_regularizer=None, kernel_constraint=None,
-            recurrent_constraint=None, bias_constraint=None, dropout=0.2,
-            recurrent_dropout=0.0, return_sequences=False, return_state=False,
-            go_backwards=False, stateful=False, unroll=False, time_major=False,
-            reset_after=True
-        ),
-        tf.keras.layers.Dense(units=1,
-                              activation='sigmoid')
-    ])
-prev_model = tf.keras.models.clone_model(gru_model,
-                                    input_tensors=None, clone_function=None)
+    # gru_model = tf.keras.models.Sequential([
+    #     tf.keras.layers.InputLayer(input_shape=x_train.shape[-2:],
+    #                                batch_size=None),
+    #     tf.keras.layers.GRU(    #?260 by BinXia, times by 2 or 3
+    #         units=560, activation='tanh', recurrent_activation='sigmoid',
+    #         use_bias=True, kernel_initializer='glorot_uniform',
+    #         recurrent_initializer='orthogonal', bias_initializer='zeros',
+    #         kernel_regularizer=None,
+    #         recurrent_regularizer=None, bias_regularizer=None,
+    #         activity_regularizer=None, kernel_constraint=None,
+    #         recurrent_constraint=None, bias_constraint=None, dropout=0.2,
+    #         recurrent_dropout=0.0, return_sequences=False, return_state=False,
+    #         go_backwards=False, stateful=False, unroll=False, time_major=False,
+    #         reset_after=True
+    #     ),
+    #     tf.keras.layers.Dense(units=1,
+    #                           activation='sigmoid')
+    # ])
+    if type(x_train) == list:
+        input_shape : tuple = x_train[0].shape[-2:]
+    else:
+        input_shape : tuple = x_train.shape[-2:]
+    gru_model = create_model(
+            tf.keras.layers.GRU, layers=nLayers, neurons=nNeurons,
+            dropout=0.2, input_shape=input_shape, batch=1
+        )
+    iLr = 0.001
+    firstLog = True
+prev_model = tf.keras.models.clone_model(gru_model)
 
-checkpoints = tf.keras.callbacks.ModelCheckpoint(
-    filepath =model_loc+f'{profile}-checkpoints/checkpoint',
-    monitor='val_loss', verbose=0,
-    save_best_only=False, save_weights_only=False,
-    mode='auto', save_freq='epoch', options=None,
-)
+# checkpoints = tf.keras.callbacks.ModelCheckpoint(
+#     filepath =model_loc+f'{profile}-checkpoints/checkpoint',
+#     monitor='val_loss', verbose=0,
+#     save_best_only=False, save_weights_only=False,
+#     mode='auto', save_freq='epoch', options=None,
+# )
 
-tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=model_loc+
-            f'tensorboard/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}',
-        histogram_freq=1, write_graph=True, write_images=False,
-        update_freq='epoch', profile_batch=2, embeddings_freq=0,
-        embeddings_metadata=None
-    )
+# tensorboard_callback = tf.keras.callbacks.TensorBoard(
+#         log_dir=model_loc+
+#             f'tensorboard/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}',
+#         histogram_freq=1, write_graph=True, write_images=False,
+#         update_freq='epoch', profile_batch=2, embeddings_freq=0,
+#         embeddings_metadata=None
+#     )
 
 nanTerminate = tf.keras.callbacks.TerminateOnNaN()
 # %%
+if not os.path.exists(f'{model_loc}'):
+    os.makedirs(f'{model_loc}')
+if not os.path.exists(f'{model_loc}traiPlots'):
+    os.mkdir(f'{model_loc}traiPlots')
+if not os.path.exists(f'{model_loc}valdPlots'):
+    os.mkdir(f'{model_loc}valdPlots')
+if not os.path.exists(f'{model_loc}testPlots'):
+    os.mkdir(f'{model_loc}testPlots')
+if not os.path.exists(f'{model_loc}history.csv'):
+    #! ADD EPOCH FOR FUTURE, THEN FIX THE BEST EPOCH
+    print("History not created. Making")
+    with open(f'{model_loc}history.csv', mode='w') as f:
+        f.write('Epoch,loss,mae,rmse,rsquare,time(s),'
+                'train_l,train_mae,train_rms,train_r_s,'
+                'vall_l,val_mae,val_rms,val_r_s,val_t_s,'
+                'test_l,tes_mae,tes_rms,tes_r_s,tes_t_s,learn_r\n')
+if not os.path.exists(f'{model_loc}history-cycles.csv'):
+    print("Cycle-History not created. Making")
+    with open(f'{model_loc}history-cycles.csv', mode='w') as f:
+        f.write('Epoch,Cycle,'
+                'train_l,train_mae,train_rms,train_t_s,'
+                'vall_l,val_mae,val_rms,val_t_s,'
+                'learn_r\n')
+if not os.path.exists(f'{model_loc}cycles-log'):
+    os.mkdir(f'{model_loc}cycles-log')
+
+#* Save the valid logits to separate files. Just annoying
+pd.DataFrame(y_train[:,0,0]).to_csv(f'{model_loc}y_train.csv', sep = ",", na_rep = "", line_terminator = '\n')
+pd.DataFrame(yt_valid[:,0,0]).to_csv(f'{model_loc}yt_valid.csv', sep = ",", na_rep = "", line_terminator = '\n')
+pd.DataFrame(y_valid[:,0,0]).to_csv(f'{model_loc}y_valid.csv', sep = ",", na_rep = "", line_terminator = '\n')
+pd.DataFrame(y_testi[:,0,0]).to_csv(f'{model_loc}y_testi.csv', sep = ",", na_rep = "", line_terminator = '\n')
+
 i_attempts : int = 0
-n_attempts : int = 3
+n_attempts : int = 50
 skip       : int = 1
 firtstEpoch: bool = True
 while iEpoch < mEpoch:
     if (iEpoch<=p2 and not skipCompile1):
         gru_model.compile(loss=tf.keras.losses.MeanSquaredError(),
-                optimizer=tf.keras.optimizers.Nadam(learning_rate=0.001,
+                optimizer=tf.keras.optimizers.Nadam(learning_rate=iLr,
                     beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Nadam'
                     ),
                 metrics=[tf.metrics.MeanAbsoluteError(),
@@ -337,7 +386,7 @@ while iEpoch < mEpoch:
         print("\nOptimizer set: Nadam\n")
     elif (iEpoch>p2 and not skipCompile2):
         gru_model.compile(loss=tf.keras.losses.MeanSquaredError(),
-                optimizer=tf.keras.optimizers.Adamax(learning_rate=0.0005,
+                optimizer=tf.keras.optimizers.Adamax(learning_rate=iLr,
                     beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Adamax'
                     ),
                 metrics=[tf.metrics.MeanAbsoluteError(),
@@ -348,13 +397,23 @@ while iEpoch < mEpoch:
         print("\nOptimizer set: Adamax\n")
     iEpoch+=1
     print(f"Epoch {iEpoch}/{mEpoch}")
-    
-    history = gru_model.fit(x=x_train, y=y_train, epochs=1,
-                        validation_data=(x_valid, y_valid),
+    tic : float = time.perf_counter()
+    history = gru_model.fit(x=x_train[:,0,:,:], y=y_train[:,0,:], epochs=1,
+                        validation_data=(x_valid[:,0,:,:], y_valid[:,0,:]),
                         callbacks=[nanTerminate],
                         batch_size=1, shuffle=True
                         )
-    
+    toc : float = time.perf_counter() - tic
+    # pbar.close()
+    cLr = gru_model.optimiser.lr
+    print(f'Epoch {iEpoch}/{mEpoch} :: '
+            f'Elapsed Time: {toc} - '
+            # f'loss: {loss_value[0]:.4f} - '
+            f'mae: {MAE.result():.4f} - '
+            f'rmse: {RMSE.result():.4f} - '
+            f'rsquare: {RSquare.result():.4f} - '
+            f'Lear-Rate: {cLr} - '
+        )
     #? Dealing with NaN state. Give few trials to see if model improves
     if (tf.math.is_nan(history.history['loss'])):
         print('NaN model')
