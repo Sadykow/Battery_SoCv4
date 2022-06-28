@@ -287,7 +287,7 @@ try:
     iLr = get_learning_rate(iEpoch, iLr, 'linear')
     firstLog = False
     print(f"Model Identefied at {iEpoch} with {prev_error}. Continue training.")
-except OSError as identifier:
+except (OSError, TypeError) as identifier:
     print("Model Not Found, creating new. {} \n".format(identifier))
     # gru_model = tf.keras.models.Sequential([
     #     tf.keras.layers.InputLayer(input_shape=x_train.shape[-2:],
@@ -401,20 +401,20 @@ while iEpoch < mEpoch:
     history = gru_model.fit(x=x_train[:,0,:,:], y=y_train[:,0,:], epochs=1,
                         validation_data=(x_valid[:,0,:,:], y_valid[:,0,:]),
                         callbacks=[nanTerminate],
-                        batch_size=1, shuffle=True
+                        batch_size=1, shuffle=True, verbose = 0
                         )
     toc : float = time.perf_counter() - tic
     # pbar.close()
-    cLr = gru_model.optimiser.lr
+    cLr = gru_model.optimizer.lr.numpy()
     print(f'Epoch {iEpoch}/{mEpoch} :: '
             f'Elapsed Time: {toc} - '
             # f'loss: {loss_value[0]:.4f} - '
-            f'mae: {MAE.result():.4f} - '
-            f'rmse: {RMSE.result():.4f} - '
-            f'rsquare: {RSquare.result():.4f} - '
+            f'mae: {history.history["mean_absolute_error"][0]:.4f} - '
+            f'rmse: {history.history["root_mean_squared_error"][0]:.4f} - '
+            f'rsquare: {history.history["r_square"][0]:.4f} - '
             f'Lear-Rate: {cLr} - '
         )
-    #? Dealing with NaN state. Give few trials to see if model improves
+    #!!!! Dealing with NaN state. Give few trials to see if model improves
     if (tf.math.is_nan(history.history['loss'])):
         print('NaN model')
         while i_attempts < n_attempts:
@@ -454,117 +454,350 @@ while iEpoch < mEpoch:
     else:
         gru_model.save(filepath=f'{model_loc}{iEpoch}',
                        overwrite=True, include_optimizer=True,
-                       save_format='h5', signatures=None, options=None,
-                       save_traces=True
+                       save_format='h5', signatures=None, options=None
                 )
         # gru_model.save_weights(f'{model_loc}weights/{iEpoch}')
         prev_model = tf.keras.models.clone_model(gru_model)
     
-    if os.path.exists(f'{model_loc}{iEpoch-1}.ch'):
-        os.remove(f'{model_loc}{iEpoch-1}.ch')
-    os.mknod(f'{model_loc}{iEpoch}.ch')
+    # Update learning rate
+    iLr = scheduler(iEpoch, iLr, 'linear')
+    gru_model.optimizer.lr = iLr
     
-    # Saving history variable
-    # convert the history.history dict to a pandas DataFrame:     
-    hist_df = pd.DataFrame(history.history)
-    # or save to csv:
-    with open(f'{model_loc}history-{profile}.csv', mode='a') as f:
-        if(firtstEpoch):
-            hist_df.to_csv(f, index=False)
-            firtstEpoch = False
-        else:
-            hist_df.to_csv(f, index=False, header=False)
-    
-    #! Run the Evaluate function
-    PRED = gru_model.predict(x_valid,batch_size=1)
-    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-                y_valid[::skip,]-PRED)))
-    PERF = gru_model.evaluate(x=x_valid,
-                              y=y_valid,
-                              batch_size=1,
-                              verbose=0)
-    # otherwise the right y-label is slightly clipped
-    predicting_plot(profile=profile, file_name='Model №2',
-                    model_loc=model_loc,
-                    model_type='GRU Train',
-                    iEpoch=f'val-{iEpoch}',
-                    Y=y_valid,
-                    PRED=PRED,
+    # Validating trained model 
+    TRAIN = gru_model.evaluate(xt_valid[:,0,:,:], yt_valid[:,0,:],
+                               batch_size=1, verbose = debug)
+    TRAIN_OUTPUT = gru_model.predict(xt_valid[:,0,:,:], batch_size=1)[:,0]
+    RMS = tf.keras.backend.sqrt(
+            tf.keras.backend.square(
+             tf.math.subtract(
+                yt_valid[:,0,0],
+                TRAIN_OUTPUT)
+             ))
+    predicting_plot(profile=profile, file_name=model_name,
+                    model_loc=f'{model_loc}/traiPlots/',
+                    model_type='GRU valid',
+                    iEpoch=f'tra-{iEpoch}',
+                    Y=yt_valid[:,0],
+                    PRED=TRAIN_OUTPUT,
                     RMS=RMS,
-                    val_perf=PERF,
+                    val_perf=[TRAIN[0], TRAIN[1],
+                            TRAIN[2], TRAIN[3]],
+                    TAIL=yt_valid.shape[0],
+                    save_plot=True)
+    print(f'Epoch {iEpoch}/{mEpoch} :: TRAIN :: '
+            f'mae: {TRAIN[1]:.4f} - '
+            f'rmse: {TRAIN[2]:.4f} - '
+            f'rsquare: {TRAIN[3]:.4f} - '
+            f'\n'
+        )
+    # Validating model 
+    PERF = gru_model.evaluate(x_valid[:,0,:,:], y_valid[:,0,:],
+                               batch_size=1, verbose = debug)
+    val_tic : float = time.perf_counter()
+    PERF_OUTPUT = gru_model.predict(xt_valid[:,0,:,:], batch_size=1)[:,0]
+    val_toc : float = time.perf_counter() - val_tic
+    RMS = tf.keras.backend.sqrt(
+            tf.keras.backend.square(
+             tf.math.subtract(
+                y_valid[:,0,0],
+                PERF_OUTPUT)
+             ))
+    predicting_plot(profile=profile, file_name=model_name,
+                    model_loc=f'{model_loc}/valdPlots/',
+                    model_type='GRU valid',
+                    iEpoch=f'val-{iEpoch}',
+                    Y=y_valid[:,0],
+                    PRED=PERF_OUTPUT,
+                    RMS=RMS,
+                    val_perf=[PERF[0], PERF[1],
+                            PERF[2], PERF[3]],
                     TAIL=y_valid.shape[0],
                     save_plot=True)
-    if(PERF[-2] <=0.024): # Check thr RMSE
-        print("RMS droped around 2.4%. Breaking the training")
-        break
+    print(f'Epoch {iEpoch}/{mEpoch} :: PERF :: '
+            f'Elapsed Time: {val_toc} - '
+            f'mae: {PERF[1]:.4f} - '
+            f'rmse: {PERF[2]:.4f} - '
+            f'rsquare: {PERF[3]:.4f} - '
+            f'\n'
+        )
+    # Testing model 
+    mid_one = int(x_testi.shape[0]/2)#+350
+    mid_two = int(x_testi.shape[0]/2)+400
+    ts_tic : float = time.perf_counter()
+    OUTPUT1 = gru_model.predict(x_testi[:mid_one ,0,:,:], batch_size=1)[:,0]
+    OUTPUT2 = gru_model.predict(x_testi[mid_two:, 0,:,:], batch_size=1)[:,0]
+    ts_toc : float = time.perf_counter() - ts_tic
+    
+    TEST1 = gru_model.evaluate(x_testi[:mid_one,0,:,:], y_testi[:mid_one,0,:],
+                               batch_size=1, verbose = debug)
+    TEST2 = gru_model.evaluate(x_testi[mid_two:,0,:,:], y_testi[mid_two:,0,:],
+                               batch_size=1, verbose = debug)
+    #! Verefy RMS shape
+    RMS = tf.keras.backend.sqrt(
+            tf.keras.backend.square(
+             tf.math.subtract(
+                y_testi[:mid_one,0,0],
+                OUTPUT1)   
+             ))
+    #! If statement for string to change
+    if profile == 'DST':
+        save_title_type : str = 'GRU Test on US06'
+        save_file_name  : str = f'US06-{iEpoch}'
+    else:
+        save_title_type : str = 'GRU Test on DST'
+        save_file_name  : str = f'DST-{iEpoch}'
 
+    predicting_plot(profile=profile, file_name=model_name,
+                    model_loc=f'{model_loc}/testPlots/',
+                    model_type=save_title_type,
+                    iEpoch=save_file_name,
+                    Y=y_testi[:mid_one,0],
+                    PRED=OUTPUT1,
+                    RMS=RMS,
+                    val_perf=[TEST1[0], TEST1[1],
+                            TEST1[2], TEST1[3]],
+                    TAIL=y_testi.shape[0],
+                    save_plot=True)
+    if profile == 'FUDS':
+        save_title_type : str = 'GRU Test on US06'
+        save_file_name  : str = f'US06-{iEpoch}'
+    else:
+        save_title_type : str = 'GRY Test on FUDS'
+        save_file_name  : str = f'FUDS-{iEpoch}'
+    #! Verefy RMS shape
+    RMS = tf.keras.backend.sqrt(
+            tf.keras.backend.square(
+             tf.math.subtract(
+                y_testi[mid_two:,0,0],
+                OUTPUT2)
+             ))
+
+    predicting_plot(profile=profile, file_name=model_name,
+                    model_loc=f'{model_loc}/testPlots/',
+                    model_type=save_title_type,
+                    iEpoch=save_file_name,
+                    Y=y_testi[mid_two:,0],
+                    PRED=OUTPUT2,
+                    RMS=RMS,
+                    val_perf=[TEST2[0], TEST2[1],
+                            TEST2[2], TEST2[3]],
+                    TAIL=y_testi.shape[0],
+                    save_plot=True)
+
+    print(f'Epoch {iEpoch}/{mEpoch} :: TEST :: '
+            f'Elapsed Time: {ts_toc} - '
+            f'mae: {np.mean(np.append(TEST1[1], TEST2[1])):.4f} - '
+            f'rmse: {np.mean(np.append(TEST1[2], TEST2[2])):.4f} - '
+            f'rsquare: {np.mean(np.append(TEST1[3], TEST2[3])):.4f} - '
+            f'\n'
+        )
+
+    # Saving history variable
+    hist_df : pd.DataFrame = pd.read_csv(f'{model_loc}history.csv',
+                                            index_col='Epoch')
+    hist_df = hist_df.reset_index()
+
+    #! Rewrite as add, not a new, similar to the one I found on web with data analysis
+    hist_ser = pd.Series(data={
+            'Epoch'  : iEpoch,
+            'loss'   : np.array(history.history["loss"][0]),
+            'mae'    : np.array(history.history["mean_absolute_error"][0]),
+            'rmse'   : np.array(history.history["root_mean_squared_error"][0]),
+            'rsquare': np.array(history.history["r_square"][0]),
+            'time(s)': toc,
+            'train_l' : np.mean(TRAIN[0]),
+            'train_mae': np.array(TRAIN[1]),
+            'train_rms': np.array(TRAIN[2]),
+            'train_r_s': np.array(TRAIN[3]),
+            'vall_l' : np.mean(PERF[0]),
+            'val_mae': np.array(PERF[1]),
+            'val_rms': np.array(PERF[2]),
+            'val_r_s': np.array(PERF[3]),
+            'val_t_s': val_toc,
+            'test_l' : np.mean(np.append(TEST1[0], TEST2[0])),
+            'tes_mae': np.mean(np.append(TEST1[1], TEST2[1])),
+            'tes_rms': np.mean(np.append(TEST1[2], TEST2[2])),
+            'tes_r_s': np.mean(np.append(TEST1[3], TEST2[3])),
+            'tes_t_s': ts_toc,
+            'learn_r': np.array(iLr)
+        })
+    if(len(hist_df[hist_df['Epoch']==iEpoch]) == 0):
+        # hist_df = pd.concat([hist_df, hist_ser], ignore_index=True)
+        hist_df = hist_df.append(hist_ser, ignore_index=True)
+        # hist_df.loc[hist_df['Epoch']==iEpoch] = hist_ser
+    else:
+        hist_df.loc[len(hist_df)] = hist_ser
+    hist_df.to_csv(f'{model_loc}history.csv', index=False, sep = ",", na_rep = "", line_terminator = '\n')
+
+    # Plot History for reference and overwrite if have to    
+    history_plot(profile, model_name, model_loc, hist_df, save_plot=True,
+                    plot_file_name=f'history-{profile}-train.svg')
+    history_plot(profile, model_name, model_loc, hist_df, save_plot=True,
+                metrics=['mae', 'val_mae',
+                        'rmse', 'val_rms'],
+                plot_file_name=f'history-{profile}-valid.svg')
+
+    pd.DataFrame(TRAIN_OUTPUT).to_csv(f'{model_loc}{iEpoch}-train-logits.csv')
+    pd.DataFrame(PERF_OUTPUT).to_csv(f'{model_loc}{iEpoch}-valid-logits.csv')
+    pd.DataFrame(np.append(OUTPUT1, OUTPUT2)
+                ).to_csv(f'{model_loc}{iEpoch}-test--logits.csv')
+    # Flush and clean
+    print('\n', flush=True)
+    # tf.keras.backend.clear_session()
+
+    #! Run the Evaluate function
+    # PRED = gru_model.predict(x_valid,batch_size=1)
+    # RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+    #             y_valid[::skip,]-PRED)))
+    # PERF = gru_model.evaluate(x=x_valid,
+    #                           y=y_valid,
+    #                           batch_size=1,
+    #                           verbose=0)
+    # # otherwise the right y-label is slightly clipped
+    # predicting_plot(profile=profile, file_name='Model №2',
+    #                 model_loc=model_loc,
+    #                 model_type='GRU Train',
+    #                 iEpoch=f'val-{iEpoch}',
+    #                 Y=y_valid,
+    #                 PRED=PRED,
+    #                 RMS=RMS,
+    #                 val_perf=PERF,
+    #                 TAIL=y_valid.shape[0],
+    #                 save_plot=True)
+    # if(PERF[-2] <=0.024): # Check thr RMSE
+    #     print("RMS droped around 2.4%. Breaking the training")
+    #     break
 # %%
-PRED = gru_model.predict(x_test_one, batch_size=1, verbose=1)
-RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_one[::,]-PRED)))
-if profile == 'DST':
-    predicting_plot(profile=profile, file_name='Model №2',
-                    model_loc=model_loc,
-                    model_type='GRU Test on US06', iEpoch=f'Test One-{iEpoch}',
-                    Y=y_test_one,
-                    PRED=PRED,
-                    RMS=RMS,
-                    val_perf=gru_model.evaluate(
-                                    x=x_test_one,
-                                    y=y_test_one,
-                                    batch_size=1,
-                                    verbose=1),
-                    TAIL=y_test_one.shape[0],
-                    save_plot=True)
-else:
-    predicting_plot(profile=profile, file_name='Model №2',
-                    model_loc=model_loc,
-                    model_type='GRU Test on DST', iEpoch=f'Test One-{iEpoch}',
-                    Y=y_test_one,
-                    PRED=PRED,
-                    RMS=RMS,
-                    val_perf=gru_model.evaluate(
-                                    x=x_test_one,
-                                    y=y_test_one,
-                                    batch_size=1,
-                                    verbose=1),
-                    TAIL=y_test_one.shape[0],
-                    save_plot=True)
+bestEpoch, _  = Locate_Best_Epoch(f'{model_loc}history.csv', 'mae')
+lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
+        f'{model_loc}{bestEpoch}',
+        compile=False)
+profiles: list = ['DST', 'US06', 'FUDS']
+del dataGenerator
+del window
+dataGenerators : list = []
+X : list = []
+Y : list = []
+for p in profiles:
+    dataGenerators.append(
+            DataGenerator(train_dir=f'{Data}A123_Matt_Set',
+                          valid_dir=f'{Data}A123_Matt_Val',
+                          test_dir=f'{Data}A123_Matt_Test',
+                          columns=[
+                            'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
+                            'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
+                          ],
+                          PROFILE_range = p)
+        )
+for g in dataGenerators:
+    _, x, y = WindowGenerator(Data=g,
+                    input_width=500, label_width=1, shift=0,
+                    input_columns=['Current(A)', 'Voltage(V)',
+                                            'Temperature (C)_1'],
+                    label_columns=['SoC(%)'], batch=1,
+                    includeTarget=False, normaliseLabal=False,
+                    shuffleTraining=False).train
+    X.append(x)
+    Y.append(y)
+#! Run test against entire dataset to record the tabled accuracy
+firstLog = False
+for p, x, y in zip(profiles, X, Y):
+    # Validating model 
+    val_tic : float = time.perf_counter()
+    # PERF = valid_loop((x, y), verbose = debug)
+    PERF = gru_model.evaluate(x[:,0,:,:], y[:,0,:],
+                            batch_size=1, verbose = debug)
+    val_toc : float = time.perf_counter() - val_tic
+    print(f'Profile {p} '
+            f'Elapsed Time: {val_toc} - '
+            f'mae: {PERF[1]:.4f} - '
+            f'rmse: {PERF[2]:.4f} - '
+            f'rsquare: {PERF[3]:.4f} - '
+        )
+        # Saving the log file
+    hist_df = pd.DataFrame(data={
+            'prof': [p],
+            'loss': [np.mean(PERF[0])],
+            'mae' : [np.array(PERF[1])],
+            'rms' : [np.array(PERF[2])],
+            'r2'  : [np.array(PERF[3])],
+            't(s)': [val_toc],
+        })
+    with open(f'{model_loc}full-evaluation.csv', mode='a') as f:
+        if(firstLog):
+            hist_df.to_csv(f, index=False, header=True)
+            firstLog = False
+        else:
+            hist_df.to_csv(f, index=False, header=False)
 
-PRED = gru_model.predict(x_test_two, batch_size=1, verbose=1)
-RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,]-PRED)))
-if profile == 'FUDS':
-    predicting_plot(profile=profile, file_name='Model №2',
-                    model_loc=model_loc,
-                    model_type='GRU Test on US06', iEpoch=f'Test Two-{iEpoch}',
-                    Y=y_test_two,
-                    PRED=PRED,
-                    RMS=RMS,
-                    val_perf=gru_model.evaluate(
-                                    x=x_test_two,
-                                    y=y_test_two,
-                                    batch_size=1,
-                                    verbose=1),
-                    TAIL=y_test_two.shape[0],
-                    save_plot=True)
-else:
-    predicting_plot(profile=profile, file_name='Model №2',
-                    model_loc=model_loc,
-                    model_type='GRU Test on FUDS', iEpoch=f'Test Two-{iEpoch}',
-                    Y=y_test_two,
-                    PRED=PRED,
-                    RMS=RMS,
-                    val_perf=gru_model.evaluate(
-                                    x=x_test_two,
-                                    y=y_test_two,
-                                    batch_size=1,
-                                    verbose=1),
-                    TAIL=y_test_two.shape[0],
-                    save_plot=True)
+print('Model evaluation has been completed... finally....')
+# %%
+# PRED = gru_model.predict(x_test_one, batch_size=1, verbose=1)
+# RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_one[::,]-PRED)))
+# if profile == 'DST':
+#     predicting_plot(profile=profile, file_name='Model №2',
+#                     model_loc=model_loc,
+#                     model_type='GRU Test on US06', iEpoch=f'Test One-{iEpoch}',
+#                     Y=y_test_one,
+#                     PRED=PRED,
+#                     RMS=RMS,
+#                     val_perf=gru_model.evaluate(
+#                                     x=x_test_one,
+#                                     y=y_test_one,
+#                                     batch_size=1,
+#                                     verbose=1),
+#                     TAIL=y_test_one.shape[0],
+#                     save_plot=True)
+# else:
+#     predicting_plot(profile=profile, file_name='Model №2',
+#                     model_loc=model_loc,
+#                     model_type='GRU Test on DST', iEpoch=f'Test One-{iEpoch}',
+#                     Y=y_test_one,
+#                     PRED=PRED,
+#                     RMS=RMS,
+#                     val_perf=gru_model.evaluate(
+#                                     x=x_test_one,
+#                                     y=y_test_one,
+#                                     batch_size=1,
+#                                     verbose=1),
+#                     TAIL=y_test_one.shape[0],
+#                     save_plot=True)
+
+# PRED = gru_model.predict(x_test_two, batch_size=1, verbose=1)
+# RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,]-PRED)))
+# if profile == 'FUDS':
+#     predicting_plot(profile=profile, file_name='Model №2',
+#                     model_loc=model_loc,
+#                     model_type='GRU Test on US06', iEpoch=f'Test Two-{iEpoch}',
+#                     Y=y_test_two,
+#                     PRED=PRED,
+#                     RMS=RMS,
+#                     val_perf=gru_model.evaluate(
+#                                     x=x_test_two,
+#                                     y=y_test_two,
+#                                     batch_size=1,
+#                                     verbose=1),
+#                     TAIL=y_test_two.shape[0],
+#                     save_plot=True)
+# else:
+#     predicting_plot(profile=profile, file_name='Model №2',
+#                     model_loc=model_loc,
+#                     model_type='GRU Test on FUDS', iEpoch=f'Test Two-{iEpoch}',
+#                     Y=y_test_two,
+#                     PRED=PRED,
+#                     RMS=RMS,
+#                     val_perf=gru_model.evaluate(
+#                                     x=x_test_two,
+#                                     y=y_test_two,
+#                                     batch_size=1,
+#                                     verbose=1),
+#                     TAIL=y_test_two.shape[0],
+#                     save_plot=True)
 # %%
 # Convert the model to Tensorflow Lite and save.
-with open(f'{model_loc}Model-№2-{profile}.tflite', 'wb') as f:
-    f.write(
-        tf.lite.TFLiteConverter.from_keras_model(
-                model=gru_model
-            ).convert()
-        )
+# with open(f'{model_loc}Model-№2-{profile}.tflite', 'wb') as f:
+#     f.write(
+#         tf.lite.TFLiteConverter.from_keras_model(
+#                 model=gru_model
+#             ).convert()
+#         )
