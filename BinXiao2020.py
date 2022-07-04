@@ -415,50 +415,117 @@ while iEpoch < mEpoch:
             f'rsquare: {history.history["r_square"][0]:.4f} - '
             f'Lear-Rate: {cLr} - '
         )
-    #!!!! Dealing with NaN state. Give few trials to see if model improves
-    if (tf.math.is_nan(history.history['loss'])):
-        print('NaN model')
+#?==================                ===========================================
+    #* Dealing with NaN state. Give few trials to see if model improves
+    curr_error = history.history["mean_absolute_error"][0]
+    print(f'The post optimiser error: {curr_error}', flush=True)
+    if (tf.math.is_nan(history.history['loss']) or curr_error > prev_error):
+        print('->> NaN or High error model')
+        i_attempts : int = 0
+        firstFaltyLog : bool = True
         while i_attempts < n_attempts:
-            print(f'Attempt {i_attempts}')
-            gru_model = tf.keras.models.clone_model(prev_model)
-            #! Single compiler selection
-            gru_model.compile(loss=tf.keras.losses.MeanSquaredError(),
-                    optimizer=tf.keras.optimizers.Adamax(learning_rate=0.0005,
-                        beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Adamax'
-                        ),
-                    metrics=[tf.metrics.MeanAbsoluteError(),
-                            tf.metrics.RootMeanSquaredError(),
-                            tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+            print(f'->>> Attempt {i_attempts}')
+            try:
+                gru_model.save(filepath=f'{model_loc}{iEpoch}-fail-{i_attempts}',
+                        overwrite=True, include_optimizer=True,
+                        save_format='h5', signatures=None, options=None,
+                        save_traces=True
                 )
-            history = gru_model.fit(x=x_train[:,:,:], y=y_train[:,:], epochs=1,
-                            validation_data=None,
-                            callbacks=[nanTerminate],
-                            batch_size=1, shuffle=True
-                            )
-            if (not tf.math.is_nan(history.history['loss'])):
-                print(f'Attempt {i_attempts} Passed')
+            except OSError:
+                os.remove(f'{model_loc}{iEpoch}-fail-{i_attempts}')
+                gru_model.save(filepath=f'{model_loc}{iEpoch}-fail-{i_attempts}',
+                        overwrite=True, include_optimizer=True,
+                        save_format='h5', signatures=None, options=None,
+                        save_traces=True
+                )
+            gru_model = tf.keras.models.clone_model(prev_model)
+
+            if (iEpoch<=p2):
+                gru_model.compile(loss=tf.keras.losses.MeanSquaredError(),
+                        optimizer=tf.keras.optimizers.Nadam(learning_rate=iLr,
+                            beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Nadam'
+                            ),
+                        metrics=[tf.metrics.MeanAbsoluteError(),
+                                tf.metrics.RootMeanSquaredError(),
+                                tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+                    )
+                print("\nFailed Optimizer set: Nadam\n")
+            elif (iEpoch>p2):
+                gru_model.compile(loss=tf.keras.losses.MeanSquaredError(),
+                        optimizer=tf.keras.optimizers.Adamax(learning_rate=iLr,
+                            beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Adamax'
+                            ),
+                        metrics=[tf.metrics.MeanAbsoluteError(),
+                                tf.metrics.RootMeanSquaredError(),
+                                tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+                    )
+                print("\nFailed Optimizer set: Adamax\n")
+
+            tic : float = time.perf_counter()
+            history = gru_model.fit(x=x_train[:,0,:,:], y=y_train[:,0,:], epochs=1,
+                                validation_data=(x_valid[:,0,:,:], y_valid[:,0,:]),
+                                callbacks=[nanTerminate],
+                                batch_size=1, shuffle=True, verbose = 0
+                                )
+            toc : float = time.perf_counter() - tic
+            # Update learning rate
+            iLr /= 2
+            gru_model.optimizer.lr = iLr
+
+            # Log the faulty results
+            TRAIN = gru_model.evaluate(xt_valid[:,0,:,:], yt_valid[:,0,:],
+                                    batch_size=1, verbose = debug)
+            faulty_hist_df = pd.DataFrame(data={
+                    'Epoch'  : [iEpoch],
+                    'attempt': [i_attempts],
+                    'loss'   : np.array(history.history["loss"][0]),
+                    'mae'    : np.array(history.history["mean_absolute_error"][0]),
+                    'time(s)': toc,
+                    'learning_rate' : [np.array(iLr)],
+                    'train_l' : np.mean(TRAIN[0]),
+                    'train_mae': np.array(TRAIN[1]),
+                    'train_rms': np.array(TRAIN[2]),
+                    'train_r_s': np.array(TRAIN[3]),
+                })
+            with open(f'{model_loc}{iEpoch}-faulty-history.csv',
+                        mode='a') as f:
+                if(firstFaltyLog):
+                    faulty_hist_df.to_csv(f, index=False)
+                    firstFaltyLog = False
+                else:
+                    faulty_hist_df.to_csv(f, index=False, header=False)
+            curr_error = history.history["mean_absolute_error"][0]
+            print(
+                f'The post optimiser error: {curr_error}'
+                f'with L-rate {gru_model.optimizer.lr}'
+                )
+            if (not tf.math.is_nan(history.history['loss']) and
+                not curr_error > prev_error and
+                not TRAIN[1] > 0.20 ):
+                print(f'->>> Attempt {i_attempts} Passed')
                 break
-            i_attempts += 1
-        if (i_attempts == n_attempts) \
-                and (tf.math.is_nan(history.history['loss'])):
-            print("Model reaced the optimim -- Breaking")
+            else:
+                i_attempts += 1
+        if (i_attempts == n_attempts):
+                # and (tf.math.is_nan(history.history['loss'])):
+            print('->> Model reached the optimum -- Breaking')
             break
         else:
-            gru_model.save(filepath=f'{model_loc}{iEpoch}-{i_attempts}',
+            print('->> Model restored -- continue training')
+            gru_model.save(filepath=f'{model_loc}{iEpoch}',
                             overwrite=True, include_optimizer=True,
                             save_format='h5', signatures=None, options=None,
                             save_traces=True
                 )
-            # gru_model.save_weights(f'{model_loc}weights/{iEpoch}-{i_attempts}')
-            i_attempts = 0
             prev_model = tf.keras.models.clone_model(gru_model)
+            prev_error = curr_error
     else:
         gru_model.save(filepath=f'{model_loc}{iEpoch}',
                        overwrite=True, include_optimizer=True,
                        save_format='h5', signatures=None, options=None
                 )
-        # gru_model.save_weights(f'{model_loc}weights/{iEpoch}')
         prev_model = tf.keras.models.clone_model(gru_model)
+        prev_error = curr_error
     
     # Update learning rate
     iLr = scheduler(iEpoch, iLr, 'linear')
