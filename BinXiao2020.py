@@ -428,15 +428,13 @@ while iEpoch < mEpoch:
             try:
                 gru_model.save(filepath=f'{model_loc}{iEpoch}-fail-{i_attempts}',
                         overwrite=True, include_optimizer=True,
-                        save_format='h5', signatures=None, options=None,
-                        save_traces=True
+                        save_format='h5', signatures=None, options=None
                 )
             except OSError:
                 os.remove(f'{model_loc}{iEpoch}-fail-{i_attempts}')
                 gru_model.save(filepath=f'{model_loc}{iEpoch}-fail-{i_attempts}',
                         overwrite=True, include_optimizer=True,
-                        save_format='h5', signatures=None, options=None,
-                        save_traces=True
+                        save_format='h5', signatures=None, options=None
                 )
             gru_model = tf.keras.models.clone_model(prev_model)
 
@@ -514,8 +512,7 @@ while iEpoch < mEpoch:
             print('->> Model restored -- continue training')
             gru_model.save(filepath=f'{model_loc}{iEpoch}',
                             overwrite=True, include_optimizer=True,
-                            save_format='h5', signatures=None, options=None,
-                            save_traces=True
+                            save_format='h5', signatures=None, options=None
                 )
             prev_model = tf.keras.models.clone_model(gru_model)
             prev_error = curr_error

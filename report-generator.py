@@ -130,3 +130,56 @@ for profile in profiles:
     # plt.plot(logits[:,1:].mean(axis=1))
 
 # %%
+# Get the fanyc learning rate degradation
+import re
+file = (f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                f'4-{profile}/history.csv')
+hists = pd.read_csv(file)
+# plt.plot(history['learn_r'])
+def get_faulties(dir):
+    faulties : list = []
+    regex : re.Pattern = re.compile('(.*faulty-history.csv$)')
+    for _, _, files in os.walk(dir):
+        for file in files:
+            if regex.match(file):
+                faulties.append(file)
+    return faulties
+
+dir = (f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                f'4-{profile}/')
+faulties = get_faulties(dir)
+
+f_histories = []
+for f in faulties:
+    temp = pd.read_csv(f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                f'4-{profile}/{f}')
+    temp = temp.rename(columns={'learning_rate':'learn_r'})    
+    f_histories.append(temp)
+# for i in f_histories:
+#     hists =pd.concat([hists, i])
+# entire_hist = hists.sort(['Epoch'], ascending=True)
+# %%
+start = 0
+l_values = np.array([0.001])
+f = 0
+for faulty in faulties[:9]:
+    end = int(faulties[f][:2])
+    l_values = np.concatenate((l_values, hists[start:end]['learn_r'].values))
+    l_values = np.concatenate((l_values, f_histories[f]['learn_r'].values))
+    start = end
+    f += 1
+# print(l_values)
+# %%
+l_values = l_values[:60]
+fig, ax = plt.subplots(figsize=(28,12), dpi=600)
+fig.suptitle('Learning rate degradation over single training',
+              fontsize=36)
+ax.plot(l_values, '-o', color='#0000ff')
+# ax.set_yticks(l_values[::10])
+ax.set_xlabel('Passes', fontsize=32)
+ax.tick_params(axis='both', labelsize=28)
+plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
+fig.tight_layout()
+fig.savefig(f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/l_rate.svg')
+
+# %%
