@@ -1,11 +1,43 @@
 #!/usr/bin/python
 # %% [markdown]
-# # # 3
-# # #
-# # LSTM with Attention Mechanism for SoC by Tadele Mamo - 2020
+# # # 2
+# # # 
+# # GRU for SoC by Bin Xiao - 2019
 # 
 
 # Data windowing has been used as per: Ψ ={X,Y} where:
+#Here,X_k=[I(k),V(k),T(k)] and Y_k=[SoC(k)], whereI(k),V(k),T(k) and SoC(k) are
+#the current, voltage, temperature and SoC ofthe battery as measured at time
+#step k.
+
+# Compared with an LST<-based RNN model,a GRU-based RNN model has a simpler 
+#structure and fewer parameters, thus making model training easier. The GRU 
+#structure is shown in Fig. 1
+
+#* The architecture consis of Inut layer, GRU hidden, fullt conected Dense
+#*and Output. Dropout applied at hidden layer.
+#* Dense fully connected uses sigmoind activation.
+
+#* Loss function standard MSE, I think. By the looks of it.
+
+#* 2 optimizers for that:
+#*  Nadam (Nesterov momentum into the Adam) b1=0.99
+#*Remark 1:The purpose of the pre-training phase is to endow the GRU_RNN model
+#*with the appropriate parametersto capture the inherent features of the 
+#*training samples. The Nadam algorithm uses adaptive learning rates and
+#*approximates the gradient by means of the Nesterov momentum,there by ensuring
+#*fast convergence of the pre-training process.
+#*  AdaMax (Extension to adam)
+#*Remark 2:The purpose of the fine-tuning phase is to further adjust the
+#*parameters to achieve greater accuracy bymeans of the AdaMax algorithm, which
+#*converges to a morestable value.
+#* Combine those two methods: Ensemle ptimizer.
+
+#* Data scaling was performed using Min-Max equation:
+#* x′=(x−min_x)/(max_x−min_x) - values between 0 and 1.
+
+#* Test were applied separetly at 0,30,50C
+#*RMSE,MAX,MAPE,R2
 # %%
 import datetime
 import logging
@@ -17,24 +49,23 @@ import matplotlib.pyplot as plt
 # plt.switch_backend('agg')       #! FIX in the no-X env: RuntimeError: Invalid DISPLAY variable
 import numpy as np
 import pandas as pd  # File read
-import tensorflow as tf
+import tensorflow as tf  # Tensorflow and Numpy replacement
 import tensorflow_addons as tfa
-# import tensorflow_probability as tfp
 from tqdm import tqdm, trange
 
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
-from py_modules.Attention import *
-# from cy_modules.utils import str2bool
 from py_modules.tf_modules import scheduler, get_learning_rate
 from py_modules.utils import str2bool, Locate_Best_Epoch
 from py_modules.plotting import predicting_plot, history_plot
 
+import sys
 from typing import Callable
 if (sys.version_info[1] < 9):
     LIST = list
     from typing import List as list
     from typing import Tuple as tuple
+
 # %%
 # Extract params
 try:
@@ -47,8 +78,8 @@ except getopt.error as err:
     print ('EXEPTION: Arguments requied!')
     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '100'), ('-l', '2'), ('-n', '524'), ('-a', '1'),
-#         ('-g', '0'), ('-p', 'FUDS')] # 2x131
+# opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '11'),
+#         ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
 debug   : int = 0
 batch   : int = 1
 mEpoch  : int = 10
@@ -108,17 +139,19 @@ logging.debug("\n\n"
     f"Plot figure size set to {mpl.rcParams['figure.figsize']}\n"
     f"Axes grid: {mpl.rcParams['axes.grid']}"
     )
-#! Select GPU for usage. CPU versions ignores it
-physical_devices = tf.config.list_physical_devices('GPU')
+#! Select GPU for usage. CPU versions ignores it.
+#!! Learn to check if GPU is occupied or not.
+physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
     #! need to research more why.
     # tf.config.experimental.set_visible_devices(
     #                         physical_devices[GPU], 'GPU')
 
-    #if GPU == 1:
-    # tf.config.experimental.set_memory_growth(
-    #                         physical_devices[GPU], True)
+    # if GPU == 1:
+    # for device in physical_devices:
+    #     tf.config.experimental.set_memory_growth(
+    #                         device=device, enable=True)
     logging.info("GPU found and memory growth enabled") 
     
     logical_devices = tf.config.experimental.list_logical_devices('GPU')
@@ -156,7 +189,6 @@ x_train, y_train = window.train
 x_valid, y_valid = window.valid
 x_testi, y_testi = window.test
 
-# For training-validation if necessary 16800:24800
 tv_length = len(x_valid)
 xt_valid = np.array(x_train[-tv_length:,:,:], copy=True, dtype=np.float32)
 yt_valid = np.array(y_train[-tv_length:,:]  , copy=True, dtype=np.float32)
@@ -212,11 +244,9 @@ def create_model(mFunc : Callable, layers : int = 1,
                 ))
     if(layers > 0): #* Last no-connection layer
         model.add(mFunc(
-                    units=units, activation='tanh',
-                    dropout=dropout, return_sequences=True
-                ))
-        model.add(AttentionWithContext())
-        model.add(Addition())
+                units=units, activation='tanh',
+                dropout=dropout, return_sequences=False
+            ))
     else:
         print("Unhaldeled exeption with Layers")
         raise ZeroDivisionError
@@ -229,7 +259,7 @@ def create_model(mFunc : Callable, layers : int = 1,
     # Return completed model with some info if neededs
     # print(model.summary())
     return model
-
+    
 # custom_loss = lambda y_true, y_pred: tf.keras.backend.mean(
 #             x=tf.math.squared_difference(
 #                     x=tf.cast(x=y_true, dtype=y_pred.dtype),
@@ -240,65 +270,67 @@ def create_model(mFunc : Callable, layers : int = 1,
 #         )
 
 file_name : str = os.path.basename(__file__)[:-3]
-model_name : str = 'ModelsUp-3'
+model_name : str = 'ModelsUp-22'
 ####################! ADD model_name to path!!! ################################
 model_loc : str = f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
-iEpoch = 0
 firstLog : bool = True
 iLr     : float = 0.001
 prev_error : np.float32 = 1.0
+
+iEpoch : int = 0
+p2     : int = int(mEpoch/3)
+skipCompile1, skipCompile2 = False, False
 try:
     iEpoch, prev_error  = Locate_Best_Epoch(f'{model_loc}history.csv', 'mae')
     lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
             f'{model_loc}{iEpoch}',
-            custom_objects={'AttentionWithContext' : AttentionWithContext,
-                            'Addition' : Addition},
             compile=False)
     iLr = get_learning_rate(iEpoch, iLr, 'linear')
     firstLog = False
-    print(f"Model Identefied at {iEpoch} with {prev_error}. Continue training.")
-except OSError as identifier:
-    print("Model Not Found, creating new. {} \n".format(identifier))
-    # lstm_model = tf.keras.models.Sequential([
-    #     # Shape [batch, time, features] => [batch, time, lstm_units]
-    #     tf.keras.layers.InputLayer(input_shape=x_train.shape[-2:]),
-    #     tf.keras.layers.LSTM(
-    #         units=520, activation='tanh', recurrent_activation='sigmoid',
+    optimiser = tf.keras.optimizers.Adamax(learning_rate=iLr,
+                    beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Adamax'
+                )
+    print(f"Model Identefied at {iEpoch} with {prev_error}. Setting AdaMax.")
+    #! I must find a way to make use of it
+    useAdamax = True
+except (OSError, TypeError) as identifier:
+    print("Model Not Found, creating new with Nadam. {} \n".format(identifier))
+    # gru_model = tf.keras.models.Sequential([
+    #     tf.keras.layers.InputLayer(input_shape=x_train.shape[-2:],
+    #                                batch_size=None),
+    #     tf.keras.layers.GRU(    #?260 by BinXia, times by 2 or 3
+    #         units=560, activation='tanh', recurrent_activation='sigmoid',
     #         use_bias=True, kernel_initializer='glorot_uniform',
     #         recurrent_initializer='orthogonal', bias_initializer='zeros',
-    #         unit_forget_bias=True, kernel_regularizer=None,
+    #         kernel_regularizer=None,
     #         recurrent_regularizer=None, bias_regularizer=None,
     #         activity_regularizer=None, kernel_constraint=None,
     #         recurrent_constraint=None, bias_constraint=None, dropout=0.2,
-    #         recurrent_dropout=0.0, implementation=2, return_sequences=True, #!
-    #         return_state=False, go_backwards=False, stateful=False,
-    #         time_major=False, unroll=False#,batch_input_shape=(1, 500, 3)
+    #         recurrent_dropout=0.0, return_sequences=False, return_state=False,
+    #         go_backwards=False, stateful=False, unroll=False, time_major=False,
+    #         reset_after=True
     #     ),
-    #     AttentionWithContext(),
-    #     Addition(),
-    #     #tf.keras.layers.Dropout(rate=0.2, noise_shape=None, seed=None),
     #     tf.keras.layers.Dense(units=1,
-    #                         activation='sigmoid')
+    #                           activation='sigmoid')
     # ])
-    # firstLog = True
     if type(x_train) == list:
         input_shape : tuple = x_train[0].shape[-2:]
     else:
         input_shape : tuple = x_train.shape[-2:]
-    lstm_model = create_model(
-            tf.keras.layers.LSTM, layers=nLayers, neurons=nNeurons,
+    gru_model = create_model(
+            tf.keras.layers.GRU, layers=nLayers, neurons=nNeurons,
             dropout=0.2, input_shape=input_shape, batch=1
         )
+    optimiser = tf.keras.optimizers.Nadam(learning_rate=iLr,
+                    beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Nadam'
+                )
     iLr = 0.001
     firstLog = True
-prev_model = tf.keras.models.clone_model(lstm_model)
+prev_model = tf.keras.models.clone_model(gru_model)
 
 # %%
-optimiser = tf.optimizers.Adam(learning_rate=iLr,
-            beta_1=0.9, beta_2=0.999, epsilon=1e-07, amsgrad=False)
 loss_fn   = tf.losses.MeanAbsoluteError(
                     reduction=tf.keras.losses.Reduction.NONE,
-                    #from_logits=True
                 )
 MAE     = tf.metrics.MeanAbsoluteError()
 RMSE    = tf.metrics.RootMeanSquaredError()
@@ -355,11 +387,8 @@ def valid_loop(dist_input  : tuple[np.ndarray, np.ndarray],
         val_RSquare.update_state(y_true=y[i], y_pred=logits[i])
         
         loss[i] = loss_fn(y[i], logits[i])
-        # mae[i] = val_MAE.result()
-        # rmse[i] = val_RMSE.result()
-        # rsquare[i] = val_RSquare.result()
+
     #! Error with RMSE here. No mean should be used.
-    # return [loss, mae, rmse, rsquare, logits]
     mae      : float = val_MAE.result()
     rmse     : float = val_RMSE.result()
     r_Square : float = val_RSquare.result()
@@ -414,6 +443,7 @@ if not os.path.exists(f'{model_loc}valdPlots'):
 if not os.path.exists(f'{model_loc}testPlots'):
     os.mkdir(f'{model_loc}testPlots')
 if not os.path.exists(f'{model_loc}history.csv'):
+    #! ADD EPOCH FOR FUTURE, THEN FIX THE BEST EPOCH
     print("History not created. Making")
     with open(f'{model_loc}history.csv', mode='w') as f:
         f.write('Epoch,loss,mae,rmse,rsquare,time(s),'
@@ -436,34 +466,30 @@ pd.DataFrame(yt_valid[:,0,0]).to_csv(f'{model_loc}yt_valid.csv', sep = ",", na_r
 pd.DataFrame(y_valid[:,0,0]).to_csv(f'{model_loc}y_valid.csv', sep = ",", na_rep = "", line_terminator = '\n')
 pd.DataFrame(y_testi[:,0,0]).to_csv(f'{model_loc}y_testi.csv', sep = ",", na_rep = "", line_terminator = '\n')
 
-n_attempts : int = 30
+i_attempts : int = 0
+n_attempts : int = 50
+skip       : int = 1
+firtstEpoch: bool = True
 while iEpoch < mEpoch:
     iEpoch+=1
-#! In Mamo methods implement Callback to reset model after 500 steps and then 
-#!step by one sample for next epoch to capture shift in data. Hell method, but
-#!might be more effective that batching 12 together.  
-    # history = lstm_model.fit(x=x_train, y=y_train, epochs=1,
-    #                     validation_data=(x_valid, y_valid),
-    #                     callbacks=[nanTerminate],
-    #                     batch_size=1, shuffle=True
-    #                    )
-    # pbar = tqdm(total=y_train.shape[0])
+    print(f"Epoch {iEpoch}/{mEpoch}")
     tic : float = time.perf_counter()
     sh_i = np.arange(y_train.shape[0])
     np.random.shuffle(sh_i)
     print(f'Commincing Epoch: {iEpoch}')
     loss_value : np.float32 = [0.0]
     for i in sh_i[::]:
-        loss_value = train_single_st((x_train[i,:,:,:], y_train[i,:,:]),
-                                    metrics=[MAE,RMSE,RSquare]
+        loss_value = train_single_st((x_train[i,:,:,:], y_train[i,:]),
+                                    metrics=[MAE,RMSE,RSquare],
+                                    #curr_error=CR_ER
                                     )
         # Progress Bar
         # pbar.update(1)
         # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
-        #                         f'loss: {(loss_value[0]):.4f} - '
+        #                         # f'loss: {(loss_value[0]):.4f} - '
         #                         f'mae: {MAE.result():.4f} - '
         #                         f'rmse: {RMSE.result():.4f} - '
-        #                         f'rsquare: {RSquare.result():.4f} --- '
+        #                         # f'rsquare: {RSquare.result():.4f} --- '
         #                     )
     toc : float = time.perf_counter() - tic
     # pbar.close()
@@ -471,32 +497,33 @@ while iEpoch < mEpoch:
     print(f'Epoch {iEpoch}/{mEpoch} :: '
             f'Elapsed Time: {toc} - '
             # f'loss: {loss_value[0]:.4f} - '
-            f'mae: {MAE.result():.4f} - '
-            f'rmse: {RMSE.result():.4f} - '
-            f'rsquare: {RSquare.result():.4f} - '
+            f'mae: {history.history["mean_absolute_error"][0]:.4f} - '
+            f'rmse: {history.history["root_mean_squared_error"][0]:.4f} - '
+            f'rsquare: {history.history["r_square"][0]:.4f} - '
             f'Lear-Rate: {cLr} - '
         )
+#?==================                ===========================================
     #* Dealing with NaN state. Give few trials to see if model improves
     curr_error = MAE.result().numpy()
     print(f'The post optimiser error: {curr_error}', flush=True)
-    if (tf.math.is_nan(loss_value[0]) or curr_error > prev_error):
+    if (tf.math.is_nan(history.history['loss']) or curr_error > prev_error):
         print('->> NaN or High error model')
         i_attempts : int = 0
         firstFaltyLog : bool = True
         while i_attempts < n_attempts:
             print(f'->>> Attempt {i_attempts}')
             try:
-                lstm_model.save(filepath=f'{model_loc}{iEpoch}-fail-{i_attempts}',
+                gru_model.save(filepath=f'{model_loc}{iEpoch}-fail-{i_attempts}',
                         overwrite=True, include_optimizer=True,
                         save_format='h5', signatures=None, options=None
                 )
             except OSError:
                 os.remove(f'{model_loc}{iEpoch}-fail-{i_attempts}')
-                lstm_model.save(filepath=f'{model_loc}{iEpoch}-fail-{i_attempts}',
+                gru_model.save(filepath=f'{model_loc}{iEpoch}-fail-{i_attempts}',
                         overwrite=True, include_optimizer=True,
                         save_format='h5', signatures=None, options=None
                 )
-            lstm_model = tf.keras.models.clone_model(prev_model)
+            gru_model = tf.keras.models.clone_model(prev_model)
             
             np.random.shuffle(sh_i)
             # pbar = tqdm(total=y_train.shape[0])
@@ -506,12 +533,33 @@ while iEpoch < mEpoch:
             RMSE.reset_states()
             RSquare.reset_states()
 
-            #! At this point, use dataset entire instead cycle by cycle.
+            if (iEpoch<=p2):
+                gru_model.compile(loss=tf.keras.losses.MeanSquaredError(),
+                        optimizer=tf.keras.optimizers.Nadam(learning_rate=iLr,
+                            beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Nadam'
+                            ),
+                        metrics=[tf.metrics.MeanAbsoluteError(),
+                                tf.metrics.RootMeanSquaredError(),
+                                tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+                    )
+                print("\nFailed Optimizer set: Nadam\n")
+            elif (iEpoch>p2):
+                gru_model.compile(loss=tf.keras.losses.MeanSquaredError(),
+                        optimizer=tf.keras.optimizers.Adamax(learning_rate=iLr,
+                            beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Adamax'
+                            ),
+                        metrics=[tf.metrics.MeanAbsoluteError(),
+                                tf.metrics.RootMeanSquaredError(),
+                                tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
+                    )
+                print("\nFailed Optimizer set: Adamax\n")
+
             tic = time.perf_counter()
             for i in sh_i[::]:
                 loss_value = train_single_st(
                                         (x_train[i,:,:,:], y_train[i,:]),
-                                        [MAE,RMSE,RSquare]
+                                        [MAE,RMSE,RSquare],
+                                        # curr_error=CR_ER
                                         )
                 # Progress Bar
                 # pbar.update(1)
@@ -526,13 +574,12 @@ while iEpoch < mEpoch:
             iLr /= 2
             optimiser.learning_rate = iLr
 
-            # Log the faulty results
             faulty_hist_df = pd.DataFrame(data={
                     'Epoch'  : [iEpoch],
                     'attempt': [i_attempts],
-                    'loss'   : [np.array(loss_value[0])],
-                    'mae'    : [np.array(MAE.result())],
-                    'time(s)': [np.array(toc)],
+                    'loss'   : np.array(history.history["loss"][0]),
+                    'mae'    : np.array(history.history["mean_absolute_error"][0]),
+                    'time(s)': toc,
                     'learning_rate' : [np.array(iLr)],
                     'train_l' : np.mean(TRAIN[0]),
                     'train_mae': np.array(TRAIN[1]),
@@ -546,13 +593,12 @@ while iEpoch < mEpoch:
                     firstFaltyLog = False
                 else:
                     faulty_hist_df.to_csv(f, index=False, header=False)
-            curr_error = MAE.result().numpy()
+            curr_error = history.history["mean_absolute_error"][0]
             print(
                 f'The post optimiser error: {curr_error}'
-                f'with L-rate {optimiser.get_config()["learning_rate"]}'
+                f'with L-rate {gru_model.optimizer.lr}'
                 )
-            
-            if (not tf.math.is_nan(loss_value[0]) and
+            if (not tf.math.is_nan(history.history['loss']) and
                 not curr_error > prev_error and
                 not TRAIN[1] > 0.20 ):
                 print(f'->>> Attempt {i_attempts} Passed')
@@ -560,40 +606,47 @@ while iEpoch < mEpoch:
             else:
                 i_attempts += 1
         if (i_attempts == n_attempts):
+                # and (tf.math.is_nan(history.history['loss'])):
             print('->> Model reached the optimum -- Breaking')
             break
         else:
             print('->> Model restored -- continue training')
-            lstm_model.save(filepath=f'{model_loc}{iEpoch}',
+            gru_model.save(filepath=f'{model_loc}{iEpoch}',
                             overwrite=True, include_optimizer=True,
                             save_format='h5', signatures=None, options=None
                 )
-            prev_model = tf.keras.models.clone_model(lstm_model)
+            prev_model = tf.keras.models.clone_model(gru_model)
             prev_error = curr_error
     else:
-        lstm_model.save(filepath=f'{model_loc}{iEpoch}',
-                        overwrite=True, include_optimizer=True,
-                        save_format='h5', signatures=None, options=None
+        gru_model.save(filepath=f'{model_loc}{iEpoch}',
+                       overwrite=True, include_optimizer=True,
+                       save_format='h5', signatures=None, options=None
                 )
-        prev_model = tf.keras.models.clone_model(lstm_model)
+        prev_model = tf.keras.models.clone_model(gru_model)
         prev_error = curr_error
-
+    
     # Update learning rate
     iLr = scheduler(iEpoch, iLr, 'linear')
-    optimiser.learning_rate = iLr
+    gru_model.optimizer.lr = iLr
     
     # Validating trained model 
-    TRAIN = valid_loop((xt_valid, yt_valid), verbose = debug)
-    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-                yt_valid[:,0,0]-TRAIN[4])))
+    TRAIN = gru_model.evaluate(xt_valid[:,0,:,:], yt_valid[:,0,:],
+                               batch_size=1, verbose = debug)
+    TRAIN_OUTPUT = gru_model.predict(xt_valid[:,0,:,:], batch_size=1)[:,0]
+    RMS = tf.keras.backend.sqrt(
+            tf.keras.backend.square(
+             tf.math.subtract(
+                yt_valid[:,0,0],
+                TRAIN_OUTPUT)
+             ))
     predicting_plot(profile=profile, file_name=model_name,
                     model_loc=f'{model_loc}/traiPlots/',
-                    model_type='LSTM valid',
+                    model_type='GRU valid',
                     iEpoch=f'tra-{iEpoch}',
                     Y=yt_valid[:,0],
-                    PRED=TRAIN[4],
+                    PRED=TRAIN_OUTPUT,
                     RMS=RMS,
-                    val_perf=[np.mean(TRAIN[0]), TRAIN[1],
+                    val_perf=[TRAIN[0], TRAIN[1],
                             TRAIN[2], TRAIN[3]],
                     TAIL=yt_valid.shape[0],
                     save_plot=True)
@@ -604,21 +657,25 @@ while iEpoch < mEpoch:
             f'\n'
         )
     # Validating model 
+    PERF = gru_model.evaluate(x_valid[:,0,:,:], y_valid[:,0,:],
+                               batch_size=1, verbose = debug)
     val_tic : float = time.perf_counter()
-    PERF = valid_loop((x_valid, y_valid), verbose = debug)
+    PERF_OUTPUT = gru_model.predict(xt_valid[:,0,:,:], batch_size=1)[:,0]
     val_toc : float = time.perf_counter() - val_tic
-    #! Verefy RMS shape
-    #! if RMS.shape[0] == RMS.shape[1]
-    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-                y_valid[:,0,0]-PERF[4])))
+    RMS = tf.keras.backend.sqrt(
+            tf.keras.backend.square(
+             tf.math.subtract(
+                y_valid[:,0,0],
+                PERF_OUTPUT)
+             ))
     predicting_plot(profile=profile, file_name=model_name,
                     model_loc=f'{model_loc}/valdPlots/',
-                    model_type='LSTM valid',
+                    model_type='GRU valid',
                     iEpoch=f'val-{iEpoch}',
                     Y=y_valid[:,0],
-                    PRED=PERF[4],
+                    PRED=PERF_OUTPUT,
                     RMS=RMS,
-                    val_perf=[np.mean(PERF[0]), PERF[1],
+                    val_perf=[PERF[0], PERF[1],
                             PERF[2], PERF[3]],
                     TAIL=y_valid.shape[0],
                     save_plot=True)
@@ -629,23 +686,31 @@ while iEpoch < mEpoch:
             f'rsquare: {PERF[3]:.4f} - '
             f'\n'
         )
-    #! PErform testing and also save to log file
     # Testing model 
     mid_one = int(x_testi.shape[0]/2)#+350
     mid_two = int(x_testi.shape[0]/2)+400
     ts_tic : float = time.perf_counter()
-    TEST1 = valid_loop((x_testi[:mid_one], y_testi[:mid_one]), verbose = debug)
-    TEST2 = valid_loop((x_testi[mid_two:], y_testi[mid_two:]), verbose = debug)
+    OUTPUT1 = gru_model.predict(x_testi[:mid_one ,0,:,:], batch_size=1)[:,0]
+    OUTPUT2 = gru_model.predict(x_testi[mid_two:, 0,:,:], batch_size=1)[:,0]
     ts_toc : float = time.perf_counter() - ts_tic
+    
+    TEST1 = gru_model.evaluate(x_testi[:mid_one,0,:,:], y_testi[:mid_one,0,:],
+                               batch_size=1, verbose = debug)
+    TEST2 = gru_model.evaluate(x_testi[mid_two:,0,:,:], y_testi[mid_two:,0,:],
+                               batch_size=1, verbose = debug)
     #! Verefy RMS shape
-    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-                y_testi[:mid_one,0,0]-TEST1[4])))
+    RMS = tf.keras.backend.sqrt(
+            tf.keras.backend.square(
+             tf.math.subtract(
+                y_testi[:mid_one,0,0],
+                OUTPUT1)   
+             ))
     #! If statement for string to change
     if profile == 'DST':
-        save_title_type : str = 'LSTM Test on US06'
+        save_title_type : str = 'GRU Test on US06'
         save_file_name  : str = f'US06-{iEpoch}'
     else:
-        save_title_type : str = 'LSTM Test on DST'
+        save_title_type : str = 'GRU Test on DST'
         save_file_name  : str = f'DST-{iEpoch}'
 
     predicting_plot(profile=profile, file_name=model_name,
@@ -653,33 +718,38 @@ while iEpoch < mEpoch:
                     model_type=save_title_type,
                     iEpoch=save_file_name,
                     Y=y_testi[:mid_one,0],
-                    PRED=TEST1[4],
+                    PRED=OUTPUT1,
                     RMS=RMS,
-                    val_perf=[np.mean(TEST1[0]), TEST1[1],
+                    val_perf=[TEST1[0], TEST1[1],
                             TEST1[2], TEST1[3]],
                     TAIL=y_testi.shape[0],
                     save_plot=True)
-
     if profile == 'FUDS':
-        save_title_type : str = 'LSTM Test on US06'
+        save_title_type : str = 'GRU Test on US06'
         save_file_name  : str = f'US06-{iEpoch}'
     else:
-        save_title_type : str = 'LSTM Test on FUDS'
+        save_title_type : str = 'GRY Test on FUDS'
         save_file_name  : str = f'FUDS-{iEpoch}'
     #! Verefy RMS shape
-    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-                y_testi[mid_two:,0,0]-TEST2[4])))
+    RMS = tf.keras.backend.sqrt(
+            tf.keras.backend.square(
+             tf.math.subtract(
+                y_testi[mid_two:,0,0],
+                OUTPUT2)
+             ))
+
     predicting_plot(profile=profile, file_name=model_name,
                     model_loc=f'{model_loc}/testPlots/',
                     model_type=save_title_type,
                     iEpoch=save_file_name,
                     Y=y_testi[mid_two:,0],
-                    PRED=TEST2[4],
+                    PRED=OUTPUT2,
                     RMS=RMS,
-                    val_perf=[np.mean(TEST2[0]), TEST2[1],
+                    val_perf=[TEST2[0], TEST2[1],
                             TEST2[2], TEST2[3]],
                     TAIL=y_testi.shape[0],
                     save_plot=True)
+
     print(f'Epoch {iEpoch}/{mEpoch} :: TEST :: '
             f'Elapsed Time: {ts_toc} - '
             f'mae: {np.mean(np.append(TEST1[1], TEST2[1])):.4f} - '
@@ -687,17 +757,19 @@ while iEpoch < mEpoch:
             f'rsquare: {np.mean(np.append(TEST1[3], TEST2[3])):.4f} - '
             f'\n'
         )
-    
+
+    # Saving history variable
     hist_df : pd.DataFrame = pd.read_csv(f'{model_loc}history.csv',
                                             index_col='Epoch')
     hist_df = hist_df.reset_index()
 
+    #! Rewrite as add, not a new, similar to the one I found on web with data analysis
     hist_ser = pd.Series(data={
             'Epoch'  : iEpoch,
-            'loss'   : np.array(loss_value[0]),
-            'mae'    : np.array(MAE.result()),
-            'rmse'   : np.array(RMSE.result()),
-            'rsquare': np.array(RSquare.result()),
+            'loss'   : np.array(history.history["loss"][0]),
+            'mae'    : np.array(history.history["mean_absolute_error"][0]),
+            'rmse'   : np.array(history.history["root_mean_squared_error"][0]),
+            'rsquare': np.array(history.history["r_square"][0]),
             'time(s)': toc,
             'train_l' : np.mean(TRAIN[0]),
             'train_mae': np.array(TRAIN[1]),
@@ -713,16 +785,16 @@ while iEpoch < mEpoch:
             'tes_rms': np.mean(np.append(TEST1[2], TEST2[2])),
             'tes_r_s': np.mean(np.append(TEST1[3], TEST2[3])),
             'tes_t_s': ts_toc,
-            'learn_r': np.array(iLr),
+            'learn_r': np.array(iLr)
         })
     if(len(hist_df[hist_df['Epoch']==iEpoch]) == 0):
+        # hist_df = pd.concat([hist_df, hist_ser], ignore_index=True)
         hist_df = hist_df.append(hist_ser, ignore_index=True)
+        # hist_df.loc[hist_df['Epoch']==iEpoch] = hist_ser
     else:
         hist_df.loc[len(hist_df)] = hist_ser
+    hist_df.to_csv(f'{model_loc}history.csv', index=False, sep = ",", na_rep = "", line_terminator = '\n')
 
-    hist_df.to_csv(f'{model_loc}history.csv', index=False, sep = ",",
-                   na_rep = "", line_terminator = '\n')
-    
     # Plot History for reference and overwrite if have to    
     history_plot(profile, model_name, model_loc, hist_df, save_plot=True,
                     plot_file_name=f'history-{profile}-train.svg')
@@ -730,28 +802,41 @@ while iEpoch < mEpoch:
                 metrics=['mae', 'val_mae',
                         'rmse', 'val_rms'],
                 plot_file_name=f'history-{profile}-valid.svg')
-    
-    pd.DataFrame(TRAIN[4]).to_csv(f'{model_loc}{iEpoch}-train-logits.csv')
-    pd.DataFrame(PERF[4]).to_csv(f'{model_loc}{iEpoch}-valid-logits.csv')
-    pd.DataFrame(np.append(TEST1[4], TEST2[4])
+
+    pd.DataFrame(TRAIN_OUTPUT).to_csv(f'{model_loc}{iEpoch}-train-logits.csv')
+    pd.DataFrame(PERF_OUTPUT).to_csv(f'{model_loc}{iEpoch}-valid-logits.csv')
+    pd.DataFrame(np.append(OUTPUT1, OUTPUT2)
                 ).to_csv(f'{model_loc}{iEpoch}-test--logits.csv')
-    
-    # Reset every metric and clear memory leak
-    MAE.reset_states()
-    RMSE.reset_states()
-    RSquare.reset_states()
-    
     # Flush and clean
     print('\n', flush=True)
     # tf.keras.backend.clear_session()
+
+    #! Run the Evaluate function
+    # PRED = gru_model.predict(x_valid,batch_size=1)
+    # RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+    #             y_valid[::skip,]-PRED)))
+    # PERF = gru_model.evaluate(x=x_valid,
+    #                           y=y_valid,
+    #                           batch_size=1,
+    #                           verbose=0)
+    # # otherwise the right y-label is slightly clipped
+    # predicting_plot(profile=profile, file_name='Model №2',
+    #                 model_loc=model_loc,
+    #                 model_type='GRU Train',
+    #                 iEpoch=f'val-{iEpoch}',
+    #                 Y=y_valid,
+    #                 PRED=PRED,
+    #                 RMS=RMS,
+    #                 val_perf=PERF,
+    #                 TAIL=y_valid.shape[0],
+    #                 save_plot=True)
+    # if(PERF[-2] <=0.024): # Check thr RMSE
+    #     print("RMS droped around 2.4%. Breaking the training")
+    #     break
 # %%
-#! Find the lowest error amongs all models in the file and make prediction
-# history.head()
-iEpoch, prev_error  = Locate_Best_Epoch(f'{model_loc}history.csv', 'mae')
+bestEpoch, _  = Locate_Best_Epoch(f'{model_loc}history.csv', 'mae')
 lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
-        f'{model_loc}{iEpoch}',
-        custom_objects={'AttentionWithContext' : AttentionWithContext,
-                        'Addition' : Addition},
+        f'{model_loc}{bestEpoch}',
         compile=False)
 profiles: list = ['DST', 'US06', 'FUDS']
 del dataGenerator
@@ -785,7 +870,9 @@ firstLog = False
 for p, x, y in zip(profiles, X, Y):
     # Validating model 
     val_tic : float = time.perf_counter()
-    PERF = valid_loop((x, y), verbose = debug)
+    # PERF = valid_loop((x, y), verbose = debug)
+    PERF = gru_model.evaluate(x[:,0,:,:], y[:,0,:],
+                            batch_size=1, verbose = debug)
     val_toc : float = time.perf_counter() - val_tic
     print(f'Profile {p} '
             f'Elapsed Time: {val_toc} - '
@@ -811,10 +898,72 @@ for p, x, y in zip(profiles, X, Y):
 
 print('Model evaluation has been completed... finally....')
 # %%
+# PRED = gru_model.predict(x_test_one, batch_size=1, verbose=1)
+# RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_one[::,]-PRED)))
+# if profile == 'DST':
+#     predicting_plot(profile=profile, file_name='Model №2',
+#                     model_loc=model_loc,
+#                     model_type='GRU Test on US06', iEpoch=f'Test One-{iEpoch}',
+#                     Y=y_test_one,
+#                     PRED=PRED,
+#                     RMS=RMS,
+#                     val_perf=gru_model.evaluate(
+#                                     x=x_test_one,
+#                                     y=y_test_one,
+#                                     batch_size=1,
+#                                     verbose=1),
+#                     TAIL=y_test_one.shape[0],
+#                     save_plot=True)
+# else:
+#     predicting_plot(profile=profile, file_name='Model №2',
+#                     model_loc=model_loc,
+#                     model_type='GRU Test on DST', iEpoch=f'Test One-{iEpoch}',
+#                     Y=y_test_one,
+#                     PRED=PRED,
+#                     RMS=RMS,
+#                     val_perf=gru_model.evaluate(
+#                                     x=x_test_one,
+#                                     y=y_test_one,
+#                                     batch_size=1,
+#                                     verbose=1),
+#                     TAIL=y_test_one.shape[0],
+#                     save_plot=True)
+
+# PRED = gru_model.predict(x_test_two, batch_size=1, verbose=1)
+# RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,]-PRED)))
+# if profile == 'FUDS':
+#     predicting_plot(profile=profile, file_name='Model №2',
+#                     model_loc=model_loc,
+#                     model_type='GRU Test on US06', iEpoch=f'Test Two-{iEpoch}',
+#                     Y=y_test_two,
+#                     PRED=PRED,
+#                     RMS=RMS,
+#                     val_perf=gru_model.evaluate(
+#                                     x=x_test_two,
+#                                     y=y_test_two,
+#                                     batch_size=1,
+#                                     verbose=1),
+#                     TAIL=y_test_two.shape[0],
+#                     save_plot=True)
+# else:
+#     predicting_plot(profile=profile, file_name='Model №2',
+#                     model_loc=model_loc,
+#                     model_type='GRU Test on FUDS', iEpoch=f'Test Two-{iEpoch}',
+#                     Y=y_test_two,
+#                     PRED=PRED,
+#                     RMS=RMS,
+#                     val_perf=gru_model.evaluate(
+#                                     x=x_test_two,
+#                                     y=y_test_two,
+#                                     batch_size=1,
+#                                     verbose=1),
+#                     TAIL=y_test_two.shape[0],
+#                     save_plot=True)
+# %%
 # Convert the model to Tensorflow Lite and save.
-# with open(f'{model_loc}Model-№3-{profile}.tflite', 'wb') as f:
+# with open(f'{model_loc}Model-№2-{profile}.tflite', 'wb') as f:
 #     f.write(
 #         tf.lite.TFLiteConverter.from_keras_model(
-#                 model=lstm_model
+#                 model=gru_model
 #             ).convert()
 #         )

@@ -17,8 +17,8 @@ do
         # echo $profile $layer $neuron $attempt
         # python Chemali2017.py -d False -e 100 -g 0 -p $profile -l $layer -n $neuron -a $attempt
         bash gen_job.bash $GPU $index $hours $script $profile $layer $neuron $attempt > sub_job.pbs
-        # qsub sub_job.pbs
-        # rm sub_job.pbs
+        qsub sub_job.pbs
+        rm sub_job.pbs
         ((index++))
     done
 done
