@@ -69,17 +69,17 @@ if (sys.version_info[1] < 9):
 # %%
 # Extract params
 try:
-    opts, args = getopt.getopt(sys.argv[1:],"hd:e:l:n:a:g:p:",
+    opts, args = getopt.getopt(sys.argv[1:],"hd:e:l:n:a:g:p:o:r:",
                     ["help", "debug=", "epochs=", "layers=", "neurons=",
-                     "attempt=", "gpu=", "profile="])
+                     "attempt=", "gpu=", "profile=", "optimiser=", "rate="])
 except getopt.error as err: 
     # output error, and return with an error code 
     print (str(err)) 
     print ('EXEPTION: Arguments requied!')
     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '11'),
-#         ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
+# opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '1'),
+#         ('-g', '0'), ('-p', 'FUDS'), ('-o', 'AdaMax'), ('-r', '0.0001')] # 2x131 1x1572 
 debug   : int = 0
 batch   : int = 1
 mEpoch  : int = 10
@@ -89,6 +89,8 @@ attempt : str = '1'
 GPU     : int = None
 profile : str = 'DST'
 rounding: int = 5
+optimiser_type = "Adam"
+rate    = 0.001
 print(opts)
 for opt, arg in opts:
     if opt == '-h':
@@ -120,6 +122,10 @@ for opt, arg in opts:
         GPU = int(arg)
     elif opt in ("-p", "--profile"):
         profile = (arg)
+    elif opt in ("-o", "--optimiser"):
+        optimiser_type = (arg)
+    elif opt in ("-r", "--rate"):
+        rate = float(arg)
 # %%
 # Define plot sizes
 mpl.rcParams['figure.figsize'] = (8, 6)
@@ -269,8 +275,8 @@ def create_model(mFunc : Callable, layers : int = 1,
 #             keepdims=False
 #         )
 
-file_name : str = os.path.basename(__file__)[:-3]
-model_name : str = 'ModelsUp-22'
+file_name : str = "BinXiao2020" #os.path.basename(__file__)[:-3]
+model_name : str = 'ModelsUp-2'
 ####################! ADD model_name to path!!! ################################
 model_loc : str = f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
 firstLog : bool = True
@@ -282,17 +288,28 @@ p2     : int = int(mEpoch/3)
 skipCompile1, skipCompile2 = False, False
 try:
     iEpoch, prev_error  = Locate_Best_Epoch(f'{model_loc}history.csv', 'mae')
-    lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
+    gru_model : tf.keras.models.Sequential = tf.keras.models.load_model(
             f'{model_loc}{iEpoch}',
             compile=False)
-    iLr = get_learning_rate(iEpoch, iLr, 'linear')
     firstLog = False
-    optimiser = tf.keras.optimizers.Adamax(learning_rate=iLr,
-                    beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Adamax'
+    if (optimiser_type == 'AdaMax'):
+        iLr = rate
+        optimiser = tf.keras.optimizers.Adamax(learning_rate=iLr,
+                        beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Adamax'
+                    )
+        constLearning = True
+        n_attempts : int = 5
+        print('>>> Using Adamax for Fune-Tuning')
+    else:
+        iLr = get_learning_rate(iEpoch, iLr, 'linear')
+        optimiser = tf.keras.optimizers.Nadam(learning_rate=iLr,
+                    beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Nadam'
                 )
-    print(f"Model Identefied at {iEpoch} with {prev_error}. Setting AdaMax.")
+        constLearning = False
+        n_attempts : int = 50
+        print('>>> Using Nadam for Pre-Tuning')
+    print(f"Model Identefied at {iEpoch} with {prev_error}.")
     #! I must find a way to make use of it
-    useAdamax = True
 except (OSError, TypeError) as identifier:
     print("Model Not Found, creating new with Nadam. {} \n".format(identifier))
     # gru_model = tf.keras.models.Sequential([
@@ -303,7 +320,7 @@ except (OSError, TypeError) as identifier:
     #         use_bias=True, kernel_initializer='glorot_uniform',
     #         recurrent_initializer='orthogonal', bias_initializer='zeros',
     #         kernel_regularizer=None,
-    #         recurrent_regularizer=None, bias_regularizer=None,
+    #         recurrent_regularizer=None, bias_regularizer=NPone,
     #         activity_regularizer=None, kernel_constraint=None,
     #         recurrent_constraint=None, bias_constraint=None, dropout=0.2,
     #         recurrent_dropout=0.0, return_sequences=False, return_state=False,
@@ -324,6 +341,8 @@ except (OSError, TypeError) as identifier:
     optimiser = tf.keras.optimizers.Nadam(learning_rate=iLr,
                     beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Nadam'
                 )
+    constLearning = False
+    n_attempts : int = 50
     iLr = 0.001
     firstLog = True
 prev_model = tf.keras.models.clone_model(gru_model)
@@ -343,16 +362,16 @@ def train_single_st(input : tuple[np.ndarray, np.ndarray],
     # Execute model as training
     with tf.GradientTape() as tape:
         #? tf.EagerTensor['1,1', tf.float32]
-        logits     : tf.Tensor = lstm_model(input[0], training=True)
+        logits     : tf.Tensor = gru_model(input[0], training=True)
         #? tf.EagerTensor['1,', tf.float32]
         loss_value : tf.Tensor = loss_fn(input[1], logits)
     
     # Get gradients and apply optimiser to model
     grads : list[tf.Tensor] = tape.gradient(
                     loss_value,
-                    lstm_model.trainable_weights
+                    gru_model.trainable_weights
                 )
-    optimiser.apply_gradients(zip(grads, lstm_model.trainable_weights))
+    optimiser.apply_gradients(zip(grads, gru_model.trainable_weights))
     
     # Update metrics before
     for metric in metrics:
@@ -362,7 +381,7 @@ def train_single_st(input : tuple[np.ndarray, np.ndarray],
 
 @tf.function
 def test_step(input : tuple[np.ndarray, np.ndarray]) -> tf.Tensor:
-    return lstm_model(input, training=False)
+    return gru_model(input, training=False)
 
 def valid_loop(dist_input  : tuple[np.ndarray, np.ndarray],
                verbose : int = 0) -> tf.Tensor:
@@ -467,12 +486,13 @@ pd.DataFrame(y_valid[:,0,0]).to_csv(f'{model_loc}y_valid.csv', sep = ",", na_rep
 pd.DataFrame(y_testi[:,0,0]).to_csv(f'{model_loc}y_testi.csv', sep = ",", na_rep = "", line_terminator = '\n')
 
 i_attempts : int = 0
-n_attempts : int = 50
+# n_attempts : int = 50 # Realocated to the initialisation
 skip       : int = 1
 firtstEpoch: bool = True
 while iEpoch < mEpoch:
     iEpoch+=1
     print(f"Epoch {iEpoch}/{mEpoch}")
+    # pbar = tqdm(total=y_train.shape[0])
     tic : float = time.perf_counter()
     sh_i = np.arange(y_train.shape[0])
     np.random.shuffle(sh_i)
@@ -497,16 +517,16 @@ while iEpoch < mEpoch:
     print(f'Epoch {iEpoch}/{mEpoch} :: '
             f'Elapsed Time: {toc} - '
             # f'loss: {loss_value[0]:.4f} - '
-            f'mae: {history.history["mean_absolute_error"][0]:.4f} - '
-            f'rmse: {history.history["root_mean_squared_error"][0]:.4f} - '
-            f'rsquare: {history.history["r_square"][0]:.4f} - '
+            f'mae: {MAE.result():.4f} - '
+            f'rmse: {RMSE.result():.4f} - '
+            f'rsquare: {RSquare.result():.4f} - '
             f'Lear-Rate: {cLr} - '
         )
 #?==================                ===========================================
     #* Dealing with NaN state. Give few trials to see if model improves
     curr_error = MAE.result().numpy()
     print(f'The post optimiser error: {curr_error}', flush=True)
-    if (tf.math.is_nan(history.history['loss']) or curr_error > prev_error):
+    if (tf.math.is_nan(loss_value[0]) or curr_error > prev_error):
         print('->> NaN or High error model')
         i_attempts : int = 0
         firstFaltyLog : bool = True
@@ -533,27 +553,6 @@ while iEpoch < mEpoch:
             RMSE.reset_states()
             RSquare.reset_states()
 
-            if (iEpoch<=p2):
-                gru_model.compile(loss=tf.keras.losses.MeanSquaredError(),
-                        optimizer=tf.keras.optimizers.Nadam(learning_rate=iLr,
-                            beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Nadam'
-                            ),
-                        metrics=[tf.metrics.MeanAbsoluteError(),
-                                tf.metrics.RootMeanSquaredError(),
-                                tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
-                    )
-                print("\nFailed Optimizer set: Nadam\n")
-            elif (iEpoch>p2):
-                gru_model.compile(loss=tf.keras.losses.MeanSquaredError(),
-                        optimizer=tf.keras.optimizers.Adamax(learning_rate=iLr,
-                            beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Adamax'
-                            ),
-                        metrics=[tf.metrics.MeanAbsoluteError(),
-                                tf.metrics.RootMeanSquaredError(),
-                                tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
-                    )
-                print("\nFailed Optimizer set: Adamax\n")
-
             tic = time.perf_counter()
             for i in sh_i[::]:
                 loss_value = train_single_st(
@@ -571,15 +570,20 @@ while iEpoch < mEpoch:
             TRAIN = valid_loop((xt_valid, yt_valid), verbose = debug)
             
             # Update learning rate
-            iLr /= 2
-            optimiser.learning_rate = iLr
+            if(not constLearning):
+                iLr /= 2
+                optimiser.learning_rate = iLr
+                print(f">>> Updating iLR with {iLr}")
+            else:
+                print(f">>> Keeping iLR at {iLr}")
 
+            # Log the faulty results
             faulty_hist_df = pd.DataFrame(data={
                     'Epoch'  : [iEpoch],
                     'attempt': [i_attempts],
-                    'loss'   : np.array(history.history["loss"][0]),
-                    'mae'    : np.array(history.history["mean_absolute_error"][0]),
-                    'time(s)': toc,
+                    'loss'   : [np.array(loss_value[0])],
+                    'mae'    : [np.array(MAE.result())],
+                    'time(s)': [np.array(toc)],
                     'learning_rate' : [np.array(iLr)],
                     'train_l' : np.mean(TRAIN[0]),
                     'train_mae': np.array(TRAIN[1]),
@@ -593,12 +597,12 @@ while iEpoch < mEpoch:
                     firstFaltyLog = False
                 else:
                     faulty_hist_df.to_csv(f, index=False, header=False)
-            curr_error = history.history["mean_absolute_error"][0]
+            curr_error = MAE.result().numpy()
             print(
                 f'The post optimiser error: {curr_error}'
-                f'with L-rate {gru_model.optimizer.lr}'
+                f'with L-rate {optimiser.get_config()["learning_rate"]}'
                 )
-            if (not tf.math.is_nan(history.history['loss']) and
+            if (not tf.math.is_nan(loss_value[0]) and
                 not curr_error > prev_error and
                 not TRAIN[1] > 0.20 ):
                 print(f'->>> Attempt {i_attempts} Passed')
@@ -626,27 +630,24 @@ while iEpoch < mEpoch:
         prev_error = curr_error
     
     # Update learning rate
-    iLr = scheduler(iEpoch, iLr, 'linear')
-    gru_model.optimizer.lr = iLr
+    if (constLearning):
+        optimiser.learning_rate = iLr = rate
+    else:
+        iLr = scheduler(iEpoch, iLr, 'linear')
+        optimiser.learning_rate = iLr
     
     # Validating trained model 
-    TRAIN = gru_model.evaluate(xt_valid[:,0,:,:], yt_valid[:,0,:],
-                               batch_size=1, verbose = debug)
-    TRAIN_OUTPUT = gru_model.predict(xt_valid[:,0,:,:], batch_size=1)[:,0]
-    RMS = tf.keras.backend.sqrt(
-            tf.keras.backend.square(
-             tf.math.subtract(
-                yt_valid[:,0,0],
-                TRAIN_OUTPUT)
-             ))
+    TRAIN = valid_loop((xt_valid, yt_valid), verbose = debug)
+    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+                yt_valid[:,0,0]-TRAIN[4])))
     predicting_plot(profile=profile, file_name=model_name,
                     model_loc=f'{model_loc}/traiPlots/',
-                    model_type='GRU valid',
+                    model_type='LSTM valid',
                     iEpoch=f'tra-{iEpoch}',
                     Y=yt_valid[:,0],
-                    PRED=TRAIN_OUTPUT,
+                    PRED=TRAIN[4],
                     RMS=RMS,
-                    val_perf=[TRAIN[0], TRAIN[1],
+                    val_perf=[np.mean(TRAIN[0]), TRAIN[1],
                             TRAIN[2], TRAIN[3]],
                     TAIL=yt_valid.shape[0],
                     save_plot=True)
@@ -657,25 +658,22 @@ while iEpoch < mEpoch:
             f'\n'
         )
     # Validating model 
-    PERF = gru_model.evaluate(x_valid[:,0,:,:], y_valid[:,0,:],
-                               batch_size=1, verbose = debug)
     val_tic : float = time.perf_counter()
-    PERF_OUTPUT = gru_model.predict(xt_valid[:,0,:,:], batch_size=1)[:,0]
+    PERF = valid_loop((x_valid, y_valid), verbose = debug)
+    # PERF = valid_loop((x_train, y_train), verbose = debug)
     val_toc : float = time.perf_counter() - val_tic
-    RMS = tf.keras.backend.sqrt(
-            tf.keras.backend.square(
-             tf.math.subtract(
-                y_valid[:,0,0],
-                PERF_OUTPUT)
-             ))
+    #! Verefy RMS shape
+    #! if RMS.shape[0] == RMS.shape[1]
+    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+                y_valid[:,0,0]-PERF[4])))
     predicting_plot(profile=profile, file_name=model_name,
                     model_loc=f'{model_loc}/valdPlots/',
-                    model_type='GRU valid',
+                    model_type='LSTM valid',
                     iEpoch=f'val-{iEpoch}',
                     Y=y_valid[:,0],
-                    PRED=PERF_OUTPUT,
+                    PRED=PERF[4],
                     RMS=RMS,
-                    val_perf=[PERF[0], PERF[1],
+                    val_perf=[np.mean(PERF[0]), PERF[1],
                             PERF[2], PERF[3]],
                     TAIL=y_valid.shape[0],
                     save_plot=True)
@@ -690,21 +688,12 @@ while iEpoch < mEpoch:
     mid_one = int(x_testi.shape[0]/2)#+350
     mid_two = int(x_testi.shape[0]/2)+400
     ts_tic : float = time.perf_counter()
-    OUTPUT1 = gru_model.predict(x_testi[:mid_one ,0,:,:], batch_size=1)[:,0]
-    OUTPUT2 = gru_model.predict(x_testi[mid_two:, 0,:,:], batch_size=1)[:,0]
+    TEST1 = valid_loop((x_testi[:mid_one], y_testi[:mid_one]), verbose = debug)
+    TEST2 = valid_loop((x_testi[mid_two:], y_testi[mid_two:]), verbose = debug)
     ts_toc : float = time.perf_counter() - ts_tic
-    
-    TEST1 = gru_model.evaluate(x_testi[:mid_one,0,:,:], y_testi[:mid_one,0,:],
-                               batch_size=1, verbose = debug)
-    TEST2 = gru_model.evaluate(x_testi[mid_two:,0,:,:], y_testi[mid_two:,0,:],
-                               batch_size=1, verbose = debug)
     #! Verefy RMS shape
-    RMS = tf.keras.backend.sqrt(
-            tf.keras.backend.square(
-             tf.math.subtract(
-                y_testi[:mid_one,0,0],
-                OUTPUT1)   
-             ))
+    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+                y_testi[:mid_one,0,0]-TEST1[4])))
     #! If statement for string to change
     if profile == 'DST':
         save_title_type : str = 'GRU Test on US06'
@@ -718,12 +707,13 @@ while iEpoch < mEpoch:
                     model_type=save_title_type,
                     iEpoch=save_file_name,
                     Y=y_testi[:mid_one,0],
-                    PRED=OUTPUT1,
+                    PRED=TEST1[4],
                     RMS=RMS,
-                    val_perf=[TEST1[0], TEST1[1],
+                    val_perf=[np.mean(TEST1[0]), TEST1[1],
                             TEST1[2], TEST1[3]],
                     TAIL=y_testi.shape[0],
                     save_plot=True)
+
     if profile == 'FUDS':
         save_title_type : str = 'GRU Test on US06'
         save_file_name  : str = f'US06-{iEpoch}'
@@ -731,25 +721,20 @@ while iEpoch < mEpoch:
         save_title_type : str = 'GRY Test on FUDS'
         save_file_name  : str = f'FUDS-{iEpoch}'
     #! Verefy RMS shape
-    RMS = tf.keras.backend.sqrt(
-            tf.keras.backend.square(
-             tf.math.subtract(
-                y_testi[mid_two:,0,0],
-                OUTPUT2)
-             ))
+    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+                y_testi[mid_two:,0,0]-TEST2[4])))
 
     predicting_plot(profile=profile, file_name=model_name,
                     model_loc=f'{model_loc}/testPlots/',
                     model_type=save_title_type,
                     iEpoch=save_file_name,
                     Y=y_testi[mid_two:,0],
-                    PRED=OUTPUT2,
+                    PRED=TEST2[4],
                     RMS=RMS,
-                    val_perf=[TEST2[0], TEST2[1],
+                    val_perf=[np.mean(TEST2[0]), TEST2[1],
                             TEST2[2], TEST2[3]],
                     TAIL=y_testi.shape[0],
                     save_plot=True)
-
     print(f'Epoch {iEpoch}/{mEpoch} :: TEST :: '
             f'Elapsed Time: {ts_toc} - '
             f'mae: {np.mean(np.append(TEST1[1], TEST2[1])):.4f} - '
@@ -766,10 +751,10 @@ while iEpoch < mEpoch:
     #! Rewrite as add, not a new, similar to the one I found on web with data analysis
     hist_ser = pd.Series(data={
             'Epoch'  : iEpoch,
-            'loss'   : np.array(history.history["loss"][0]),
-            'mae'    : np.array(history.history["mean_absolute_error"][0]),
-            'rmse'   : np.array(history.history["root_mean_squared_error"][0]),
-            'rsquare': np.array(history.history["r_square"][0]),
+            'loss'   : np.array(loss_value[0]),
+            'mae'    : np.array(MAE.result()),
+            'rmse'   : np.array(RMSE.result()),
+            'rsquare': np.array(RSquare.result()),
             'time(s)': toc,
             'train_l' : np.mean(TRAIN[0]),
             'train_mae': np.array(TRAIN[1]),
@@ -803,10 +788,16 @@ while iEpoch < mEpoch:
                         'rmse', 'val_rms'],
                 plot_file_name=f'history-{profile}-valid.svg')
 
-    pd.DataFrame(TRAIN_OUTPUT).to_csv(f'{model_loc}{iEpoch}-train-logits.csv')
-    pd.DataFrame(PERF_OUTPUT).to_csv(f'{model_loc}{iEpoch}-valid-logits.csv')
-    pd.DataFrame(np.append(OUTPUT1, OUTPUT2)
+    pd.DataFrame(TRAIN[4]).to_csv(f'{model_loc}{iEpoch}-train-logits.csv')
+    pd.DataFrame(PERF[4]).to_csv(f'{model_loc}{iEpoch}-valid-logits.csv')
+    pd.DataFrame(np.append(TEST1[4], TEST2[4])
                 ).to_csv(f'{model_loc}{iEpoch}-test--logits.csv')
+    
+    # Reset every metric and clear memory leak
+    MAE.reset_states()
+    RMSE.reset_states()
+    RSquare.reset_states()
+
     # Flush and clean
     print('\n', flush=True)
     # tf.keras.backend.clear_session()
@@ -835,7 +826,7 @@ while iEpoch < mEpoch:
     #     break
 # %%
 bestEpoch, _  = Locate_Best_Epoch(f'{model_loc}history.csv', 'mae')
-lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
+gru_model : tf.keras.models.Sequential = tf.keras.models.load_model(
         f'{model_loc}{bestEpoch}',
         compile=False)
 profiles: list = ['DST', 'US06', 'FUDS']
@@ -870,9 +861,9 @@ firstLog = False
 for p, x, y in zip(profiles, X, Y):
     # Validating model 
     val_tic : float = time.perf_counter()
-    # PERF = valid_loop((x, y), verbose = debug)
-    PERF = gru_model.evaluate(x[:,0,:,:], y[:,0,:],
-                            batch_size=1, verbose = debug)
+    PERF = valid_loop((x, y), verbose = debug)
+    # PERF = gru_model.evaluate(x[:,0,:,:], y[:,0,:],
+    #                         batch_size=1, verbose = debug)
     val_toc : float = time.perf_counter() - val_tic
     print(f'Profile {p} '
             f'Elapsed Time: {val_toc} - '
