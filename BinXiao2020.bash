@@ -1,5 +1,5 @@
 #!/bin/bash -l
-script='BinXiao2020.py'
+script='BinXiao2020-custom.py'
 attempt=1
 profiles='DST US06 FUDS'
 
@@ -10,7 +10,6 @@ index=1
 
 #! Add two more params
 optimiser='AdaMax'
-rate=0.0001
 for profile in $profiles
 do
     layer=3
@@ -19,7 +18,7 @@ do
     do
         # echo $profile $layer $neuron $attempt
         # python Chemali2017.py -d False -e 100 -g 0 -p $profile -l $layer -n $neuron -a $attempt
-        bash gen_job.bash $GPU $index $hours $script $profile $layer $neuron $attempt $optimiser $rate > sub_job.pbs
+        bash gen_job_optimiser.bash $GPU $index $hours $script $profile $layer $neuron $attempt $optimiser > sub_job.pbs
         qsub sub_job.pbs
         rm sub_job.pbs
         ((index++))
