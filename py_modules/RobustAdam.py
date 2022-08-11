@@ -56,12 +56,12 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
       self.add_slot(var, slot_name='v', initializer='zeros')
     for var in var_list:
       self.add_slot(var, slot_name='d', initializer='ones')
-    for var in var_list:
-      self.add_slot(var, slot_name='prev_loss',
-                         initializer=self.prev_loss)
-    for var in var_list:
-      self.add_slot(var, slot_name='current_loss', 
-                         initializer=self.current_loss)
+    # for var in var_list:
+    #   self.add_slot(var, slot_name='prev_loss',
+    #                      initializer=self.prev_loss)
+    # for var in var_list:
+    #   self.add_slot(var, slot_name='current_loss', 
+    #                      initializer=self.current_loss)
     # print('_create_slots')
     
   def _prepare_local(self, var_device, var_dtype, apply_state) -> None:
@@ -99,7 +99,8 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
             k=k_t,
             K=K_t
             ))
-    
+
+  # @tf.function  
   def _resource_apply_dense(self, grad, var, apply_state=None) -> None:
     """ Dense implementation of the optimiser apply. Similar to the Adam and
     replaces the unused Sparse function
@@ -134,12 +135,12 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
       v_t = state_ops.assign_add(ref=v, value=v_scaled_g_values,
             use_locking=self._use_locking, name=None) 
     # print(f'v_t-2: {v_t}')
-    prev_loss = self.get_slot(var, 'prev_loss')
-    current_loss = self.get_slot(var, 'current_loss')
+    prev_loss = self.prev_loss # self.get_slot(var, 'prev_loss')
+    current_loss = self.current_loss # self.get_slot(var, 'current_loss')
 
     if self.prev_loss is None:
-      prev_loss = state_ops.assign(prev_loss, var,
-                           use_locking=self._use_locking)
+      # prev_loss = state_ops.assign(prev_loss, var,
+      #                      use_locking=self._use_locking)
       # W_t = W - lr * m_t / (sqrt(v)+epsilon)
       v_sqrt = math_ops.sqrt(v_t)
       var_update = state_ops.assign_sub(
@@ -150,7 +151,10 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
       # print(f'_dense:prev_loss:{prev_loss}')
       # print(f'_dense:currrent_loss:{current_loss}')
       # print(f'Var Shape: {var.shape}')
-      if math_ops.abs(current_loss) >= math_ops.abs(prev_loss):
+      if (math_ops.abs(current_loss) >= math_ops.abs(prev_loss)):
+      # if (tf.cond(tf.greater_equal(current_loss, prev_loss),
+      #             lambda: tf.constant(1, tf.int8),
+      #             lambda: tf.constant(0, tf.int8))):
         # r = min{(max{k,(L)}),K}
         r_t = math_ops.minimum(
             x=math_ops.maximum(
@@ -182,7 +186,8 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
       return control_flow_ops.group(*[var_update, m_t, v_t, d_t])
 
 
-  def update_loss(self, prev_loss : float32, current_loss : float32) -> None:
+  def update_loss(self, prev_loss : float32, current_loss : float32,
+                  grads_and_vars) -> None:
     """ Custom function added specifically for Robust Adam implementation. TF
     has no meaning to pass loss. This is the only I was able to figure.
 
@@ -194,9 +199,10 @@ class RobustAdam(tf.keras.optimizers.Optimizer):
     if prev_loss is not None:
       # print(f'\n1)PRev_loss and loss: {prev_loss} and {current_loss}')
       self.prev_loss = prev_loss
-      self.current_loss = current_loss
     else:
-      self.prev_loss = None
+      self.prev_loss = 1.0
+    self.current_loss = current_loss
+    return self.apply_gradients(grads_and_vars, name="FancyMinimize")
   
   def _resource_apply_sparse(self, grad, handle, indices, apply_state):
     """ Unused function in this impleemntation.

@@ -19,7 +19,7 @@ from sys import platform  # Get type of OS
 
 import matplotlib as mpl  # Plot functionality
 import matplotlib.pyplot as plt
-# plt.switch_backend('agg')       #! FIX in the no-X env: RuntimeError: Invalid DISPLAY variable
+plt.switch_backend('agg')       #! FIX in the no-X env: RuntimeError: Invalid DISPLAY variable
 import numpy as np
 import pandas as pd  # File read
 import tensorflow as tf
@@ -52,7 +52,7 @@ if (sys.version_info[1] < 9):
 #     print ('EXEPTION: Arguments requied!')
 #     sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '12'),
+opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '13'),
         ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
 debug   : int = 0
 batch   : int = 1
@@ -334,8 +334,9 @@ def train_single_st(input : tuple[np.ndarray, np.ndarray],
                 )
     
     # print(f'Losses {prev_loss} and {loss_value}')
-    optimiser.update_loss(prev_loss, loss_value)
-    optimiser.apply_gradients(zip(grads, model.trainable_weights))
+    optimiser.update_loss(prev_loss, loss_value,
+                          zip(grads, model.trainable_weights))
+    # optimiser.apply_gradients(zip(grads, model.trainable_weights))
     
     # Update metrics before
     for metric in metrics:
