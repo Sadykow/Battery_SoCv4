@@ -19,7 +19,7 @@ from sys import platform  # Get type of OS
 
 import matplotlib as mpl  # Plot functionality
 import matplotlib.pyplot as plt
-plt.switch_backend('agg')       #! FIX in the no-X env: RuntimeError: Invalid DISPLAY variable
+# plt.switch_backend('agg')       #! FIX in the no-X env: RuntimeError: Invalid DISPLAY variable
 import numpy as np
 import pandas as pd  # File read
 import tensorflow as tf
@@ -42,18 +42,18 @@ if (sys.version_info[1] < 9):
 
 # %%
 # Extract params
-# try:
-#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:l:n:a:g:p:",
-#                     ["help", "debug=", "epochs=", "layers=", "neurons=",
-#                      "attempt=", "gpu=", "profile="])
-# except getopt.error as err: 
-#     # output error, and return with an error code 
-#     print (str(err)) 
-#     print ('EXEPTION: Arguments requied!')
-#     sys.exit(2)
+try:
+    opts, args = getopt.getopt(sys.argv[1:],"hd:e:l:n:a:g:p:",
+                    ["help", "debug=", "epochs=", "layers=", "neurons=",
+                     "attempt=", "gpu=", "profile="])
+except getopt.error as err: 
+    # output error, and return with an error code 
+    print (str(err)) 
+    print ('EXEPTION: Arguments requied!')
+    sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '13'),
-        ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
+# opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '14'),
+#         ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
 debug   : int = 0
 batch   : int = 1
 mEpoch  : int = 10
@@ -241,7 +241,7 @@ def create_model(mFunc : Callable, layers : int = 1,
 file_name : str = os.path.basename(__file__)[:-3]
 model_name : str = 'ModelsUp-4'
 ####################! ADD model_name to path!!! ################################
-model_loc : str = f'Modds/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
+model_loc : str = f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
 iEpoch = 0
 firstLog : bool = True
 iLr     : float = 0.001
@@ -268,44 +268,7 @@ except (OSError, TypeError) as identifier:
     firstLog = True
 prev_model = tf.keras.models.clone_model(model)
 # %%
-# MAE = tf.metrics.MeanAbsoluteError()
-# RMSE = tf.metrics.RootMeanSquaredError()
-# RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
-
-# optimiser = RobustAdam()
-# loss_fn = tf.keras.losses.MeanAbsoluteError()
-# pbar = tqdm(total=y_train.shape[0])
-# # while iEpoch < mEpoch:
-# #     iEpoch+=1
-# for x, y in zip(np.expand_dims(x_train, axis=1), y_train):
-#     with tf.GradientTape() as tape:
-#         # Run the forward pass of the layer.
-#         logits = gru_model(x, training=True)
-#         # Compute the loss value 
-#         loss_value = loss_fn(y_true=y, y_pred=logits)
-        
-#         grads = tape.gradient(loss_value, gru_model.trainable_weights)
-#     # optimiser.update_labels()trainable_weights
-#     optimiser.apply_gradients(zip(grads, gru_model.trainable_weights),
-#                                 experimental_aggregate_gradients=True)
-#     # Get matrics
-#     MAE.update_state(y_true=y_train[:1], y_pred=logits)
-#     RMSE.update_state(y_true=y_train[:1], y_pred=logits)
-#     RSquare.update_state(y_true=y_train[:1], y_pred=logits)
-
-#     # Progress Bar
-#     pbar.update(1)
-#     pbar.set_description(f' :: '
-#                         f'loss: {loss_value:.4e} - '
-#                         f'mae: {MAE.result():.4e} - '
-#                         f'rmse: {RMSE.result():.4e} - '
-#                         f'rsquare: {RSquare.result():04f}'
-#                         )
-# plt.plot(gru_model.predict(x_train, batch_size=1))
-# plt.plot(y_train)
-# %%
 optimiser = RobustAdam(learning_rate = 0.001) #0.0001
-# optimiser.update_loss(1.0, 0.8)
 loss_fn   = tf.losses.MeanAbsoluteError(
                     reduction=tf.keras.losses.Reduction.NONE,
                 )
@@ -315,7 +278,7 @@ RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
 
 #! We can potentialy run 2 models on single GPU getting to 86% utilisation.
 #!Although, check if it safe. Use of tf.function speeds up training by 2.
-# @tf.function
+@tf.function
 def train_single_st(input : tuple[np.ndarray, np.ndarray],
                     metrics : tf.keras.metrics,
                     prev_loss : tf.keras.metrics
@@ -332,12 +295,13 @@ def train_single_st(input : tuple[np.ndarray, np.ndarray],
                     loss_value,
                     model.trainable_weights
                 )
-    
     # print(f'Losses {prev_loss} and {loss_value}')
-    optimiser.update_loss(prev_loss, loss_value,
-                          zip(grads, model.trainable_weights))
+    optimiser.minimise_fancy(prev_loss=prev_loss, current_loss=loss_value,
+                             grads_and_vars=zip(grads, model.trainable_weights))
     # optimiser.apply_gradients(zip(grads, model.trainable_weights))
-    
+    # optimiser.minimize(lambda: loss_fn, lambda: model.trainable_weights,
+    #                     prev_loss)
+
     # Update metrics before
     for metric in metrics:
         metric.update_state(y_true=input[1], y_pred=logits)
@@ -496,7 +460,7 @@ n_attempts : int = 50
 loss_value : float = 1.0
 while iEpoch < mEpoch:
     iEpoch+=1
-    pbar = tqdm(total=y_train.shape[0])
+    # pbar = tqdm(total=y_train.shape[0])
     tic : float = time.perf_counter()
     sh_i = np.arange(y_train.shape[0])
     np.random.shuffle(sh_i)
@@ -507,15 +471,15 @@ while iEpoch < mEpoch:
                                         prev_loss=loss_value
                                         )
         # Progress Bar
-        pbar.update(1)
-        pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
-                            #  f'loss: {loss_value:.4f} - '
-                             f'mae: {MAE.result():.4f} - '
-                             f'rmse: {RMSE.result():.4f} - '
-                             f'rsquare: {RSquare.result():.4f}'
-                            )
+        # pbar.update(1)
+        # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
+        #                     #  f'loss: {loss_value:.4f} - '
+        #                      f'mae: {MAE.result():.4f} - '
+        #                      f'rmse: {RMSE.result():.4f} - '
+        #                      f'rsquare: {RSquare.result():.4f}'
+        #                     )
     toc : float = time.perf_counter() - tic
-    pbar.close()
+    # pbar.close()
     cLr = optimiser.get_config()['learning_rate']
     print(f'Epoch {iEpoch}/{mEpoch} :: '
                 f'Elapsed Time: {toc} - '
@@ -550,7 +514,7 @@ while iEpoch < mEpoch:
             model = tf.keras.models.clone_model(prev_model)
             
             np.random.shuffle(sh_i)
-            pbar = tqdm(total=y_train.shape[0])
+            # pbar = tqdm(total=y_train.shape[0])
 
             # Reset every metric
             MAE.reset_states()
@@ -565,12 +529,12 @@ while iEpoch < mEpoch:
                                         prev_loss=loss_value
                                         )
                 # Progress Bar
-                pbar.update(1)
-                pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
-                                    # f'loss: {(loss_value[0]):.4f} - '
-                                    )
+                # pbar.update(1)
+                # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
+                #                     # f'loss: {(loss_value[0]):.4f} - '
+                #                     )
             toc = time.perf_counter() - tic
-            pbar.close()
+            # pbar.close()
             TRAIN = valid_loop((xt_valid, yt_valid), verbose = debug)
             
             # Update learning rate
