@@ -178,7 +178,7 @@ class WindowGenerator():
               ) -> tf.raw_ops.MapDataset:
 
     input_length : int = len(self.input_columns)    
-    tic : float = perf_counter()    
+    tic : float = perf_counter()
     if self.normaliseInput: # Normalise Inputs
       #? Normalisation by MEAN and STD
       MEAN = np.mean(a=self.Data.train[:,:input_length], axis=0,

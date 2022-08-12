@@ -385,6 +385,7 @@ prev_model = tf.keras.models.clone_model(lstm_model)
 # %%
 optimiser = tf.optimizers.Adam(learning_rate=iLr,
             beta_1=0.9, beta_2=0.999, epsilon=1e-07, amsgrad=False)
+#! Print function parameters. Find some useful properties
 loss_fn   = tf.losses.MeanAbsoluteError(
                     reduction=tf.keras.losses.Reduction.NONE,
                     #from_logits=True
