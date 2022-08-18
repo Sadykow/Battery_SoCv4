@@ -735,8 +735,8 @@ while iEpoch < mEpoch:
             'learn_r': np.array(iLr)
         })
     if(len(hist_df[hist_df['Epoch']==iEpoch]) == 0):
-        hist_df = pd.concat([hist_df, hist_ser], ignore_index=True)
-        # hist_df = hist_df.append(hist_ser, ignore_index=True)
+        # hist_df = pd.concat([hist_df, hist_ser], ignore_index=True)
+        hist_df = hist_df.append(hist_ser, ignore_index=True)
         # hist_df.loc[hist_df['Epoch']==iEpoch] = hist_ser
     else:
         hist_df.loc[len(hist_df)] = hist_ser

@@ -1,9 +1,10 @@
 #!/usr/bin/python
 # %% [markdown]
-# # # 1
+# # # 4
 # # #
-# # LSTM for SoC by Ephrem Chemali 2017
-# PyTorch version for optimiser and custom training loop
+# # LSTM for SoC by GatethJavid 2020
+# PyTorch version for optimiser and custom training loop with pre-existing
+# optimiser
 # %%
 import datetime
 import logging
@@ -20,9 +21,11 @@ import torch.nn as nn
 from torch.autograd import Variable
 #from torch.utils.data import DataLoader
 import torchmetrics
+
 from tqdm import tqdm, trange
 
 from extractor.DataGenerator import *
+from py_modules.PT_RoAdam import RoAdam
 from py_modules.utils import str2bool, Locate_Best_Epoch
 from py_modules.plotting import predicting_plot, history_plot
 
@@ -45,7 +48,7 @@ import gc           # Garbage Collector
 #     print ('EXEPTION: Arguments requied!')
 #     sys.exit(2)
 
-opts = [('-d', 'True'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '13'),
+opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '13'),
         ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
 debug   : int = 0
 batch   : int = 1
@@ -206,11 +209,11 @@ class ManualModel(nn.Module):
         c_3 = Variable(torch.zeros(1, x.size(0), self.units)).to(self.device)
 
         # Propagate input through LSTM
-        _, (h_1, c_1) = self.model0(x, (h_1, c_1)) #lstm with input, hidden, and internal state
+        _, (h_1, c_1) = self.model0(x, (h_1, c_1)) #LSTM with input, hidden, and internal state
         out = self.tanh(h_1)
-        _, (h_2, c_2) = self.model1(out, (h_2, c_2)) #lstm with input, hidden, and internal state
+        _, (h_2, c_2) = self.model1(out, (h_2, c_2)) #LSTM with input, hidden, and internal state
         out = self.tanh(h_2)
-        _, (h_3, c_3) = self.model2(out, (h_3, c_3)) #lstm with input, hidden, and internal state
+        _, (h_3, c_3) = self.model2(out, (h_3, c_3)) #LSTM with input, hidden, and internal state
         out = self.tanh(h_3)
         
         # Dropout
@@ -218,7 +221,7 @@ class ManualModel(nn.Module):
         
         #reshaping the data for Dense layer next
         out = self.output(h_3.view(-1, self.units))
-        return self.sigmoind(out) # SoC output
+        return self.sigmoind(out)#[:,0] # SoC output
 
 def scheduler(epoch : int, lr : float, type : str = 'mix') -> float:
   """ Scheduler
@@ -263,10 +266,11 @@ def get_learning_rate(epoch : int, iLr : float, type : str = 'mix') -> float:
   return iLr
 
 file_name : str = os.path.basename(__file__)[:-3]
-model_name : str = 'ModelsPT-1'
+model_name : str = 'ModelsPT-4'
 ####################! ADD model_name to path!!! ################################
 model_loc : str = f'Modds/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
-iEpoch = 0
+print(model_loc)
+iEpoch : int = 0
 firstLog : bool = True
 iLr     : float = 0.001
 prev_error : np.float32 = 1.0
@@ -295,52 +299,6 @@ prev_model = ManualModel(mFunc=nn.LSTM, layers=3, neurons=131, dropout=0.2,
                 input_shape=x_train.shape[-2:], batch=1, device=logical_devices)
 prev_model.load_state_dict(model.state_dict())
 # %%
-# train = DataLoader(dataGenerator.train_list[0],batch_size=1)
-# test = DataLoader(dataGenerator.valid_list[0], batch_size=1)
-
-# for X, y in train:
-#     print(f"Shape of X [N, C, H, W]: {X.shape}")
-#     print(f"Shape of y: {y.shape} {y.dtype}")
-#     break
-
-# batch_size = 64
-
-# # Create data loaders.
-# train_dataloader = DataLoader(training_data, batch_size=batch_size)
-# test_dataloader = DataLoader(test_data, batch_size=batch_size)
-
-# for X, y in test_dataloader:
-#     print(f"Shape of X [N, C, H, W]: {X.shape}")
-#     print(f"Shape of y: {y.shape} {y.dtype}")
-#     break
-# %%
-# input_size - The number of expected features in the input x
-# hidden_size - The number of features in the hidden state h
-# num_layers - Number of recurrent layers. E.g., setting num_layers=2 would mean stacking two LSTMs together to form a stacked LSTM, with the second LSTM taking in outputs of the first LSTM and computing the final results. Default: 1
-# bias - If False, then the layer does not use bias weights b_ih and b_hh. Default: True
-# batch_first - If True, then the input and output tensors are provided as (batch, seq, feature) instead of (seq, batch, feature). Note that this does not apply to hidden or cell states. See the Inputs/Outputs sections below for details. Default: False
-# dropout - If non-zero, introduces a Dropout layer on the outputs of each LSTM layer except the last layer, with dropout probability equal to dropout. Default: 0
-# bidirectional - If True, becomes a bidirectional LSTM. Default: False
-# proj_size - If > 0, will use LSTM with projections of corresponding size. Default: 0
-
-#? How does the hidden state gets splitted?
-#! https://cnvrg.io/pytorch-lstm/
-# model = nn.LSTM(input_size=3, hidden_size=131, num_layers=3, bias=True,
-#                 batch_first=True, dropout=0.2,
-#                 bidirectional=False, proj_size=0).to(logical_devices)
-# model = nn.Sequential(OrderedDict([
-#             ('LSTM1', nn.LSTM(input_size=3, hidden_size=43, num_layers=1, bias=True, batch_first=True, dropout=0.0)),
-#             ('LSTM2', nn.LSTM(input_size=43, hidden_size=43, num_layers=1, bias=True, batch_first=True, dropout=0.0)),
-#             ('LSTM3', nn.LSTM(input_size=43, hidden_size=43, num_layers=1, bias=True, batch_first=True, dropout=0.0)),
-#             ('Dropout', nn.Dropout(p=0.2, inplace=False)),
-#             ('Output', nn.Linear(in_features=43, out_features=1, bias=True,))
-#         ])).to(logical_devices)
-# model = LSTM_multi(1, 3, 43, 1, 1)
-# model = LSTM_multi_output(1, 3, 43, 43, 43)
-# model = MultiModel(mFunc=nn.LSTM, layers=3, neurons=131, dropout=0.2,
-#                   input_shape=x_train.shape[2:], batch=1)
-#! https://towardsdatascience.com/from-a-lstm-cell-to-a-multilayer-lstm-network-with-pytorch-2899eb5696f3
-# %%
 class RootMeanSquaredError(torchmetrics.Metric):
     # Set to True if the metric during 'update' requires access to the global metric
     # state for its calculations. If not, setting this to False indicates that all
@@ -358,9 +316,8 @@ class RootMeanSquaredError(torchmetrics.Metric):
     def compute(self):
         return torch.sqrt(self.sum_squared_errors / self.n_observations)
 
-#! Epsilon taken from Tensorflow. PyTorch Default 1e-08
-optimiser = torch.optim.Adam(params=model.parameters(), lr=1e-3,
-                             betas=(0.9, 0.999), eps=1e-07, amsgrad=False)
+optimiser = RoAdam(params=model.parameters(), lr=1e-3,
+                    betas=(0.9, 0.999, 0.999), eps=1e-07, amsgrad=False)
 loss_fn = nn.L1Loss(
                 reduction='none'
             )
@@ -368,7 +325,10 @@ loss_fn = nn.L1Loss(
 MAE = torchmetrics.MeanAbsoluteError().to(logical_devices)
 RMSE = RootMeanSquaredError().to(logical_devices)
 RSquare = torchmetrics.R2Score().to(logical_devices)
-
+#! PT-1.12.1/lib/python3.10/site-packages/torch/nn/modules/loss.py:96:
+#! UserWarning: Using a target size (torch.Size([1])) that is different to the
+#! input size (torch.Size([1, 1])). This will likely lead to incorrect results 
+#! due to broadcasting. Please ensure they have the same size.
 def train_single_st(input : tuple[np.ndarray, np.ndarray],
                     metrics : list[torchmetrics.Metric]
                     ) -> float:
@@ -379,7 +339,7 @@ def train_single_st(input : tuple[np.ndarray, np.ndarray],
     # Backpropagation
     optimiser.zero_grad()
     loss_value.backward()
-    optimiser.step()
+    optimiser.step(loss_value[0][0])
 
     # Update metricks
     for metric in metrics:
@@ -470,6 +430,8 @@ while iEpoch < mEpoch:
     sh_i = np.arange(y_train.shape[0])
     np.random.shuffle(sh_i)
     # print(f'Commincing Epoch: {iEpoch}')
+    optimiser = RoAdam(params=model.parameters(), lr=1e-3,
+                    betas=(0.9, 0.999, 0.999), eps=1e-07, amsgrad=False)
     for i in sh_i[:]:
         loss_value = train_single_st((x_train[i,:,:,:],
                                       y_train[i,:]),
@@ -522,6 +484,8 @@ while iEpoch < mEpoch:
             MAE.reset()
             RMSE.reset()
             RSquare.reset()
+            optimiser = RoAdam(params=model.parameters(), lr=1e-3,
+                    betas=(0.9, 0.999, 0.999), eps=1e-07, amsgrad=False)
             #! Potentially reset both curr and prev errors
             tic = time.perf_counter()
             model.train()
@@ -543,26 +507,44 @@ while iEpoch < mEpoch:
             iLr /= 2
             optimiser.param_groups[0]['lr'] = iLr
 
+            if not os.path.exists(f'{model_loc}{iEpoch}-faulty-history.csv'):
+                print(">> Creating faulty history")
+                with open(f'{model_loc}{iEpoch}-faulty-history.csv', mode='w') as f:
+                    f.write('Epoch,attempt,loss,mae,time(s),learn_r,'
+                            'train_l,train_mae,train_rms,train_r_s\n'
+                            )
+            faulty_hist_df : pd.DataFrame = pd.read_csv(f'{model_loc}{iEpoch}-faulty-history.csv',
+                                        index_col='Epoch')
+            faulty_hist_df = faulty_hist_df.reset_index()
             # Log the faulty results
-            faulty_hist_df = pd.DataFrame(data={
-                    'Epoch'  : [iEpoch],
-                    'attempt': [i_attempts],
-                    'loss'   : [np.array(loss_value)],
-                    'mae'    : [np.array(MAE.compute().cpu())],
-                    'time(s)': [np.array(toc)],
-                    'learning_rate' : [np.array(iLr)],
-                    'train_l' : torch.mean(TRAIN[0]).cpu(),
-                    'train_mae': np.array(TRAIN[1].cpu()),
-                    'train_rms': np.array(TRAIN[2].cpu()),
-                    'train_r_s': np.array(TRAIN[3].cpu()),
+            faulty_hist_ser = pd.Series(data={
+                    'Epoch'  : iEpoch,
+                    'attempt': i_attempts,
+                    'loss'   : loss_value,
+                    'mae'    : MAE.compute().cpu().detach().numpy().item(),
+                    'time(s)': toc,
+                    'learn_r' : iLr,
+                    'train_l' : torch.mean(TRAIN[0]).cpu().detach().numpy().item(),
+                    'train_mae': TRAIN[1].cpu().detach().numpy().item(),
+                    'train_rms': TRAIN[2].cpu().detach().numpy().item(),
+                    'train_r_s': TRAIN[3].cpu().detach().numpy().item(),
+
                 })
-            with open(f'{model_loc}{iEpoch}-faulty-history.csv',
-                        mode='a') as f:
-                if(firstFaltyLog):
-                    faulty_hist_df.to_csv(f, index=False)
-                    firstFaltyLog = False
-                else:
-                    faulty_hist_df.to_csv(f, index=False, header=False)
+            # with open(f'{model_loc}{iEpoch}-faulty-history.csv',
+            #             mode='a') as f:
+            #     if(firstFaltyLog):
+            #         faulty_hist_df.to_csv(f, index=False)
+            #         firstFaltyLog = False
+            #     else:
+            #         faulty_hist_df.to_csv(f, index=False, header=False)
+            if(len(faulty_hist_df[faulty_hist_df['Epoch']==iEpoch]) == 0):
+                # faulty_hist_df = pd.concat([faulty_hist_df, faulty_hist_ser], ignore_index=True)
+                hist_df = hist_df.append(faulty_hist_ser, ignore_index=True)
+                # hist_df.loc[hist_df['Epoch']==iEpoch] = faulty_hist_ser
+            else:
+                faulty_hist_df.loc[len(faulty_hist_df)] = faulty_hist_ser
+            faulty_hist_df.to_csv(f'{model_loc}history.csv', index=False, sep = ",", na_rep = "", line_terminator = '\n')
+
             curr_error = MAE.compute().cpu().detach().numpy()
             print(
                 f'The post optimiser error: {curr_error}'
@@ -575,6 +557,8 @@ while iEpoch < mEpoch:
                 break
             else:
                 i_attempts += 1
+            # Collect garbage leftovers
+            gc.collect()
         if (i_attempts == n_attempts):
             print('->> Model reached the optimum -- Breaking')
             break
@@ -654,10 +638,10 @@ while iEpoch < mEpoch:
                 y_testi[:mid_one,0,0]-TEST1[4])))
     #! If statement for string to change
     if profile == 'DST':
-        save_title_type : str = 'GRU Test on US06'
+        save_title_type : str = 'LSTM Test on US06'
         save_file_name  : str = f'US06-{iEpoch}'
     else:
-        save_title_type : str = 'GRU Test on DST'
+        save_title_type : str = 'LSTM Test on DST'
         save_file_name  : str = f'DST-{iEpoch}'
 
     predicting_plot(profile=profile, file_name=model_name,
@@ -673,10 +657,10 @@ while iEpoch < mEpoch:
                     save_plot=True)
 
     if profile == 'FUDS':
-        save_title_type : str = 'GRU Test on US06'
+        save_title_type : str = 'LSTM Test on US06'
         save_file_name  : str = f'US06-{iEpoch}'
     else:
-        save_title_type : str = 'GRU Test on FUDS'
+        save_title_type : str = 'LSTM Test on FUDS'
         save_file_name  : str = f'FUDS-{iEpoch}'
     #! Verefy RMS shape
     RMS = (torch.sqrt(torch.square(
@@ -729,7 +713,7 @@ while iEpoch < mEpoch:
             'learn_r': iLr
         })
     if(len(hist_df[hist_df['Epoch']==iEpoch]) == 0):
-        # hist_df = pd.concat([hist_df, hist_ser], ignore_index=True)
+        # hist_df = pd.concat([hist_df, hist_ser], ignore_index=True, axis=1)
         hist_df = hist_df.append(hist_ser, ignore_index=True)
         # hist_df.loc[hist_df['Epoch']==iEpoch] = hist_ser
     else:
@@ -754,191 +738,11 @@ while iEpoch < mEpoch:
     MAE.reset()
     RMSE.reset()
     RSquare.reset()
-
+    del optimiser
+    
     # Flush and clean
     print('\n', flush=True)
 
     # Collect garbage leftovers
     gc.collect()
 # %%
-# X = dataGenerator.train_list[0].loc[
-#     0:499,['Voltage(V)', 'Current(A)', 'Temperature (C)_1']
-#     ].to_numpy()
-# y = dataGenerator.train_list[0].loc[
-#     499,['Charge_Capacity(Ah)']
-#     ].to_numpy()
-"""
-train = DataLoader((X,y), batch_size=1)
-
-for batch, (X, y) in enumerate(dataloader):
-    X, y = X.to(logical_devices), y.to(logical_devices)
-    train_single_st((X, y))
-    if batch % 100 == 0:
-        loss, current = loss.item(), batch * len(X)
-        print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
-
-#! Testing loop
-model.eval()
-test_loss, correct = 0, 0
-results = np.zeros(shape=(xt_valid.shape[0]))
-with torch.no_grad():
-    #x_train, y_train = x_train.to(logical_devices), y_train.to(logical_devices)
-    for i in trange(xt_valid.shape[0]):
-        results[i] = model(xt_valid[i,:,:,:])
-
-    for X, y in dataloader:
-        X, y = X.to(device), y.to(device)
-        pred = model(X)
-        test_loss += loss_fn(pred, y).item()
-        correct += (pred.argmax(1) == y).type(torch.float).sum().item()
-test_loss /= num_batches
-correct /= size
-print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
-
-#! Save model
-torch.save(model.state_dict(), "model.pth")
-print("Saved PyTorch Model State to model.pth")
-
-#! Load model
-model = nn.LSTM(input_size=3, hidden_size=131, num_layers=3, bias=True,
-                batch_first=True, dropout=0.2, bidirectional=False, proj_size=0)
-model.load_state_dict(torch.load("model.pth"))
-
-# %%
-
-class LSTM_multi_output(nn.Module):
-    def __init__(self, step_size, input_dimensions, first_hidden_size, second_hidden_size, third_hidden_size):
-      super(LSTM_multi_output, self).__init__()
-      self.first_hidden_size = first_hidden_size
-      self.second_hidden_size = second_hidden_size
-      self.third_hidden_size = third_hidden_size
-      self.step_size = step_size
-      self.input_dimensions = input_dimensions
-      self.first_layer = nn.LSTM(input_size = self.input_dimensions,
-                                 hidden_size = self.first_hidden_size, 
-                                 num_layers = 1, batch_first = True)
-      self.second_layer = nn.LSTM(input_size = self.first_hidden_size,
-                                 hidden_size = self.second_hidden_size, 
-                                 num_layers = 1, batch_first = True)
-      self.third_layer = nn.LSTM(input_size = self.second_hidden_size,
-                                 hidden_size = self.third_hidden_size,
-                                 num_layers = 1, batch_first = True)
-      self.fc_layer = nn.Linear(self.step_size*self.third_hidden_size, 4)
-    def forward(self, x):
-      seq_len, batch_size, _, _ = x.size()
-      h_1 = torch.zeros(1, batch_size, self.first_hidden_size)
-      c_1 = torch.zeros(1, batch_size, self.first_hidden_size)
-      hidden_1 = (h_1, c_1)
-      lstm_out, hidden_1 = self.first_layer(x, hidden_1)
-      h_2 = torch.zeros(1, batch_size, self.second_hidden_size)
-      c_2 = torch.zeros(1, batch_size, self.second_hidden_size)
-      hidden_2 = (h_2, c_2)
-      lstm_out, hidden_2 = self.second_layer(lstm_out, hidden_2)
-      h_3 = torch.zeros(1, batch_size, self.third_hidden_size)
-      c_3 = torch.zeros(1, batch_size, self.third_hidden_size)
-      hidden_3 = (h_3, c_3)
-      lstm_out, hidden_3 = self.third_layer(lstm_out, hidden_3)
-      x = lstm_out.contiguous().view(batch_size,-1)
-      return self.fc_layer(x)
-
-class LSTM_multi(nn.Module):
-    def __init__(self, num_classes, input_size, hidden_size,
-                 num_layers, seq_length):
-        super(LSTM_multi, self).__init__()
-        self.num_classes = num_classes #number of classes
-        self.num_layers = num_layers #number of layers
-        self.input_size = input_size #input size
-        self.hidden_size = hidden_size #hidden state
-        self.seq_length = seq_length #sequence length
-
-        self.lstm1 = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
-                          num_layers=1, batch_first=True) #lstm
-        self.lstm2 = nn.LSTM(input_size=hidden_size, hidden_size=hidden_size,
-                          num_layers=1, batch_first=True) #lstm
-        self.lstm3 = nn.LSTM(input_size=hidden_size, hidden_size=hidden_size,
-                          num_layers=1, batch_first=True) #lstm
-        self.fc = nn.Linear(hidden_size, num_classes) #fully connected last layer
-
-        # self.relu = nn.ReLU()
-        self.tanh = nn.Tanh()
-        self.sigmoind = nn.Sigmoid()
-    
-    def forward(self,x):
-        samples, batch_size, seq_len, num_classes = x.size()
-        h_1 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size)) #hidden state
-        c_1 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size)) #internal state
-        h_2 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size)) #hidden state
-        c_2 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size)) #internal state
-        h_3 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size)) #hidden state
-        c_3 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size)) #internal state
-
-        # Propagate input through LSTM
-        _, (h_1, c_1) = self.lstm1(x[:,0,:,:],   (h_1, c_1)) #lstm with input, hidden, and internal state
-        out = self.tanh(h_1)
-        _, (h_2, c_2) = self.lstm2(out, (h_2, c_2)) #lstm with input, hidden, and internal state
-        out = self.tanh(h_2)
-        _, (h_3, c_3) = self.lstm3(out, (h_3, c_3)) #lstm with input, hidden, and internal state
-        out = self.tanh(h_3)
-
-        h_3 = h_3.view(-1, self.hidden_size) #reshaping the data for Dense layer next
-        out = self.fc(h_3) #first Dense
-        return self.sigmoind(out) # SoC output
-
-class MultiModel(nn.Module):
-    #TODO Declare vars
-
-    #TODO: Add device
-    def __init__(self, mFunc : Callable, layers : int = 1, neurons : int = 500,
-                 dropout : float = 0.2, input_shape : tuple = (500,3),
-                 batch : int = 1) -> None:
-        super().__init__()
-        # Check layers, neurons, dropout and batch are acceptable
-        self.layers = 1 if layers == 0 else abs(layers)
-        self.units : int = int(500/layers) if neurons == 0 else int(abs(neurons)/layers)
-        dropout : float = float(dropout) if dropout >= 0 else float(abs(dropout))
-        #? int(batch) if batch > 0 else ( int(abs(batch)) if batch != 0 else 1 )
-        batch : int = int(abs(batch)) if batch != 0 else 1
-
-        # Define sequential model with an Input Layer
-        self.model = []        
-        self.model.append(mFunc(
-                    input_size=input_shape[1], hidden_size=self.units,
-                    num_layers=1, batch_first=True
-                ))
-        # Fill the layer content
-        if(self.layers > 1): #* Middle connection layers
-            for _ in range(layers-1):
-                self.model.append(mFunc(
-                        input_size=self.units, hidden_size=self.units,
-                        num_layers=1, batch_first=True
-                    ))
-        if(self.layers > 0):  #* Last no-connection layer
-            self.model.append(nn.Linear(
-                        in_features=self.units, out_features=1
-                    ))
-        else:
-            print("Unhaldeled exeption with Layers")
-            raise ZeroDivisionError
-        self.tanh = nn.Tanh()
-        self.dropout = nn.Dropout(p=dropout)
-        self.sigmoind = nn.Sigmoid()
-    
-    def forward(self, input):
-        h_c = []
-        for i in range(self.layers):
-            h_c.append(
-                (Variable(torch.zeros(1, input.size(0), self.units)), #hidden state
-                Variable(torch.zeros(1, input.size(0), self.units))) #internal state
-            )
-        
-        _, h_c[0] = self.model[0](input[:,:,:], h_c[0])
-        out = self.tanh(h_c[0][0])
-        for i in range(1, self.layers):
-            # Propagate input through LSTM
-            _, h_c[i] = self.model[i](out, h_c[i])
-            out = self.tanh(h_c[i][0])
-
-        h_c[-1][0] = h_c[-1][0].view(-1, self.units) #reshaping the data for Dense layer next
-        out = self.model[-1](h_c[-1][0]) #first Dense
-        return self.sigmoind(out) # SoC output
-"""
