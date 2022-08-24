@@ -74,18 +74,18 @@ if (sys.version_info[1] < 9):
 import gc           # Garbage Collector
 # %%
 # Extract params
-# try:
-#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
-#                     ["help", "debug=", "epochs=",
-#                      "gpu=", "profile="])
-# except getopt.error as err: 
-#     # output error, and return with an error code 
-#     print (str(err)) 
-#     print ('EXEPTION: Arguments requied!')
-#     sys.exit(2)
+try:
+    opts, args = getopt.getopt(sys.argv[1:],"hd:e:l:n:a:g:p:",
+                    ["help", "debug=", "epochs=", "layers=", "neurons=",
+                     "attempt=", "gpu=", "profile="])
+except getopt.error as err: 
+    # output error, and return with an error code 
+    print (str(err)) 
+    print ('EXEPTION: Arguments requied!')
+    sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '11'),
-        ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
+# opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '11'),
+#         ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
 debug   : int = 0
 batch   : int = 1
 mEpoch  : int = 10
