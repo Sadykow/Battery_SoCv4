@@ -52,7 +52,7 @@ from sys import platform  # Get type of OS
 
 import matplotlib as mpl  # Plot functionality
 import matplotlib.pyplot as plt
-plt.switch_backend('agg')       #! FIX in the no-X env: RuntimeError: Invalid DISPLAY variable
+# plt.switch_backend('agg')       #! FIX in the no-X env: RuntimeError: Invalid DISPLAY variable
 import numpy as np
 import pandas as pd  # File read
 import tensorflow as tf  # Tensorflow and Numpy replacement
@@ -85,7 +85,7 @@ import gc           # Garbage Collector
 #     sys.exit(2)
 
 opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '11'),
-        ('-g', '1'), ('-p', 'FUDS')] # 2x131 1x1572 
+        ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
 debug   : int = 0
 batch   : int = 1
 mEpoch  : int = 10
@@ -151,12 +151,12 @@ physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
     #! need to research more why.
-    tf.config.experimental.set_visible_devices(
-                            physical_devices[GPU], 'GPU')
+    # tf.config.experimental.set_visible_devices(
+    #                         physical_devices[GPU], 'GPU')
 
-    if GPU == 1:
-        tf.config.experimental.set_memory_growth(
-                                physical_devices[GPU], True)
+    # if GPU == 1:
+    #     tf.config.experimental.set_memory_growth(
+    #                             physical_devices[GPU], True)
     logging.info("GPU found and memory growth enabled") 
     
     logical_devices = tf.config.experimental.list_logical_devices('GPU')
@@ -322,8 +322,7 @@ if(platform=='win32'):
     Data = 'DataWin\\'
 else:
     Data = 'Data/'
-#TODO -------------------- FIX THE SET BEFORE LEAVING!!!!
-dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Single',
+dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
                               valid_dir=f'{Data}A123_Matt_Val',
                               test_dir=f'{Data}A123_Matt_Test',
                               columns=[
@@ -422,7 +421,7 @@ def create_model(mFunc : Callable, layers : int = 1,
 file_name : str = os.path.basename(__file__)[:-3]
 model_name : str = 'ModelsUp-5'
 ####################! ADD model_name to path!!! ################################
-model_loc : str = f'Modds/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
+model_loc : str = f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
 iEpoch = 0
 firstLog : bool = True
 iLr     : float = 0.001
@@ -568,7 +567,7 @@ while iEpoch < mEpoch:
     iEpoch+=1
 #! Fit one sample - PRedict next one like model() - read all through file output
 #!and hope this makes a good simulation of how online learning will go.
-    pbar = tqdm(total=y_train.shape[0])
+    # pbar = tqdm(total=y_train.shape[0])
     tic : float = time.perf_counter()
     sh_i = np.arange(y_train.shape[0])
     np.random.shuffle(sh_i)
@@ -580,15 +579,15 @@ while iEpoch < mEpoch:
                                     #curr_error=CR_ER
                                     )
         # Progress Bar
-        pbar.update(1)
-        pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
-                                # f'loss: {(loss_value[0]):.4f} - '
-                                f'mae: {MAE.result():.4f} - '
-                                f'rmse: {RMSE.result():.4f} - '
-                                # f'rsquare: {RSquare.result():.4f} --- '
-                            )
+        # pbar.update(1)
+        # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
+        #                         # f'loss: {(loss_value[0]):.4f} - '
+        #                         f'mae: {MAE.result():.4f} - '
+        #                         f'rmse: {RMSE.result():.4f} - '
+        #                         # f'rsquare: {RSquare.result():.4f} --- '
+        #                     )
     toc : float = time.perf_counter() - tic
-    pbar.close()
+    # pbar.close()
     cLr = optimiser.get_config()['learning_rate']
     print(f'Epoch {iEpoch}/{mEpoch} :: '
             f'Elapsed Time: {toc} - '
@@ -692,11 +691,11 @@ while iEpoch < mEpoch:
             break
         else:
             print('->> Model restored -- continue training')
-            gru_model.save(filepath=f'{model_loc}{iEpoch}',
+            model.save(filepath=f'{model_loc}{iEpoch}',
                             overwrite=True, include_optimizer=True,
                             save_format='h5', signatures=None, options=None
                 )
-            prev_model = tf.keras.models.clone_model(gru_model)
+            prev_model = tf.keras.models.clone_model(model)
             prev_error = curr_error
     else:
         model.save(filepath=f'{model_loc}{iEpoch}',
