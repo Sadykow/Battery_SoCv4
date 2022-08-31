@@ -1,10 +1,17 @@
 # %%
+from pydoc import cli
+from typing import Tuple
 from clickhouse_driver import Client
 import pandas as pd
-import re, os 
+import re, os, sys
 import time
 
 from py_modules.utils import Locate_Best_Epoch
+
+from paramiko import SSHClient, AutoAddPolicy
+from scp import SCPClient
+from getpass import getpass
+
 # %%
 database = 'ml_base'
 client = Client(host='192.168.1.254', port=9000, 
@@ -28,11 +35,13 @@ def get_table(table : str):
 #?                                                                       'train()', 'val()', 'tes()']
 #? 3) Faulty Histories ['File', 'Epoch', 'attempt', 'mae', 'time_s', learn_rate, train ()]
 #? 4) Logits table ['File', 'Epoch', logits()]
-#? 5)
+#? 5) Models table ['File', 'Epochs', 'Latest_Model', 'TR_Model', 'VL_Model', 'TS_Model']
+#???## Sizes are same, time not a priority at training, trendines not ready 
 columns : str = ''
 mapper : str = 'mapper'
-histores = 'histories'
-faulties = 'faulties'
+histores : str = 'histories'
+faulties : str = 'faulties'
+models : str = 'models'
 
 # %%
 #? 1) Mapper table
@@ -141,6 +150,26 @@ columns = (f'CREATE TABLE {database}.logits_test ('
                         ') '
                         'ENGINE = MergeTree() '
                         'ORDER BY (File, Epoch);'
+                )
+client.execute(columns)
+
+#? 5) Models table
+columns = (f'CREATE TABLE {database}.{models} ('
+#                            "id UInt64, "
+                            "File UInt64, "
+                            'Epochs Tuple('
+                                'latest Int32, '
+                                'tr_best Int32, '
+                                'vl_best Int32, '
+                                'ts_best Int32 '
+                            '), '
+                            'latest String, '
+                            'train String, '
+                            'valid String, '
+                            'testi String '
+                        ') '
+                        'ENGINE = MergeTree() '
+                        'ORDER BY (File);'
                 )
 client.execute(columns)
 
@@ -264,6 +293,22 @@ def query_logits(file_N : int, model_loc : str, epoch : int,
     return query[:-2] + ';' # Cul the last space and comma and close query with ;
 
 # %%
+def createSSHClient(server : str, port : int,
+                    user : str, password : str) -> SSHClient:
+    client : SSHClient = SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(AutoAddPolicy())
+    client.connect(hostname = server, port = port,
+                   username = user, password = password)
+    return client
+
+def progress4(filename, size, sent, peername) -> None:
+    sys.stdout.write(
+        "(%s:%s) %s's progress: %.2f%%   \r" % (peername[0], peername[1],
+                                    filename, float(sent)/float(size)*100)
+        )
+
+# %%
 #names : list[str] = ['Chemali2017', 'BinXiao2020', 'TadeleMamo2020']
 names : list[str] = ['TadeleMamo2020']
 model_names : list[str] = [f'ModelsUp-{i}' for i in range(3,4)]
@@ -334,3 +379,113 @@ for n, model_name in enumerate(model_names):
     # break
 
 # %%
+username : str = 'n9312706' # getpass(prompt='QUT ID: ', stream=None)
+
+ssh = createSSHClient(
+        server='lyra.qut.edu.au',
+        port=22,
+        user=username,
+        password=getpass(prompt='Password: ', stream=None)
+    )
+    
+# stdin, stdout, stderr = ssh.exec_command('ls')
+# out = stdout.read().decode().strip()
+# error = stderr.read().decode().strip()
+
+remote_path : str = f'/mnt/home/{username}/MPhil/TF/Battery_SoCv4/Mods/'
+
+scp = SCPClient(ssh.get_transport(), progress4=progress4)
+
+# scp.put('test.txt', 'test2.txt')
+# scp.get('test2.txt')
+# # Uploading the 'test' directory with its content in the
+# # '/home/user/dump' remote directory
+# scp.put('test', recursive=True, remote_path='/home/user/dump')
+
+# %%
+def get_meta(c_file) -> tuple:
+    return client.execute(
+f"""
+SELECT
+    ModelID,
+    Name,
+    Attempt,
+    Profile
+FROM ml_base.mapper
+WHERE File = {c_file}
+"""
+    )[0]
+
+def get_epoch(c_file, metric) -> int:
+    return client.execute(
+f"""
+SELECT Epoch
+FROM ml_base.histories
+WHERE (File = {c_file}) AND ({metric} = (
+    SELECT MIN({metric})
+    FROM ml_base.histories
+    WHERE File = {c_file}
+))
+"""
+    )[0][0]
+# %%
+# describe_table(histores)
+# df = client.query_dataframe("SELECT * FROM ml_base.histories where File == 1;")
+tmp_folder = 'Modds/tmp/'
+m_names = ['best', 'trai', 'vali', 'test']
+#* 1) Locate how many files stored
+c_files = client.execute('SELECT MAX(File) FROM ml_base.mapper;')[0][0]
+#* 2) For every file do
+c = 1
+assoc : dict = {'Chemali2017' : 1, 'BinXiao2020' : 2, 'TadeleMamo2020' : 3}
+for c in range(1,c_files+1):
+    #* 2.1) Get the details and sort the path
+    meta = get_meta(c_file=c)
+    folder_path = f'ModelsUp-{assoc[meta[1]]}/3x{meta[1]}-(131)/{meta[2]}-{meta[3]}/'
+    print(meta)
+    #* 2.2) Get the history in DF format to work with
+    epochs = []
+    for metric in ['mae', 'train.mae', 'val.mae', 'tes.mae']:
+        epochs.append(get_epoch(c_file=c, metric=metric))
+
+    
+    #* 2.3) Getting the bests and save to tmp
+    for i, best_epoch in enumerate(epochs):
+        path = remote_path + folder_path + str(best_epoch)
+        scp.get(path, f'{tmp_folder}{m_names[i]}')
+    
+    # l_models = []
+    # for name in m_names:
+    #     with open(f'{tmp_folder}{name}', 'rb') as file:
+    #         l_models.append(file.read())
+    with open(f'{tmp_folder}{m_names[0]}', 'rb') as file:
+        ml_best = file.read()
+    with open(f'{tmp_folder}{m_names[1]}', 'rb') as file:
+        ml_trai = file.read()
+    with open(f'{tmp_folder}{m_names[2]}', 'rb') as file:
+        ml_vali = file.read()
+    with open(f'{tmp_folder}{m_names[3]}', 'rb') as file:
+        ml_test = file.read()
+
+    client.execute(
+        f'INSERT INTO {database}.{models} (File, Epochs, latest, train, valid, testi) VALUES ',
+        [{'File' : c, 'Epochs' : tuple(epochs), 'latest' : ml_best,
+          'train' : ml_trai, 'valid' : ml_vali, 'testi' : ml_test}]
+    )
+
+    for name in m_names:
+        os.remove(f'{tmp_folder}{name}')
+
+    del epochs
+    del ml_best, ml_trai, ml_vali, ml_test
+
+#* Store in a table....
+
+# %%
+#? 5) Models table
+
+# describe_table(models)
+# drop_table(models)
+# %%
+scp.close()
+ssh.close()

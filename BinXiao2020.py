@@ -282,7 +282,7 @@ p2     : int = int(mEpoch/3)
 skipCompile1, skipCompile2 = False, False
 try:
     iEpoch, prev_error  = Locate_Best_Epoch(f'{model_loc}history.csv', 'mae')
-    lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
+    gru_model : tf.keras.models.Sequential = tf.keras.models.load_model(
             f'{model_loc}{iEpoch}',
             compile=False)
     iLr = get_learning_rate(iEpoch, iLr, 'linear')
@@ -734,7 +734,7 @@ while iEpoch < mEpoch:
     #     break
 # %%
 bestEpoch, _  = Locate_Best_Epoch(f'{model_loc}history.csv', 'mae')
-lstm_model : tf.keras.models.Sequential = tf.keras.models.load_model(
+gru_model : tf.keras.models.Sequential = tf.keras.models.load_model(
         f'{model_loc}{bestEpoch}',
         compile=False)
 profiles: list = ['DST', 'US06', 'FUDS']
