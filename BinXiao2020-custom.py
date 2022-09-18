@@ -66,6 +66,7 @@ if (sys.version_info[1] < 9):
     from typing import List as list
     from typing import Tuple as tuple
 
+import gc
 # %%
 # Extract params
 try:
@@ -78,8 +79,8 @@ except getopt.error as err:
     print ('EXEPTION: Arguments requied!')
     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '1'),
-#         ('-g', '0'), ('-p', 'FUDS'), ('-o', 'AdaMax'), ('-r', '0.0001')] # 2x131 1x1572 
+# opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '5'),
+#         ('-g', '0'), ('-p', 'DST'), ('-o', 'AdaMax'), ('-r', '0.0001')] # 2x131 1x1572 
 debug   : int = 0
 batch   : int = 1
 mEpoch  : int = 10
@@ -275,7 +276,7 @@ def create_model(mFunc : Callable, layers : int = 1,
 #             keepdims=False
 #         )
 
-file_name : str = "BinXiao2020" #os.path.basename(__file__)[:-3]
+file_name : str = "BinXiao2021" #os.path.basename(__file__)[:-3]
 model_name : str = 'ModelsUp-2'
 ####################! ADD model_name to path!!! ################################
 model_loc : str = f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
@@ -298,7 +299,7 @@ try:
                         beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Adamax'
                     )
         constLearning = True
-        n_attempts : int = 5
+        n_attempts : int = 20
         print('>>> Using Adamax for Fune-Tuning')
     else:
         iLr = get_learning_rate(iEpoch, iLr, 'linear')
@@ -306,7 +307,7 @@ try:
                     beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Nadam'
                 )
         constLearning = False
-        n_attempts : int = 50
+        n_attempts : int = 5
         print('>>> Using Nadam for Pre-Tuning')
     print(f"Model Identefied at {iEpoch} with {prev_error}.")
     #! I must find a way to make use of it
@@ -342,11 +343,11 @@ except (OSError, TypeError) as identifier:
                     beta_1=0.9, beta_2=0.999, epsilon=10e-08, name='Nadam'
                 )
     constLearning = False
-    n_attempts : int = 50
+    n_attempts : int = 5
     iLr = 0.001
     firstLog = True
 prev_model = tf.keras.models.clone_model(gru_model)
-
+prev_model.set_weights(weights=gru_model.get_weights())
 # %%
 loss_fn   = tf.losses.MeanAbsoluteError(
                     reduction=tf.keras.losses.Reduction.NONE,
@@ -543,7 +544,9 @@ while iEpoch < mEpoch:
                         overwrite=True, include_optimizer=True,
                         save_format='h5', signatures=None, options=None
                 )
-            gru_model = tf.keras.models.clone_model(prev_model)
+            # gru_model = tf.keras.models.clone_model(prev_model)
+            gru_model.set_weights(weights=prev_model.get_weights())
+
             
             np.random.shuffle(sh_i)
             # pbar = tqdm(total=y_train.shape[0])
@@ -563,19 +566,19 @@ while iEpoch < mEpoch:
                 # Progress Bar
                 # pbar.update(1)
                 # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
-                #                     f'loss: {(loss_value[0]):.4f} - '
+                #                     # f'MAE: {(loss_value[0]):.4f} - '
                 #                     )
             toc = time.perf_counter() - tic
             # pbar.close()
             TRAIN = valid_loop((xt_valid, yt_valid), verbose = debug)
             
             # Update learning rate
-            if(not constLearning):
-                iLr /= 2
-                optimiser.learning_rate = iLr
-                print(f">>> Updating iLR with {iLr}")
-            else:
-                print(f">>> Keeping iLR at {iLr}")
+            # if(not constLearning):
+            iLr /= 2
+            optimiser.learning_rate = iLr
+            print(f">>> Updating iLR with {iLr}")
+            # else:
+            #     print(f">>> Keeping iLR at {iLr}")
 
             # Log the faulty results
             faulty_hist_df = pd.DataFrame(data={
@@ -619,22 +622,24 @@ while iEpoch < mEpoch:
                             overwrite=True, include_optimizer=True,
                             save_format='h5', signatures=None, options=None
                 )
-            prev_model = tf.keras.models.clone_model(gru_model)
+            # prev_model = tf.keras.models.clone_model(gru_model)
+            prev_model.set_weights(weights=gru_model.get_weights())
             prev_error = curr_error
     else:
         gru_model.save(filepath=f'{model_loc}{iEpoch}',
                        overwrite=True, include_optimizer=True,
                        save_format='h5', signatures=None, options=None
                 )
-        prev_model = tf.keras.models.clone_model(gru_model)
+        # prev_model = tf.keras.models.clone_model(gru_model)
+        prev_model.set_weights(weights=gru_model.get_weights())
         prev_error = curr_error
     
     # Update learning rate
-    if (constLearning):
-        optimiser.learning_rate = iLr = rate
-    else:
-        iLr = scheduler(iEpoch, iLr, 'linear')
-        optimiser.learning_rate = iLr
+    # if (constLearning):
+    #     optimiser.learning_rate = iLr = rate
+    # else:
+    iLr = scheduler(iEpoch, iLr, 'linear')
+    optimiser.learning_rate = iLr
     
     # Validating trained model 
     TRAIN = valid_loop((xt_valid, yt_valid), verbose = debug)
@@ -824,68 +829,70 @@ while iEpoch < mEpoch:
     # if(PERF[-2] <=0.024): # Check thr RMSE
     #     print("RMS droped around 2.4%. Breaking the training")
     #     break
+    tf.keras.backend.clear_session()
+    gc.collect()
 # %%
-bestEpoch, _  = Locate_Best_Epoch(f'{model_loc}history.csv', 'mae')
-gru_model : tf.keras.models.Sequential = tf.keras.models.load_model(
-        f'{model_loc}{bestEpoch}',
-        compile=False)
-profiles: list = ['DST', 'US06', 'FUDS']
-del dataGenerator
-del window
-dataGenerators : list = []
-X : list = []
-Y : list = []
-for p in profiles:
-    dataGenerators.append(
-            DataGenerator(train_dir=f'{Data}A123_Matt_Set',
-                          valid_dir=f'{Data}A123_Matt_Val',
-                          test_dir=f'{Data}A123_Matt_Test',
-                          columns=[
-                            'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
-                            'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
-                          ],
-                          PROFILE_range = p)
-        )
-for g in dataGenerators:
-    _, x, y = WindowGenerator(Data=g,
-                    input_width=500, label_width=1, shift=0,
-                    input_columns=['Current(A)', 'Voltage(V)',
-                                            'Temperature (C)_1'],
-                    label_columns=['SoC(%)'], batch=1,
-                    includeTarget=False, normaliseLabal=False,
-                    shuffleTraining=False).train
-    X.append(x)
-    Y.append(y)
-#! Run test against entire dataset to record the tabled accuracy
-firstLog = False
-for p, x, y in zip(profiles, X, Y):
-    # Validating model 
-    val_tic : float = time.perf_counter()
-    PERF = valid_loop((x, y), verbose = debug)
-    # PERF = gru_model.evaluate(x[:,0,:,:], y[:,0,:],
-    #                         batch_size=1, verbose = debug)
-    val_toc : float = time.perf_counter() - val_tic
-    print(f'Profile {p} '
-            f'Elapsed Time: {val_toc} - '
-            f'mae: {PERF[1]:.4f} - '
-            f'rmse: {PERF[2]:.4f} - '
-            f'rsquare: {PERF[3]:.4f} - '
-        )
-        # Saving the log file
-    hist_df = pd.DataFrame(data={
-            'prof': [p],
-            'loss': [np.mean(PERF[0])],
-            'mae' : [np.array(PERF[1])],
-            'rms' : [np.array(PERF[2])],
-            'r2'  : [np.array(PERF[3])],
-            't(s)': [val_toc],
-        })
-    with open(f'{model_loc}full-evaluation.csv', mode='a') as f:
-        if(firstLog):
-            hist_df.to_csv(f, index=False, header=True)
-            firstLog = False
-        else:
-            hist_df.to_csv(f, index=False, header=False)
+# bestEpoch, _  = Locate_Best_Epoch(f'{model_loc}history.csv', 'mae')
+# gru_model : tf.keras.models.Sequential = tf.keras.models.load_model(
+#         f'{model_loc}{bestEpoch}',
+#         compile=False)
+# profiles: list = ['DST', 'US06', 'FUDS']
+# del dataGenerator
+# del window
+# dataGenerators : list = []
+# X : list = []
+# Y : list = []
+# for p in profiles:
+#     dataGenerators.append(
+#             DataGenerator(train_dir=f'{Data}A123_Matt_Set',
+#                           valid_dir=f'{Data}A123_Matt_Val',
+#                           test_dir=f'{Data}A123_Matt_Test',
+#                           columns=[
+#                             'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
+#                             'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
+#                           ],
+#                           PROFILE_range = p)
+#         )
+# for g in dataGenerators:
+#     _, x, y = WindowGenerator(Data=g,
+#                     input_width=500, label_width=1, shift=0,
+#                     input_columns=['Current(A)', 'Voltage(V)',
+#                                             'Temperature (C)_1'],
+#                     label_columns=['SoC(%)'], batch=1,
+#                     includeTarget=False, normaliseLabal=False,
+#                     shuffleTraining=False).train
+#     X.append(x)
+#     Y.append(y)
+# #! Run test against entire dataset to record the tabled accuracy
+# firstLog = False
+# for p, x, y in zip(profiles, X, Y):
+#     # Validating model 
+#     val_tic : float = time.perf_counter()
+#     PERF = valid_loop((x, y), verbose = debug)
+#     # PERF = gru_model.evaluate(x[:,0,:,:], y[:,0,:],
+#     #                         batch_size=1, verbose = debug)
+#     val_toc : float = time.perf_counter() - val_tic
+#     print(f'Profile {p} '
+#             f'Elapsed Time: {val_toc} - '
+#             f'mae: {PERF[1]:.4f} - '
+#             f'rmse: {PERF[2]:.4f} - '
+#             f'rsquare: {PERF[3]:.4f} - '
+#         )
+#         # Saving the log file
+#     hist_df = pd.DataFrame(data={
+#             'prof': [p],
+#             'loss': [np.mean(PERF[0])],
+#             'mae' : [np.array(PERF[1])],
+#             'rms' : [np.array(PERF[2])],
+#             'r2'  : [np.array(PERF[3])],
+#             't(s)': [val_toc],
+#         })
+#     with open(f'{model_loc}full-evaluation.csv', mode='a') as f:
+#         if(firstLog):
+#             hist_df.to_csv(f, index=False, header=True)
+#             firstLog = False
+#         else:
+#             hist_df.to_csv(f, index=False, header=False)
 
 print('Model evaluation has been completed... finally....')
 # %%

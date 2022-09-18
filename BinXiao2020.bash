@@ -10,11 +10,11 @@ index=1
 
 #! Add two more params
 optimiser='AdaMax'
-for profile in $profiles
+for attempt in {1..10}
 do
     layer=3
     neuron=131
-    for attempt in {1..10}
+    for profile in $profiles
     do
         # echo $profile $layer $neuron $attempt
         # python Chemali2017.py -d False -e 100 -g 0 -p $profile -l $layer -n $neuron -a $attempt

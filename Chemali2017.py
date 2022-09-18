@@ -74,6 +74,7 @@ if (sys.version_info[1] < 9):
     from typing import List as list
     from typing import Tuple as tuple
 
+import gc
 # %%
 # Extract params
 try:
@@ -86,8 +87,8 @@ except getopt.error as err:
     print ('EXEPTION: Arguments requied!')
     sys.exit(2)
 
-# opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '11'),
-#         ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
+# opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '114'),
+#         ('-g', '1'), ('-p', 'FUDS')] # 2x131 1x1572 
 debug   : int = 0
 batch   : int = 1
 mEpoch  : int = 10
@@ -153,8 +154,8 @@ physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
     #! need to research more why.
-    # tf.config.experimental.set_visible_devices(
-    #                         physical_devices[GPU], 'GPU')
+    tf.config.experimental.set_visible_devices(
+                            physical_devices[GPU], 'GPU')
 
     # if GPU == 1:
     # for device in physical_devices:
@@ -381,6 +382,7 @@ except (OSError, TypeError) as identifier:
     iLr = 0.001
     firstLog = True
 prev_model = tf.keras.models.clone_model(lstm_model)
+prev_model.set_weights(weights=lstm_model.get_weights())
 
 # %%
 optimiser = tf.optimizers.Adam(learning_rate=iLr,
@@ -533,7 +535,7 @@ pd.DataFrame(yt_valid[:,0,0]).to_csv(f'{model_loc}yt_valid.csv', sep = ",", na_r
 pd.DataFrame(y_valid[:,0,0]).to_csv(f'{model_loc}y_valid.csv', sep = ",", na_rep = "", line_terminator = '\n')
 pd.DataFrame(y_testi[:,0,0]).to_csv(f'{model_loc}y_testi.csv', sep = ",", na_rep = "", line_terminator = '\n')
 
-n_attempts : int = 50
+n_attempts : int = 20
 while iEpoch < mEpoch:
     iEpoch+=1
 #?================== cycle by cycle way=================================
@@ -602,7 +604,7 @@ while iEpoch < mEpoch:
 #?==================                    =======================================
     else:
 #?================== Full data way ===========================================
-        # pbar = tqdm(total=y_train.shape[0])
+        pbar = tqdm(total=y_train.shape[0])
         tic : float = time.perf_counter()
         sh_i = np.arange(y_train.shape[0])
         np.random.shuffle(sh_i)
@@ -614,15 +616,15 @@ while iEpoch < mEpoch:
                                         #curr_error=CR_ER
                                         )
             # Progress Bar
-            # pbar.update(1)
-            # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
-            #                         # f'loss: {(loss_value[0]):.4f} - '
-            #                         f'mae: {MAE.result():.4f} - '
-            #                         f'rmse: {RMSE.result():.4f} - '
-            #                         # f'rsquare: {RSquare.result():.4f} --- '
-            #                     )
+            pbar.update(1)
+            pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
+                                    # f'loss: {(loss_value[0]):.4f} - '
+                                    f'mae: {MAE.result():.4f} - '
+                                    f'rmse: {RMSE.result():.4f} - '
+                                    # f'rsquare: {RSquare.result():.4f} --- '
+                                )
         toc : float = time.perf_counter() - tic
-        # pbar.close()
+        pbar.close()
         cLr = optimiser.get_config()['learning_rate']
         print(f'Epoch {iEpoch}/{mEpoch} :: '
                 f'Elapsed Time: {toc} - '
@@ -654,8 +656,9 @@ while iEpoch < mEpoch:
                         overwrite=True, include_optimizer=True,
                         save_format='h5', signatures=None, options=None
                 )
-            lstm_model = tf.keras.models.clone_model(prev_model)
-            
+            # lstm_model = tf.keras.models.clone_model(prev_model)
+            lstm_model.set_weights(weights=prev_model.get_weights())
+
             np.random.shuffle(sh_i)
             # pbar = tqdm(total=y_train.shape[0])
 
@@ -744,14 +747,16 @@ while iEpoch < mEpoch:
                             overwrite=True, include_optimizer=True,
                             save_format='h5', signatures=None, options=None
                 )
-            prev_model = tf.keras.models.clone_model(lstm_model)
+            # prev_model = tf.keras.models.clone_model(lstm_model)
+            prev_model.set_weights(weights=lstm_model.get_weights())
             prev_error = curr_error
     else:
         lstm_model.save(filepath=f'{model_loc}{iEpoch}',
                         overwrite=True, include_optimizer=True,
                         save_format='h5', signatures=None, options=None
                 )
-        prev_model = tf.keras.models.clone_model(lstm_model)
+        # prev_model = tf.keras.models.clone_model(lstm_model)
+        prev_model.set_weights(weights=lstm_model.get_weights())
         prev_error = curr_error
 
     # Update learning rate
@@ -942,7 +947,8 @@ while iEpoch < mEpoch:
     
     # Flush and clean
     print('\n', flush=True)
-    # tf.keras.backend.clear_session()
+    tf.keras.backend.clear_session()
+    gc.collect()
 
 # %%
 #! Find the lowest error amongs all models in the file and make prediction
