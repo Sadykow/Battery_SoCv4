@@ -132,8 +132,10 @@ for profile in profiles:
 # %%
 # Get the fanyc learning rate degradation
 import re
-file = (f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
-                f'4-{profile}/history.csv')
+mods = 'Modds'
+attempt = 111
+file = (f'{mods}/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                f'{attempt}-{profile}/history.csv')
 hists = pd.read_csv(file)
 # plt.plot(history['learn_r'])
 def get_faulties(dir):
@@ -145,14 +147,14 @@ def get_faulties(dir):
                 faulties.append(file)
     return faulties
 
-dir = (f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
-                f'4-{profile}/')
+dir = (f'{mods}/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                f'{attempt}-{profile}/')
 faulties = get_faulties(dir)
 
 f_histories = []
 for f in faulties:
-    temp = pd.read_csv(f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
-                f'4-{profile}/{f}')
+    temp = pd.read_csv(f'{mods}/{model_name}/{nLayers}x{file_name}-({nNeurons})/'
+                f'{attempt}-{profile}/{f}')
     temp = temp.rename(columns={'learning_rate':'learn_r'})    
     f_histories.append(temp)
 # for i in f_histories:
@@ -170,16 +172,16 @@ for faulty in faulties[:9]:
     f += 1
 # print(l_values)
 # %%
-l_values = l_values[:60]
+l_values = l_values[:40]
 fig, ax = plt.subplots(figsize=(28,12), dpi=600)
 fig.suptitle('Learning rate degradation over single training',
-              fontsize=36)
+              fontsize=40)
 ax.plot(l_values, '-o', color='#0000ff')
 # ax.set_yticks(l_values[::10])
 ax.set_xlabel('Passes', fontsize=32)
-ax.tick_params(axis='both', labelsize=28)
+ax.tick_params(axis='both', labelsize=36)
 plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
 fig.tight_layout()
-fig.savefig(f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/l_rate.svg')
+fig.savefig(f'{mods}/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/l_rate.svg')
 
 # %%
