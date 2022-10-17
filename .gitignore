@@ -131,13 +131,19 @@ tf-docs
 tf-papers
 
 Models
+NewModels
+Mods
+Modds
 
 UQ_Endurance
 
 .vscode
+.Trash-1000/
 
 cy_modules/utils.html
 cy_modules/utils.pyx
 
 tests/figures/
 tests/FirstCycler_parsed/
+tests/testWeights/
+tests/Models/

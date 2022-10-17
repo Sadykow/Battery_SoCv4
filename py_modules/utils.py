@@ -1,6 +1,6 @@
 from numpy import round, ndarray
-from pandas import read_csv
-from numba import vectorize, jit
+from pandas import DataFrame, read_csv
+# from numba import vectorize, jit
 
 def str2bool(v : str) -> bool:
   """ Makes an input string to be a boolean variable.
@@ -16,7 +16,7 @@ def str2bool(v : str) -> bool:
   """
   return v.lower() in ("yes", "true", "y", "t", "1")
 
-@vectorize
+# @vectorize
 def diffSoC(chargeData : ndarray, discargeData : ndarray) -> ndarray:
   """ Round the SoC value to range of 0 to 1 with 2 decimal places by 
   subtracking Charge and Discharge
@@ -30,21 +30,25 @@ def diffSoC(chargeData : ndarray, discargeData : ndarray) -> ndarray:
   """
   return round((chargeData - discargeData)*100)/100
 
-def Locate_Best_Epoch(file_path : str) -> int:
+def Locate_Best_Epoch(file_path : str,
+                      metric : str = 'val_root_mean_squared_error'
+                    ):
   """ Reads the CSV file with history data and locates the smallest amongs 
   validation RMSE.
 
   Args:
       file_path (str): History file location
+      metric (str): Column name to search by.
+  Default 'val_root_mean_squared_error'.
 
   Returns:
       int: The index or the epoch number which had best result.
   """
-  return read_csv(
+  df : DataFrame = read_csv(
             filepath_or_buffer=file_path, sep=",", delimiter=None,
             # Column and Index Locations and Names
             header="infer", names=None, index_col=None, usecols=None,
-            squeeze=False, prefix=None, mangle_dupe_cols=True,
+            prefix=None, mangle_dupe_cols=True,
             # General Parsing Configuration
             dtype=None, engine=None, converters=None, true_values=None,
             false_values=None, skipinitialspace=False, skiprows=None,
@@ -63,8 +67,20 @@ def Locate_Best_Epoch(file_path : str) -> int:
             lineterminator=None, quotechar='"', quoting=0, doublequote=True,
             escapechar=None, comment=None, encoding=None, dialect=None,
             # Error Handling
-            error_bad_lines=True, warn_bad_lines=True,
+            error_bad_lines=None, warn_bad_lines=None,
             # Internal
             delim_whitespace=False, low_memory=True, memory_map=False,
             float_precision=None
-        )['val_root_mean_squared_error'].idxmin()
+        ) #? FutureWarning: The warn_bad_lines, error_bad_lines argument has been deprecated and will be removed in a future version.
+          #? FutureWarning: The squeeze argument has been deprecated and will be removed in a future version. Append .squeeze("columns") to the call to squeeze.
+  #! Try catch to fix all files
+  try:
+    iEpoch : int = df['Epoch'][df[metric].idxmin()]
+    value  : float = df[metric][df["Epoch"]==iEpoch].values[0]
+    # except KeyError:
+    #   print('>>>> NO EPOCH COLUMN')
+    #   iEpoch : int = df[metric].idxmin()
+    #   value  : float = df.iloc[iEpoch][metric]
+    return (iEpoch, value)
+  except TypeError:
+    raise TypeError("Empty history")

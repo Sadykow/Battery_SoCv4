@@ -11,16 +11,31 @@ import pandas as pd             # Tabled data storage
 import tensorflow as tf
 from tensorflow.python.keras.backend import dtype
 from tensorflow.python.lib.io.file_io import copy
-import tensorflow.experimental.numpy as tnp
 import numpy as np
 # Used for making annotations
 from dataclasses import dataclass
 
 from extractor.DataGenerator import DataGenerator
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, MaxAbsScaler
 from extractor.soc_calc import diffSoC
 
-from numba import jit, vectorize
+#! Replance Tensorflow Numpy with numpy if version below 2.5
+# if(int(tf.__version__[2]) < 5):
+#     import numpy as tnp
+# else:
+#     import tensorflow.experimental.numpy as tnp # type: ignore
+
+
+#from numba import jit, vectorize
+import sys
+if (sys.version_info[1] < 9):
+  import numpy as tnp
+  LIST = list
+  from typing import List as list
+  from typing import Tuple as tuple
+else:
+  import tensorflow.experimental.numpy as tnp
+  
 class WindowGenerator():
   Data : DataGenerator          # Data object containing Parsed data
 
@@ -46,6 +61,10 @@ class WindowGenerator():
   #input_indices : list[int]
   labels_slice  : slice
   #label_indices : list[int]
+  # scaler = MinMaxScaler(feature_range=(-1, 1), copy=True, clip=False)
+  scaler = StandardScaler(copy=True, with_mean=True, with_std=True) #! Add this call to constructor to pass
+  # scaler = MaxAbsScaler(copy=True)
+  round : int = 0
 
   def __init__(self, Data : DataGenerator,
                input_width : int, label_width : int, shift : int,
@@ -55,7 +74,8 @@ class WindowGenerator():
                normaliseInput : bool = True, normaliseLabal : bool = True,
                shuffleTraining : bool = False,
                float_dtype : type = None,
-               int_dtype : type = None) -> None:
+               int_dtype : type = None,
+               round : int = 4) -> None:
     """ Window Constructor used to store data sets and properties of the 
         window, which will be used for processing.
 
@@ -129,7 +149,9 @@ class WindowGenerator():
     # self.label_indices = tnp.arange(start=0,
     #                     stop=self.total_window_size,
     #                     dtype=int_dtype)[self.labels_slice]
-
+    #? Normalisation by MinMax
+    self.scaler.fit(self.Data.train[:,:len(self.input_columns)])
+    self.round = round
   def __repr__(self) -> str:
     """ A return from the constructor. Information of the storage like:
     Total windows size, input and label indices, Label/output column names.
@@ -156,8 +178,9 @@ class WindowGenerator():
               ) -> tf.raw_ops.MapDataset:
 
     input_length : int = len(self.input_columns)    
-    tic : float = perf_counter()    
+    tic : float = perf_counter()
     if self.normaliseInput: # Normalise Inputs
+      #? Normalisation by MEAN and STD
       MEAN = np.mean(a=self.Data.train[:,:input_length], axis=0,
                                       dtype=self.float_dtype,
                                       keepdims=False)
@@ -169,10 +192,17 @@ class WindowGenerator():
                                   MEAN
                                 ),
                             STD
-                          )
+                          ).round(decimals=self.round)
+      # data : np.ndarray = np.subtract(
+      #                             np.copy(a=inputs[:,:input_length]),
+      #                             MEAN
+      #                           ).round(decimals=self.round)
+      #? Normalisation by MinMax
+      # data : np.ndarray = self.scaler.transform(
+      #                         X=inputs[:,:input_length]
+      #                       ).round(decimals=self.round)
     else:
-      data : np.ndarray = np.copy(a=inputs[:,:input_length],
-                                  order='K', subok=False)
+      data : np.ndarray = np.copy(a=inputs[:,:input_length].round(decimals=self.round))
     
     data = np.append(arr=data,
                       values=labels,
@@ -182,60 +212,82 @@ class WindowGenerator():
             data=data, targets=None,
             sequence_length=self.total_window_size, sequence_stride=1,
             sampling_rate=1,
-            batch_size=1, shuffle=False,
+            batch_size=self.batch, shuffle=False,
             seed=None, start_index=None, end_index=None
-        )
+        ) #8k-samples=8k-windows
 
     ds : tf.raw_ops.MapDataset = ds.map(self.split_window)
-    x : np.ndarray = np.asarray(list(ds.map(
-                                lambda x, _: x[0,:,:]
-                              ).as_numpy_iterator()
-                          ))
-    # print('Output Shape ')
-    y : np.ndarray = np.asarray(list(ds.map(
-                                lambda _, y: y[0,0]
-                              ).as_numpy_iterator()
-                          ))
-    print(f"\n\nData windowing took: {(perf_counter() - tic):.2f} seconds")
+    if (sys.version_info[1] < 9):
+      x : np.ndarray = np.asarray(LIST(ds.map(
+                                  lambda x, _: x[:,:,:]
+                                ).as_numpy_iterator()
+                            ))
+      # print('Output Shape ')
+      y : np.ndarray = np.asarray(LIST(ds.map(
+                                  lambda _, y: y[:,:,0]
+                                ).as_numpy_iterator()
+                            ))
+    else:
+      x : np.ndarray = np.asarray(list(ds.map(
+                                  lambda x, _: x[:,:,:]
+                                ).as_numpy_iterator()
+                            ))
+      # print('Output Shape ')
+      y : np.ndarray = np.asarray(list(ds.map(
+                                  lambda _, y: y[:,:,0]
+                                ).as_numpy_iterator()
+                            ))
+    print(f"\nData windowing took: {(perf_counter() - tic):.2f} seconds")
     return ds, x, y
 
   @tf.autograph.experimental.do_not_convert
   def make_dataset_from_list(self, X : list[np.ndarray],
                                    Y : list[np.ndarray],
-                                   look_back : int = 1
               ) -> tuple[np.ndarray, np.ndarray]:
+    look_back : int = self.input_width
     batch : int = len(X)
     dataX : list[np.ndarray] = []
     dataY : list[np.ndarray] = []
     
     input_length : int = len(self.input_columns)
-    MEAN = np.mean(a=self.Data.train[:,:input_length], axis=0,
-                                          dtype=self.float_dtype,
-                                          keepdims=False)
-    STD = np.std(a=self.Data.train[:,:input_length], axis=0,
-                                   keepdims=False)
+    #? Normalisation by MEAN and STD
+    # MEAN = np.mean(a=self.Data.train[:,:input_length], axis=0,
+    #                                       dtype=self.float_dtype,
+    #                                       keepdims=False)
+    # STD = np.std(a=self.Data.train[:,:input_length], axis=0,
+    #                                keepdims=False)
     tic : float = perf_counter()
     for i in range(0, batch):
-        d_len : int = X[i].shape[0]-look_back
-        dataX.append(np.zeros(shape=(d_len, look_back, input_length),
-                    dtype=self.float_dtype))
-        dataY.append(np.zeros(shape=(d_len,), dtype=self.float_dtype))
-        for j in range(0, d_len):
-            if self.normaliseInput: #! Spmething wrong here
-              # dataX[i][j,:,:] = (X[i][self.input_columns].to_numpy()[j:(j+look_back), :]-MEAN)/STD
-              dataX[i][j,:,:] =np.divide(
-                                np.subtract(
-                                      np.copy(a=X[i][self.input_columns].to_numpy()[j:(j+look_back), :]),
-                                      MEAN
-                                    ),
-                                STD
-                              )
-            else:
-              dataX[i][j,:,:] = X[i][self.input_columns].to_numpy()[j:(j+look_back), :]
-            #dataY[i][j]     = Y[i][j+look_back,]
-            dataY[i][j]     = Y[i][j+look_back-1,]
-
-    print(f"\n\nData windowing took: {(perf_counter() - tic):.2f} seconds")
+      d_len : int = X[i].shape[0]-look_back+1
+      dataX.append(np.zeros(shape=(d_len, self.batch, look_back, input_length),
+                  dtype=self.float_dtype))
+      dataY.append(np.zeros(shape=(d_len, self.batch, 1),
+                  dtype=self.float_dtype))
+      #! Reample each with end and beging +500+1
+      for j in range(0, d_len):
+        if self.normaliseInput: #! Spmething wrong here
+          # dataX[i][j,:,:] = (X[i][self.input_columns].to_numpy()[j:(j+look_back), :]-MEAN)/STD
+          #? Normalisation by MEAN and STD
+          # dataX[i][j,0,:,:] = np.divide(
+          #                       np.subtract(
+          #                         np.copy(
+          #       a=X[i][self.input_columns].to_numpy()[j:(j+look_back), :]
+          #                         ),
+          #                         MEAN
+          #                       ),
+          #                       STD
+          #                     )
+          #? Normalisation by MinMax
+          dataX[i][j,0,:,:] = self.scaler.transform(
+                X=X[i][self.input_columns].to_numpy()[j:(j+look_back), :]
+                                  )
+        else:
+          dataX[i][j,0,:,:] = np.copy(X[i][self.input_columns].to_numpy()[j:(j+look_back), :])
+        #dataY[i][j]     = Y[i][j+look_back,]
+        dataY[i][j,0,0]     = np.copy(Y[i][j+look_back-1,])
+      temperature : float = X[i]['Temperature (C)_1'].mean()
+      print(f"Mean temp: {temperature:.2f} degrees")
+    print(f"Data for windowing took: {(perf_counter() - tic):.2f} seconds\n")
     return dataX, dataY
 
   @tf.autograph.experimental.do_not_convert
@@ -291,313 +343,404 @@ class WindowGenerator():
                   sequence_stride=1, sampling_rate=1,batch_size=1,
                   shuffle=True, seed=None, start_index=None, end_index=None
             )
-    x : tnp.ndarray = tnp.asarray(list(ds.map(
-                                lambda x, _: x[0,:,:]
-                              ).as_numpy_iterator()
-                          ))
-    y : tnp.ndarray = tnp.asarray(list(ds.map(
-                                lambda _, y: y[0]
-                              ).as_numpy_iterator()
-                          ))
-    print(f"\n\nData windowing took: {(perf_counter() - tic):.2f} seconds")
-    return ds, x, y
-  
-  @tf.autograph.experimental.do_not_convert
-  def ParseFullData(self, dir : str
-      ) -> tuple[pd.DataFrame, tf.raw_ops.MapDataset, tnp.ndarray, tnp.ndarray]:
-    tic : float = perf_counter()
-    # Parsing file by file
-    if self.includeTarget:
-      data_x = tnp.empty(shape=(1,
-                            self.input_width,
-                            len(self.input_columns)+len(self.label_columns)
-                          ),
-                      dtype=self.float_dtype
-                      )
-    else:
-      data_x = tnp.empty(shape=(1,
-                            self.input_width,
-                            len(self.input_columns)
-                          ),
-                      dtype=self.float_dtype
-                      )    
-    data_y = tnp.empty(shape=(1,
-                          self.input_width,
-                          len(self.label_columns)
-                        ),
-                    dtype=self.float_dtype
-                    )
-    for _, _, files in os.walk(dir):
-      files.sort(key=lambda f: int(f[-13:-5])) # Sort by last dates
-      # Initialize empty structures
-      data_df : pd.DataFrame = self.Data.Read_Excel_File(dir + '/' + files[0])
-      data_SoC: pd.DataFrame = pd.DataFrame(
-               data={'SoC' : diffSoC(
-                          chargeData=(data_df.loc[:,'Charge_Capacity(Ah)']),
-                          discargeData=(data_df.loc[:,'Discharge_Capacity(Ah)'])
-                          )},
-               dtype=self.float_dtype
-            )
-      data_SoC['SoC(%)'] = applyMinMax(data_SoC['SoC'])
-      #* Converting to Tensor unit
-      if self.normaliseInput: # Normalise Inputs
-        data : pd.DataFrame = (data_df.copy(deep=True)-self.Data.get_Mean[0][self.input_columns])/self.Data.get_STD[0][self.input_columns]
-      else:
-        data : pd.DataFrame = (data_df.copy(deep=True))
-      
-      if self.normaliseLabal: # Normalise Labels
-        data[self.label_columns] = (data_SoC[self.label_columns].copy(deep=True)-self.Data.get_Mean[1][self.label_columns])/self.Data.get_STD[1][self.label_columns]
-      else:
-        data[self.label_columns] = (data_SoC[self.label_columns].copy(deep=True))
-
-      data = data[self.input_columns + self.label_columns] # Ensure order
-      data = tnp.array(val=data.values,
-              dtype=self.float_dtype, copy=True, ndmin=0)
-
-      data_ds : tf.raw_ops.BatchDataset = \
-            tf.keras.preprocessing.timeseries_dataset_from_array(
-              data=data, targets=None,
-              sequence_length=self.total_window_size, sequence_stride=1,
-              sampling_rate=1,
-              batch_size=1, shuffle=False,
-              seed=None, start_index=None, end_index=None
-          )
-      
-      data_ds : tf.raw_ops.MapDataset = data_ds.map(self.split_window)
-      
-      data_x : tnp.ndarray = tnp.asarray(list(data_ds.map(
+    if (sys.version_info[1] < 9):
+      x : tnp.ndarray = tnp.asarray(LIST(ds.map(
                                   lambda x, _: x[0,:,:]
                                 ).as_numpy_iterator()
                             ))
-      data_y : tnp.ndarray = tnp.asarray(list(data_ds.map(
+      y : tnp.ndarray = tnp.asarray(LIST(ds.map(
                                   lambda _, y: y[0]
                                 ).as_numpy_iterator()
                             ))
-      if self.batch > 1:
-        if self.includeTarget:
-          batched_x : tnp.ndarray = tnp.reshape(
-                        a=data_x[0:0+self.batch,:,:],
-                        newshape=(1,
-                                self.batch,
-                                len(self.input_columns)+len(self.label_columns)
-                                ),
-                        order='C'
-                      )
-        else:
-          batched_x : tnp.ndarray = tnp.reshape(
-                        a=data_x[0:0+self.batch,:,:],
-                        newshape=(1,
-                                self.batch,
-                                len(self.input_columns)
-                                ),
-                        order='C'
-                      )
+    else:
+      x : tnp.ndarray = tnp.asarray(list(ds.map(
+                                  lambda x, _: x[0,:,:]
+                                ).as_numpy_iterator()
+                            ))
+      y : tnp.ndarray = tnp.asarray(list(ds.map(
+                                  lambda _, y: y[0]
+                                ).as_numpy_iterator()
+                            ))
+    print(f"\n\nData windowing took: {(perf_counter() - tic):.2f} seconds")
+    return ds, x, y
+    
+  def produce_single_set(self, inputs, labels):
+    """_summary_
 
-        batched_y : tnp.ndarray = tnp.reshape(
-                      a=data_y[0:0+self.batch,:,:],
-                      newshape=(1,self.batch),
-                      order='C'
-                    )
-        for i in range(1, data_x.shape[0]-self.batch+1):
-          if self.includeTarget:
-            batched_x = tnp.append(
-                            arr=batched_x,
-                            values=tnp.reshape(
-                                  a=data_x[i:i+self.batch,:,:],
-                                  newshape=(1,
-                                          self.batch,
-                                          len(self.input_columns)+\
-                                            len(self.label_columns)
-                                          ),
-                                  order='C'
-                                ),
-                            axis=0
-                          )
-          else:
-            batched_x = tnp.append(
-                            arr=batched_x,
-                            values=tnp.reshape(
-                                  a=data_x[i:i+self.batch,:,:],
-                                  newshape=(1,
-                                          self.batch,
-                                          len(self.input_columns)
-                                          ),
-                                  order='C'
-                                ),
-                            axis=0)
-          batched_y = tnp.append(
-                          arr=batched_y,
-                          values=tnp.reshape(
-                                a=data_y[i:i+self.batch,:,:],
-                                newshape=(1,self.batch),
-                                order='C'
-                              ),
-                          axis=0)
-        
-      for file in files[1:]:
-        # Initialize empty structures
-        df : pd.DataFrame = self.Data.Read_Excel_File(dir + '/' + file)
-        SoC: pd.DataFrame = pd.DataFrame(
-                data={'SoC' : diffSoC(
-                            chargeData=(df.loc[:,'Charge_Capacity(Ah)']),
-                            discargeData=(df.loc[:,'Discharge_Capacity(Ah)'])
-                            )},
-                dtype=self.float_dtype
-              )
-        SoC['SoC(%)'] = applyMinMax(SoC['SoC'])
-        #* Converting to Tensor unit
-        if self.normaliseInput: # Normalise Inputs
-          data = (df.copy(deep=True)-self.Data.get_Mean[0][self.input_columns])/self.Data.get_STD[0][self.input_columns]
-        else:
-          data = (df.copy(deep=True))
-        
-        if self.normaliseLabal: # Normalise Labels
-          data[self.label_columns] = (SoC[self.label_columns].copy(deep=True)-self.Data.get_Mean[1][self.label_columns])/self.Data.get_STD[1][self.label_columns]
-        else:
-          data[self.label_columns] = (SoC[self.label_columns].copy(deep=True))
+    Args:
+        inputs (_type_): _description_
+        labels (_type_): _description_
 
-        data = data[self.input_columns + self.label_columns] # Ensure order
-        data = tnp.array(val=data.values,
-                dtype=self.float_dtype, copy=True, ndmin=0)
+    Returns:
+        _type_: _description_
+    """
+    length = labels[0].shape[0]
+  
+    X = tf.data.Dataset.from_tensor_slices(inputs[0]).repeat(3)
+    Y = tf.data.Dataset.from_tensor_slices(labels[0]).repeat(3)
+    if (sys.version_info[1] < 9):
+      _, X, Y = self.make_dataset_from_array(
+                              inputs=np.array(LIST(X.as_numpy_iterator())),
+                              labels=np.array(LIST(Y.as_numpy_iterator()))
+                            )
+    else:
+      _, X, Y = self.make_dataset_from_array(
+                              inputs=np.array(list(X.as_numpy_iterator())),
+                              labels=np.array(list(Y.as_numpy_iterator()))
+                            )
+    X = X[
+      length-self.total_window_size:2*length-self.total_window_size, :, :, :
+      ]    
+    Y = Y[
+      length-self.total_window_size:2*length-self.total_window_size, :, : 
+      ]
+    for x, y in zip(inputs[1:], labels[1:]):
+      length = y.shape[0]
+      x = tf.data.Dataset.from_tensor_slices(x).repeat(3)
+      y = tf.data.Dataset.from_tensor_slices(y).repeat(3)
 
-        ds : tf.raw_ops.BatchDataset = \
-              tf.keras.preprocessing.timeseries_dataset_from_array(
-                data=data, targets=None,
-                sequence_length=self.total_window_size, sequence_stride=1,
-                sampling_rate=1,
-                batch_size=1, shuffle=False,
-                seed=None, start_index=None, end_index=None
-            )
-
-        ds : tf.raw_ops.MapDataset = ds.map(self.split_window)
-        
-        x : tnp.ndarray = tnp.asarray(list(ds.map(
-                                    lambda x, _: x[0,:,:]
-                                  ).as_numpy_iterator()
-                              ))
-        y : tnp.ndarray = tnp.asarray(list(ds.map(
-                                    lambda _, y: y[0]
-                                  ).as_numpy_iterator()
-                              ))
-              
-        data_ds = data_ds.concatenate(dataset=ds)
-        data_df = data_df.append(other=df, ignore_index=True)
-        data_x = tnp.append(arr=data_x, values=x, axis=0)
-        data_y = tnp.append(arr=data_y, values=y, axis=0)
-        if self.batch > 1:
-          if self.includeTarget:
-            bat_x : tnp.ndarray = tnp.reshape(
-                                    a=x[0:0+self.batch,:,:],
-                                    newshape=(1,
-                                            self.batch,
-                                            len(self.input_columns)+\
-                                              len(self.label_columns)
-                                            ),
-                                    order='C'
-                                  )
-          else:
-            bat_x : tnp.ndarray = tnp.reshape(
-                                    a=x[0:0+self.batch,:,:],
-                                    newshape=(1,
-                                            self.batch,
-                                            len(self.input_columns)
-                                            ),
-                                    order='C'
-                                  )
-          bat_y : tnp.ndarray = tnp.reshape(
-                                  a=y[0:0+self.batch,:,:],
-                                  newshape=(1,self.batch),
-                                  order='C'
-                                )
-          for i in range(1, x.shape[0]-self.batch+1):
-            if self.includeTarget:
-              bat_x = tnp.append(
-                            arr=bat_x,
-                            values=tnp.reshape(
-                                    a=x[i:i+self.batch,:,:],
-                                    newshape=(1,
-                                            self.batch,
-                                            len(self.input_columns)+\
-                                              len(self.label_columns)
-                                            ),
-                                    order='C'
-                                  ),
-                            axis=0
-                          )
-            else:
-              bat_x = tnp.append(
-                            arr=bat_x,
-                            values=tnp.reshape(
-                                    a=x[i:i+self.batch,:,:],
-                                    newshape=(1,
-                                            self.batch,
-                                            len(self.input_columns)
-                                            ),
-                                    order='C'
-                                  ),
-                            axis=0
-                          )
-            bat_y = tnp.append(
-                          arr=bat_y,
-                          values=tnp.reshape(
-                                  a=y[i:i+self.batch,:,:],
-                                  newshape=(1,self.batch),
-                                  order='C'
-                                ),
-                          axis=0
-                        )
-          batched_x = tnp.append(arr=batched_x,
-                                 values=bat_x,
-                                 axis=0)
-          batched_y = tnp.append(arr=batched_y,
-                                 values=bat_y,
-                                 axis=0)
-
-      print(f"\n\nData Generation: {(perf_counter() - tic):.2f} seconds")
-      if self.batch > 1:
-        print("Returning Batched Datasets")
-        return data_df, data_ds, batched_x, batched_y
+      if (sys.version_info[1] < 9):
+        _, x, y = self.make_dataset_from_array(
+                                inputs=np.array(LIST(x.as_numpy_iterator())),
+                                labels=np.array(LIST(y.as_numpy_iterator()))
+                              )
       else:
-        print("Returning Usual Datasets")
-        return data_df, data_ds, data_x, data_y
-    return None
+        _, x, y = self.make_dataset_from_array(
+                                inputs=np.array(list(x.as_numpy_iterator())),
+                                labels=np.array(list(y.as_numpy_iterator()))
+                              )
+      x = x[
+        length-self.total_window_size:2*length-self.total_window_size, :, :, :
+        ]          
+      y = y[
+        length-self.total_window_size:2*length-self.total_window_size, :, : 
+        ]
+      X = np.concatenate([X, x], axis=0)
+      Y = np.concatenate([Y, y], axis=0)
+    return (X, Y)
+
+  # @tf.autograph.experimental.do_not_convert
+  # def ParseFullData(self, dir : str
+  #     ) -> tuple[pd.DataFrame, tf.raw_ops.MapDataset, tnp.ndarray, tnp.ndarray]:
+  #   tic : float = perf_counter()
+  #   # Parsing file by file
+  #   if self.includeTarget:
+  #     data_x = tnp.empty(shape=(1,
+  #                           self.input_width,
+  #                           len(self.input_columns)+len(self.label_columns)
+  #                         ),
+  #                     dtype=self.float_dtype
+  #                     )
+  #   else:
+  #     data_x = tnp.empty(shape=(1,
+  #                           self.input_width,
+  #                           len(self.input_columns)
+  #                         ),
+  #                     dtype=self.float_dtype
+  #                     )    
+  #   data_y = tnp.empty(shape=(1,
+  #                         self.input_width,
+  #                         len(self.label_columns)
+  #                       ),
+  #                   dtype=self.float_dtype
+  #                   )
+  #   for _, _, files in os.walk(dir):
+  #     files.sort(key=lambda f: int(f[-13:-5])) # Sort by last dates
+  #     # Initialize empty structures
+  #     data_df : pd.DataFrame = self.Data.Read_Excel_File(dir + '/' + files[0])
+  #     data_SoC: pd.DataFrame = pd.DataFrame(
+  #              data={'SoC' : diffSoC(
+  #                         chargeData=(data_df.loc[:,'Charge_Capacity(Ah)']),
+  #                         discargeData=(data_df.loc[:,'Discharge_Capacity(Ah)'])
+  #                         )},
+  #              dtype=self.float_dtype
+  #           )
+  #     data_SoC['SoC(%)'] = applyMinMax(data_SoC['SoC'])
+  #     #* Converting to Tensor unit
+  #     if self.normaliseInput: # Normalise Inputs
+  #       data : pd.DataFrame = (data_df.copy(deep=True)-self.Data.get_Mean[0][self.input_columns])/self.Data.get_STD[0][self.input_columns]
+  #     else:
+  #       data : pd.DataFrame = (data_df.copy(deep=True))
+      
+  #     if self.normaliseLabal: # Normalise Labels
+  #       data[self.label_columns] = (data_SoC[self.label_columns].copy(deep=True)-self.Data.get_Mean[1][self.label_columns])/self.Data.get_STD[1][self.label_columns]
+  #     else:
+  #       data[self.label_columns] = (data_SoC[self.label_columns].copy(deep=True))
+
+  #     data = data[self.input_columns + self.label_columns] # Ensure order
+  #     data = tnp.array(val=data.values,
+  #             dtype=self.float_dtype, copy=True, ndmin=0)
+
+  #     data_ds : tf.raw_ops.BatchDataset = \
+  #           tf.keras.preprocessing.timeseries_dataset_from_array(
+  #             data=data, targets=None,
+  #             sequence_length=self.total_window_size, sequence_stride=1,
+  #             sampling_rate=1,
+  #             batch_size=1, shuffle=False,
+  #             seed=None, start_index=None, end_index=None
+  #         )
+      
+  #     data_ds : tf.raw_ops.MapDataset = data_ds.map(self.split_window)
+  #     if (sys.version_info[1] < 9):
+  #       data_x : tnp.ndarray = tnp.asarray(LIST(data_ds.map(
+  #                                   lambda x, _: x[0,:,:]
+  #                                 ).as_numpy_iterator()
+  #                             ))
+  #       data_y : tnp.ndarray = tnp.asarray(LIST(data_ds.map(
+  #                                   lambda _, y: y[0]
+  #                                 ).as_numpy_iterator()
+  #                             ))
+  #     else:
+  #       data_x : tnp.ndarray = tnp.asarray(list(data_ds.map(
+  #                                   lambda x, _: x[0,:,:]
+  #                                 ).as_numpy_iterator()
+  #                             ))
+  #       data_y : tnp.ndarray = tnp.asarray(list(data_ds.map(
+  #                                   lambda _, y: y[0]
+  #                                 ).as_numpy_iterator()
+  #                             ))
+  #     if self.batch > 1:
+  #       if self.includeTarget:
+  #         batched_x : tnp.ndarray = tnp.reshape(
+  #                       a=data_x[0:0+self.batch,:,:],
+  #                       newshape=(1,
+  #                               self.batch,
+  #                               len(self.input_columns)+len(self.label_columns)
+  #                               ),
+  #                       order='C'
+  #                     )
+  #       else:
+  #         batched_x : tnp.ndarray = tnp.reshape(
+  #                       a=data_x[0:0+self.batch,:,:],
+  #                       newshape=(1,
+  #                               self.batch,
+  #                               len(self.input_columns)
+  #                               ),
+  #                       order='C'
+  #                     )
+
+  #       batched_y : tnp.ndarray = tnp.reshape(
+  #                     a=data_y[0:0+self.batch,:,:],
+  #                     newshape=(1,self.batch),
+  #                     order='C'
+  #                   )
+  #       for i in range(1, data_x.shape[0]-self.batch+1):
+  #         if self.includeTarget:
+  #           batched_x = tnp.append(
+  #                           arr=batched_x,
+  #                           values=tnp.reshape(
+  #                                 a=data_x[i:i+self.batch,:,:],
+  #                                 newshape=(1,
+  #                                         self.batch,
+  #                                         len(self.input_columns)+\
+  #                                           len(self.label_columns)
+  #                                         ),
+  #                                 order='C'
+  #                               ),
+  #                           axis=0
+  #                         )
+  #         else:
+  #           batched_x = tnp.append(
+  #                           arr=batched_x,
+  #                           values=tnp.reshape(
+  #                                 a=data_x[i:i+self.batch,:,:],
+  #                                 newshape=(1,
+  #                                         self.batch,
+  #                                         len(self.input_columns)
+  #                                         ),
+  #                                 order='C'
+  #                               ),
+  #                           axis=0)
+  #         batched_y = tnp.append(
+  #                         arr=batched_y,
+  #                         values=tnp.reshape(
+  #                               a=data_y[i:i+self.batch,:,:],
+  #                               newshape=(1,self.batch),
+  #                               order='C'
+  #                             ),
+  #                         axis=0)
+        
+  #     for file in files[1:]:
+  #       # Initialize empty structures
+  #       df : pd.DataFrame = self.Data.Read_Excel_File(dir + '/' + file)
+  #       SoC: pd.DataFrame = pd.DataFrame(
+  #               data={'SoC' : diffSoC(
+  #                           chargeData=(df.loc[:,'Charge_Capacity(Ah)']),
+  #                           discargeData=(df.loc[:,'Discharge_Capacity(Ah)'])
+  #                           )},
+  #               dtype=self.float_dtype
+  #             )
+  #       SoC['SoC(%)'] = applyMinMax(SoC['SoC'])
+  #       #* Converting to Tensor unit
+  #       if self.normaliseInput: # Normalise Inputs
+  #         data = (df.copy(deep=True)-self.Data.get_Mean[0][self.input_columns])/self.Data.get_STD[0][self.input_columns]
+  #       else:
+  #         data = (df.copy(deep=True))
+        
+  #       if self.normaliseLabal: # Normalise Labels
+  #         data[self.label_columns] = (SoC[self.label_columns].copy(deep=True)-self.Data.get_Mean[1][self.label_columns])/self.Data.get_STD[1][self.label_columns]
+  #       else:
+  #         data[self.label_columns] = (SoC[self.label_columns].copy(deep=True))
+
+  #       data = data[self.input_columns + self.label_columns] # Ensure order
+  #       data = tnp.array(val=data.values,
+  #               dtype=self.float_dtype, copy=True, ndmin=0)
+
+  #       ds : tf.raw_ops.BatchDataset = \
+  #             tf.keras.preprocessing.timeseries_dataset_from_array(
+  #               data=data, targets=None,
+  #               sequence_length=self.total_window_size, sequence_stride=1,
+  #               sampling_rate=1,
+  #               batch_size=1, shuffle=False,
+  #               seed=None, start_index=None, end_index=None
+  #           )
+
+  #       ds : tf.raw_ops.MapDataset = ds.map(self.split_window)
+  #       if (sys.version_info[1] < 9):
+  #         x : tnp.ndarray = tnp.asarray(LIST(ds.map(
+  #                                     lambda x, _: x[0,:,:]
+  #                                   ).as_numpy_iterator()
+  #                               ))
+  #         y : tnp.ndarray = tnp.asarray(LIST(ds.map(
+  #                                     lambda _, y: y[0]
+  #                                   ).as_numpy_iterator()
+  #                               ))
+  #       else:
+  #         x : tnp.ndarray = tnp.asarray(list(ds.map(
+  #                                     lambda x, _: x[0,:,:]
+  #                                   ).as_numpy_iterator()
+  #                               ))
+  #         y : tnp.ndarray = tnp.asarray(list(ds.map(
+  #                                     lambda _, y: y[0]
+  #                                   ).as_numpy_iterator()
+  #                               ))
+              
+  #       data_ds = data_ds.concatenate(dataset=ds)
+  #       data_df = data_df.append(other=df, ignore_index=True)
+  #       data_x = tnp.append(arr=data_x, values=x, axis=0)
+  #       data_y = tnp.append(arr=data_y, values=y, axis=0)
+  #       if self.batch > 1:
+  #         if self.includeTarget:
+  #           bat_x : tnp.ndarray = tnp.reshape(
+  #                                   a=x[0:0+self.batch,:,:],
+  #                                   newshape=(1,
+  #                                           self.batch,
+  #                                           len(self.input_columns)+\
+  #                                             len(self.label_columns)
+  #                                           ),
+  #                                   order='C'
+  #                                 )
+  #         else:
+  #           bat_x : tnp.ndarray = tnp.reshape(
+  #                                   a=x[0:0+self.batch,:,:],
+  #                                   newshape=(1,
+  #                                           self.batch,
+  #                                           len(self.input_columns)
+  #                                           ),
+  #                                   order='C'
+  #                                 )
+  #         bat_y : tnp.ndarray = tnp.reshape(
+  #                                 a=y[0:0+self.batch,:,:],
+  #                                 newshape=(1,self.batch),
+  #                                 order='C'
+  #                               )
+  #         for i in range(1, x.shape[0]-self.batch+1):
+  #           if self.includeTarget:
+  #             bat_x = tnp.append(
+  #                           arr=bat_x,
+  #                           values=tnp.reshape(
+  #                                   a=x[i:i+self.batch,:,:],
+  #                                   newshape=(1,
+  #                                           self.batch,
+  #                                           len(self.input_columns)+\
+  #                                             len(self.label_columns)
+  #                                           ),
+  #                                   order='C'
+  #                                 ),
+  #                           axis=0
+  #                         )
+  #           else:
+  #             bat_x = tnp.append(
+  #                           arr=bat_x,
+  #                           values=tnp.reshape(
+  #                                   a=x[i:i+self.batch,:,:],
+  #                                   newshape=(1,
+  #                                           self.batch,
+  #                                           len(self.input_columns)
+  #                                           ),
+  #                                   order='C'
+  #                                 ),
+  #                           axis=0
+  #                         )
+  #           bat_y = tnp.append(
+  #                         arr=bat_y,
+  #                         values=tnp.reshape(
+  #                                 a=y[i:i+self.batch,:,:],
+  #                                 newshape=(1,self.batch),
+  #                                 order='C'
+  #                               ),
+  #                         axis=0
+  #                       )
+  #         batched_x = tnp.append(arr=batched_x,
+  #                                values=bat_x,
+  #                                axis=0)
+  #         batched_y = tnp.append(arr=batched_y,
+  #                                values=bat_y,
+  #                                axis=0)
+
+  #     print(f"\n\nData Generation: {(perf_counter() - tic):.2f} seconds")
+  #     if self.batch > 1:
+  #       print("Returning Batched Datasets")
+  #       return data_df, data_ds, batched_x, batched_y
+  #     else:
+  #       print("Returning Usual Datasets")
+  #       return data_df, data_ds, data_x, data_y
+  #   return None
 
   @property
   def train(self):
-    if (self.shift == 1 & self.label_width == 1 & self.input_width == 1):
-      print("Maling train dataset from list")
-      x, y = self.make_dataset_from_list(
-                                  X=self.Data.train_list,
-                                  Y=self.Data.train_list_label
-                                )
-      return x, y  
-    else:
-      ds, x, y = self.make_dataset_from_array(
-                                  inputs=self.Data.train,
-                                  labels=self.Data.train_SoC
-                                )
-      return ds, x, y
+    return self.produce_single_set(inputs=self.Data.train_list,
+                                   labels=self.Data.train_list_label)
 
   @property
   def valid(self):
-    if (self.shift == 1 & self.label_width == 1 & self.input_width == 1):
-      print("Maling train dataset from list")
-      x, y = self.make_dataset_from_list(
-                                  X=self.Data.valid_list,
-                                  Y=self.Data.valid_list_label
-                                )
-      return x, y
-    else:
-      ds, x, y = self.make_dataset_from_array(
-                                  inputs=self.Data.valid,
-                                  labels=self.Data.valid_SoC
-                                )
-      return ds, x, y  
+    return self.produce_single_set(inputs=self.Data.valid_list,
+                                   labels=self.Data.valid_list_label)
+
 
   @property
-  def full_train(self):
-    return self.ParseFullData(self.Data.train_dir)
-  
+  def test(self):
+    return self.produce_single_set(inputs=self.Data.testi_list,
+                                   labels=self.Data.testi_list_label)
+
   @property
-  def full_valid(self):
-    return self.ParseFullData(self.Data.valid_dir)
+  def train_lists(self):
+    x, y = self.make_dataset_from_list(
+                                X=self.Data.train_list,
+                                Y=self.Data.train_list_label
+                              )
+    return x, y  
+    
+  @property
+  def valid_lists(self):
+    x, y = self.make_dataset_from_list(
+                                X=self.Data.valid_list,
+                                Y=self.Data.valid_list_label
+                              )
+    return x, y
+
+  @property
+  def test_lists(self):
+    x, y = self.make_dataset_from_list(
+                                X=self.Data.testi_list,
+                                Y=self.Data.testi_list_label
+                              )
+    return x, y
+
+  # @property
+  # def full_train(self):
+  #   return self.ParseFullData(self.Data.train_dir)
+  
+  # @property
+  # def full_valid(self):
+  #   return self.ParseFullData(self.Data.valid_dir)

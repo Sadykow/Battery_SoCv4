@@ -18,8 +18,16 @@ from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
 from py_modules.AutoFeedBack import AutoFeedBack
 from py_modules.RobustAdam import RobustAdam
-from cy_modules.utils import str2bool
-from py_modules.plotting import predicting_plot
+from py_modules.tf_modules import scheduler, get_learning_rate
+from py_modules.utils import str2bool, Locate_Best_Epoch
+from py_modules.plotting import predicting_plot, history_plot
+
+from typing import Callable
+if (sys.version_info[1] < 9):
+    LIST = list
+    from typing import List as list
+    from typing import Tuple as tuple
+
 # %%
 # Extract params
 # try:
@@ -32,11 +40,18 @@ from py_modules.plotting import predicting_plot
 #     print ('EXEPTION: Arguments requied!')
 #     sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '5'), ('-g', '0'), ('-p', 'FUDS'), ('-s', '30')]
+opts = [('-d', 'False'), ('-e', '100'), ('-l', '2'), ('-n', '524'), ('-a', '1'),
+        ('-g', '0'), ('-p', 'FUDS'), ('-s', '30')] # *x524
+debug   : int = 0
+batch   : int = 1
 mEpoch    : int = 10
+nLayers : int = 1
+nNeurons: int = 262
+attempt : str = '1'
 GPU       : int = 0
 profile   : str = 'DST'
 out_steps : int = 10
+print(opts)
 for opt, arg in opts:
     if opt == '-h':
         print('HELP: Use following default example.')
@@ -48,12 +63,22 @@ for opt, arg in opts:
             logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s --> %(levelname)s:%(message)s')
             logging.warning("Logger DEBUG")
+            debug = 1
         else:
             logging.basicConfig(level=logging.CRITICAL)
             logging.warning("Logger Critical")
+            debug = 0
     elif opt in ("-e", "--epochs"):
         mEpoch = int(arg)
+    elif opt in ("-l", "--layers"):
+        nLayers = int(arg)
+    elif opt in ("-n", "--neurons"):
+        nNeurons = int(arg)
+    elif opt in ("-a", "--attempts"):
+        attempt = (arg)
     elif opt in ("-g", "--gpu"):
+        #! Another alternative is to use
+        #!:$ export CUDA_VISIBLE_DEVICES=0,1 && python *.py
         GPU = int(arg)
     elif opt in ("-p", "--profile"):
         profile = (arg)
@@ -63,7 +88,7 @@ for opt, arg in opts:
 # Define plot sizes
 mpl.rcParams['figure.figsize'] = (8, 6)
 mpl.rcParams['axes.grid'] = False
-mpl.rcParams['font.family'] = 'Bender'
+# mpl.rcParams['font.family'] = 'Bender'
 
 # Configurage logger and print basics
 logging.basicConfig(level=logging.CRITICAL,        
@@ -99,13 +124,13 @@ if physical_devices:
 #! For numeric stability, set the default floating-point dtype to float32
 tf.keras.backend.set_floatx('float32')
 # %%
-#! Check OS to change SymLink usage
+Data : str = ''
 if(platform=='win32'):
-    Data    : str = 'DataWin\\'
+    Data = 'DataWin\\'
 else:
-    Data    : str = 'Data/'
-dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set_2nd',
-                              valid_dir=f'{Data}A123_Matt_Val_2nd',
+    Data = 'Data/'
+dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Single',
+                              valid_dir=f'{Data}A123_Matt_Val',
                               test_dir=f'{Data}A123_Matt_Test',
                               columns=[
                                 'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
@@ -120,56 +145,33 @@ window = WindowGenerator(Data=dataGenerator,
                         label_columns=['SoC(%)'], batch=1,
                         includeTarget=True, normaliseLabal=False,
                         shuffleTraining=False)
-ds_train, xx_train, _ = window.train
-ds_valid, xx_valid, _ = window.valid
-#! Time to start rounding the charge to 2 or 3 decimals
-xx_train[:,:,3] = np.round(xx_train[:,:,3], decimals=2)
-xx_valid[:,:,3] = np.round(xx_valid[:,:,3], decimals=2)
-yy_train : np.ndarray = np.asarray(list(ds_train.map(
-                                lambda _, y: y[0,:,0]
-                              ).as_numpy_iterator()
-                          ))
-yy_valid : np.ndarray = np.asarray(list(ds_valid.map(
-                                lambda _, y: y[0,:,0]
-                              ).as_numpy_iterator()
-                          ))
-yy_train = np.round(yy_train, decimals=2)
-yy_valid = np.round(yy_valid, decimals=2)
-# Entire Training set 
-x_train = np.array(xx_train, copy=True, dtype=np.float32)
-y_train = np.array(yy_train, copy=True, dtype=np.float32)
+x_train, y_train = window.train
+x_valid, y_valid = window.valid
+x_testi, y_testi = window.test
 
-# For validation use same training
-x_valid = np.array(xx_train[16800:25000,:,:], copy=True, dtype=np.float32)
-y_valid = np.array(yy_train[16800:25000,:]  , copy=True, dtype=np.float32)
-# x_valid = np.array(xx_train[:,:,:], copy=True, dtype=np.float32)
-# y_valid = np.array(yy_train[:,:]  , copy=True, dtype=np.float32)
-
-# For test dataset take the remaining profiles.
-mid = int(xx_valid.shape[0]/2)+350
-x_test_one = np.array(xx_valid[:mid,:,:], copy=True, dtype=np.float32)
-y_test_one = np.array(yy_valid[:mid,:], copy=True, dtype=np.float32)
-x_test_two = np.array(xx_valid[mid:,:,:], copy=True, dtype=np.float32)
-y_test_two = np.array(yy_valid[mid:,:], copy=True, dtype=np.float32)
+tv_length = len(x_valid)
+xt_valid = np.array(x_train[-tv_length:,:,:], copy=True, dtype=np.float32)
+yt_valid = np.array(y_train[-tv_length:,:]  , copy=True, dtype=np.float32)
 # %%
 file_name : str = os.path.basename(__file__)[:-3]
-model_loc : str = f'Models/{file_name}-{out_steps}steps/{profile}-models/'
+model_name : str = 'Novels-№2'
+model_loc : str = f'Modds/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
 iEpoch = 0
 firstLog  : bool = True
+iLr     : float = 0.001
+prev_error : np.float32 = 1.0
 try:
-    for _, _, files in os.walk(model_loc):
-        for file in files:
-            if file.endswith('.ch'):
-                iEpoch = int(os.path.splitext(file)[0])
-    lstm_model : AutoFeedBack = AutoFeedBack(units=510,
+    iEpoch, prev_error  = Locate_Best_Epoch(f'{model_loc}history.csv', 'mae')
+    lstm_model : AutoFeedBack = AutoFeedBack(units=nNeurons,
             out_steps=out_steps, num_features=1
         )
     lstm_model.load_weights(f'{model_loc}{iEpoch}/{iEpoch}')
+    iLr = get_learning_rate(iEpoch, iLr, 'linear')
     firstLog = False
     print("Model Identefied. Continue training.")
 except:
     print("Model Not Found, with some TF error.\n")
-    lstm_model : AutoFeedBack = AutoFeedBack(units=510,
+    lstm_model : AutoFeedBack = AutoFeedBack(units=nNeurons,
             out_steps=out_steps, num_features=1
         )
     # lstm_model : AutoFeedBack = tf.keras.models.load_model(
@@ -178,6 +180,7 @@ except:
     #         custom_objects={"RSquare": tfa.metrics.RSquare,
     #                         "AutoFeedBack": AutoFeedBack
     #                         })
+    iLr = 0.001
     firstLog = True
 
 early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss',

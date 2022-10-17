@@ -52,33 +52,50 @@ from sys import platform  # Get type of OS
 
 import matplotlib as mpl  # Plot functionality
 import matplotlib.pyplot as plt
+# plt.switch_backend('agg')       #! FIX in the no-X env: RuntimeError: Invalid DISPLAY variable
 import numpy as np
 import pandas as pd  # File read
 import tensorflow as tf  # Tensorflow and Numpy replacement
 import tensorflow_addons as tfa
+from tqdm import tqdm, trange
 
 from extractor.DataGenerator import *
 from extractor.WindowGenerator import WindowGenerator
-from cy_modules.utils import str2bool
-from py_modules.plotting import predicting_plot
+from py_modules.tf_modules import scheduler, get_learning_rate
+from py_modules.utils import str2bool, Locate_Best_Epoch
+from py_modules.plotting import predicting_plot, history_plot
 
-#from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from typing import Callable
+if (sys.version_info[1] < 9):
+    LIST = list
+    from typing import List as list
+    from typing import Tuple as tuple
+
+import gc           # Garbage Collector
 # %%
 # Extract params
-# try:
-#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:g:p:",
-#                     ["help", "debug=", "epochs=",
-#                      "gpu=", "profile="])
-# except getopt.error as err: 
-#     # output error, and return with an error code 
-#     print (str(err)) 
-#     print ('EXEPTION: Arguments requied!')
-#     sys.exit(2)
+try:
+    opts, args = getopt.getopt(sys.argv[1:],"hd:e:l:n:a:g:p:",
+                    ["help", "debug=", "epochs=", "layers=", "neurons=",
+                     "attempt=", "gpu=", "profile="])
+except getopt.error as err: 
+    # output error, and return with an error code 
+    print (str(err)) 
+    print ('EXEPTION: Arguments requied!')
+    sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '50'), ('-g', '1'), ('-p', 'd_FUDS')]
+# opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'), ('-a', '11'),
+#         ('-g', '0'), ('-p', 'FUDS')] # 2x131 1x1572 
+debug   : int = 0
+batch   : int = 1
 mEpoch  : int = 10
-GPU     : int = 0
+nLayers : int = 1
+nNeurons: int = 262
+attempt : str = '1'
+GPU     : int = None
 profile : str = 'DST'
+rounding: int = 5
+print(opts)
 for opt, arg in opts:
     if opt == '-h':
         print('HELP: Use following default example.')
@@ -90,11 +107,19 @@ for opt, arg in opts:
             logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s --> %(levelname)s:%(message)s')
             logging.warning("Logger DEBUG")
+            debug = 1
         else:
             logging.basicConfig(level=logging.CRITICAL)
             logging.warning("Logger Critical")
+            debug = 0
     elif opt in ("-e", "--epochs"):
         mEpoch = int(arg)
+    elif opt in ("-l", "--layers"):
+        nLayers = int(arg)
+    elif opt in ("-n", "--neurons"):
+        nNeurons = int(arg)
+    elif opt in ("-a", "--attempts"):
+        attempt = (arg)
     elif opt in ("-g", "--gpu"):
         #! Another alternative is to use
         #!:$ export CUDA_VISIBLE_DEVICES=0,1 && python *.py
@@ -126,12 +151,12 @@ physical_devices = tf.config.experimental.list_physical_devices('GPU')
 if physical_devices:
     #! With /device/GPU:1 the output was faster.
     #! need to research more why.
-    tf.config.experimental.set_visible_devices(
-                            physical_devices[GPU], 'GPU')
+    # tf.config.experimental.set_visible_devices(
+    #                         physical_devices[GPU], 'GPU')
 
-    #if GPU == 1:
-    tf.config.experimental.set_memory_growth(
-                            physical_devices[GPU], True)
+    # if GPU == 1:
+    #     tf.config.experimental.set_memory_growth(
+    #                             physical_devices[GPU], True)
     logging.info("GPU found and memory growth enabled") 
     
     logical_devices = tf.config.experimental.list_logical_devices('GPU')
@@ -240,25 +265,25 @@ tf.keras.backend.set_floatx('float32')
 # scaler_MM : MinMaxScaler    = MinMaxScaler(feature_range=(0, 1))
 # scaler_CC : MinMaxScaler    = MinMaxScaler(feature_range=(0, 1))
 # scaler_VV : StandardScaler  = StandardScaler()
-def roundup(x : float, factor : int = 10) -> int:
-    """ Round up to a factor. Uses it to create hidden neurons, or Buffer size.
-    TODO: Make it a smarter rounder.
-    Args:
-        x (float): Original float value.
-        factor (float): Factor towards which it has to be rounder
+# def roundup(x : float, factor : int = 10) -> int:
+#     """ Round up to a factor. Uses it to create hidden neurons, or Buffer size.
+#     TODO: Make it a smarter rounder.
+#     Args:
+#         x (float): Original float value.
+#         factor (float): Factor towards which it has to be rounder
 
-    Returns:
-        int: Rounded up value based on factor.
-    """
-    if(factor == 10):
-        return int(np.ceil(x / 10)) * 10
-    elif(factor == 100):
-        return int(np.ceil(x / 100)) * 100
-    elif(factor == 1000):
-        return int(np.ceil(x / 1000)) * 1000
-    else:
-        print("Factor of {} not implemented.".format(factor))
-        return None
+#     Returns:
+#         int: Rounded up value based on factor.
+#     """
+#     if(factor == 10):
+#         return int(np.ceil(x / 10)) * 10
+#     elif(factor == 100):
+#         return int(np.ceil(x / 100)) * 100
+#     elif(factor == 1000):
+#         return int(np.ceil(x / 1000)) * 1000
+#     else:
+#         print("Factor of {} not implemented.".format(factor))
+#         return None
 
 # def create_Batch_dataset(X : list[np.ndarray], Y : list[np.ndarray],
 #                     look_back : int = 1
@@ -292,11 +317,11 @@ def roundup(x : float, factor : int = 10) -> int:
 
 # trX, trY = create_Batch_dataset(train_X, train_Y, look_back)
 # %%
-#! Check OS to change SymLink usage
+Data : str = ''
 if(platform=='win32'):
-    Data    : str = 'DataWin\\'
+    Data = 'DataWin\\'
 else:
-    Data    : str = 'Data/'
+    Data = 'Data/'
 dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
                               valid_dir=f'{Data}A123_Matt_Val',
                               test_dir=f'{Data}A123_Matt_Test',
@@ -304,207 +329,553 @@ dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
                                 'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
                                 'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
                                 ],
-                              PROFILE_range = profile)
+                              PROFILE_range = profile,
+                              round=rounding)
 # %%
-look_back : int = 1 
 window = WindowGenerator(Data=dataGenerator,
-                        input_width=look_back, label_width=1, shift=1,
+                        input_width=500, label_width=1, shift=0,
                         input_columns=['Current(A)', 'Voltage(V)',
                                                 'Temperature (C)_1'],
-                        label_columns=['SoC(%)'], batch=1,
+                        label_columns=['SoC(%)'], batch=batch,
                         includeTarget=False, normaliseLabal=False,
-                        shuffleTraining=False)
-# Entire Training set
+                        shuffleTraining=False,
+                        normaliseInput=True,
+                        round=rounding)
 x_train, y_train = window.train
+x_valid, y_valid = window.valid
+x_testi, y_testi = window.test
 
-# For validation use same training
-x_valid = x_train[2]
-y_valid = y_train[2]
+tv_length = len(x_valid)
+xt_valid = np.array(x_train[-tv_length:,:,:], copy=True, dtype=np.float32)
+yt_valid = np.array(y_train[-tv_length:,:]  , copy=True, dtype=np.float32)
 
-# For test dataset take the remaining profiles.
-(x_test_one, x_test_two), (y_test_one, y_test_two) = window.valid
 # %%
 #! Test with golbal
-def custom_loss(y_true : tf.Tensor, y_pred : tf.Tensor) -> tf.Tensor:
-    y_pred = tf.convert_to_tensor(value=y_pred)
-    y_true = tf.dtypes.cast(x=y_true, dtype=y_pred.dtype)        
-    #tf.print(y_pred, output_stream='file://pp-temp.txt')
-    #tf.print(y_true, output_stream='file://tt-temp.txt')
-    return (tf.math.squared_difference(x=y_pred, y=y_true))/2
+def create_model(mFunc : Callable, layers : int = 1,
+                 neurons : int = 500, dropout : float = 0.2,
+                 input_shape : tuple = (500, 3), batch : int = 1
+            ) -> tf.keras.models.Sequential:
+    """ Creates Tensorflow 2 based time series models with inputs exception 
+    handeling. Accepts multilayer models.
+    TODO: For Py3.10 correct typing with: func( .. dropout : int | float .. )
 
-# sample_size : int = y_train[4].shape[0]
-# h_nodes : int = roundup(sample_size / (15 * ((look_back * 1)+1)))
-# print(f"The number of hidden nodes is {h_nodes}.")
-h_nodes = 60#120-onDST #! 60 Nodes gives a nice results.
+    Args:
+        mFunc (Callable): Time series model function. .GRU or .GRU
+        layers (int, optional): № of layers. Above 1 will create a return
+        sequence based models. Defaults to 1.
+        neurons (int, optional): Total № of neurons across all layers.
+        Value will be splitted evenly across all layers floored with 
+        int() function. Defaults to 500.
+        dropout (float, optional): Percentage dropout to eliminate random
+        values. Defaults to 0.2.
+        input_shape (tuple, optional): Input layer shape typle. Describes:
+        (№_of_samles, №_of_deatues). Defaults to (500, 3).
+        batch (int, optional): Batch size used at input layer. Defaults to 1.
+
+    Raises:
+        ZeroDivisionError: Rise an exception of anticipates unhandeled layer
+        value, which cannot split neurons.
+
+    Returns:
+        tf.keras.models.Sequential: A sequentil model with single output and
+        sigmoind() as an activation function.
+    """
+    # Check layers, neurons, dropout and batch are acceptable
+    layers = 1 if layers == 0 else abs(layers)
+    units : int = int(500/layers) if neurons == 0 else int(abs(neurons)/layers)
+    dropout : float = float(dropout) if dropout >= 0 else float(abs(dropout))
+    #? int(batch) if batch > 0 else ( int(abs(batch)) if batch != 0 else 1 )
+    batch : int = int(abs(batch)) if batch != 0 else 1
+    
+    # Define sequential model with an Input Layer
+    model : tf.keras.models.Sequential = tf.keras.models.Sequential([
+            tf.keras.layers.InputLayer(input_shape=input_shape,
+                                batch_size=1)
+        ])
+    
+    # Fill the layer content
+    if(layers > 1): #* Middle connection layers
+        for _ in range(layers-1):
+            model.add(mFunc(
+                    units=units, activation='tanh',
+                    dropout=dropout, return_sequences=True
+                ))
+    if(layers > 0): #* Last no-connection layer
+        model.add(mFunc(
+                units=units, activation='tanh',
+                dropout=dropout, return_sequences=False
+            ))
+    else:
+        print("Unhaldeled exeption with Layers")
+        raise ZeroDivisionError
+    
+    # Define the last Output layer with sigmoind
+    model.add(tf.keras.layers.Dense(
+            units=1, activation='sigmoid', use_bias=True
+        ))
+    
+    # Return completed model with some info if neededs
+    # print(model.summary())
+    return model
 
 file_name : str = os.path.basename(__file__)[:-3]
-model_loc : str = f'Models/{file_name}/{profile}-models/'
-# %%
-accuracies = pd.read_csv(f'{model_loc}history-{profile}.csv')
-col_name = 'root_mean_squared_error' # 'mean_absolute_error' 'loss'
-iEpoch = accuracies[col_name][accuracies[col_name] == accuracies[col_name].min()].index[0]
-print(iEpoch)
-# %%
+model_name : str = 'ModelsUp-5'
+####################! ADD model_name to path!!! ################################
+model_loc : str = f'Mods/{model_name}/{nLayers}x{file_name}-({nNeurons})/{attempt}-{profile}/'
 iEpoch = 0
 firstLog : bool = True
+iLr     : float = 0.001
+prev_error : np.float32 = 1.0
 try:
-    for _, _, files in os.walk(model_loc):
-        for file in files:
-            if file.endswith('.ch'):
-                iEpoch = int(os.path.splitext(file)[0])
-    
-    gru_model : tf.keras.models.Sequential = tf.keras.models.load_model(
+    iEpoch, prev_error  = Locate_Best_Epoch(f'{model_loc}history.csv', 'mae')
+    model : tf.keras.models.Sequential = tf.keras.models.load_model(
             f'{model_loc}{iEpoch}',
             compile=False)
+    iLr = get_learning_rate(iEpoch, iLr, 'linear')
     firstLog = False
-    print("Model Identefied. Continue training.")
-except OSError as identifier:
-    gru_model = tf.keras.models.Sequential([
-        tf.keras.layers.InputLayer(batch_input_shape=(1, look_back, 3)),
-        tf.keras.layers.GRU(units=h_nodes, activation='tanh',
-            recurrent_activation='sigmoid', use_bias=True,
-            kernel_initializer='glorot_uniform', recurrent_initializer='orthogonal',
-            bias_initializer='zeros', kernel_regularizer=None,
-            recurrent_regularizer=None, bias_regularizer=None,
-            activity_regularizer=None, kernel_constraint=None,
-            recurrent_constraint=None, bias_constraint=None, dropout=0,
-            recurrent_dropout=0, return_sequences=True,
-            return_state=False,
-            go_backwards=False, stateful=True, unroll=False, time_major=False,
-            reset_after=True
-            ),
-        tf.keras.layers.GRU(units=h_nodes, activation='tanh',
-            recurrent_activation='sigmoid', use_bias=True,
-            kernel_initializer='glorot_uniform', recurrent_initializer='orthogonal',
-            bias_initializer='zeros', kernel_regularizer=None,
-            recurrent_regularizer=None, bias_regularizer=None,
-            activity_regularizer=None, kernel_constraint=None,
-            recurrent_constraint=None, bias_constraint=None, dropout=0,
-            recurrent_dropout=0, return_sequences=False,
-            return_state=False,
-            go_backwards=False, stateful=True, unroll=False, time_major=False,
-            reset_after=True
-            ),
-        tf.keras.layers.Dense(units=1, activation='sigmoid')
-    ])
+    print(f"Model Identefied at {iEpoch} with {prev_error}. Continue training.")
+except (OSError, TypeError) as identifier:
+    print("Model Not Found, initiating new. {} \n".format(identifier))
+    if type(x_train) == list:
+        input_shape : tuple = x_train[0].shape[-2:]
+    else:
+        input_shape : tuple = x_train.shape[-2:]
+    model = create_model(
+            tf.keras.layers.GRU, layers=nLayers, neurons=nNeurons,
+            dropout=0.2, input_shape=input_shape, batch=1
+        )
+    iLr = 0.001
     firstLog = True
-prev_model = tf.keras.models.clone_model(gru_model,
-                                    input_tensors=None, clone_function=None)
-
-checkpoints = tf.keras.callbacks.ModelCheckpoint(
-    filepath =model_loc+f'{profile}-checkpoints/checkpoint',
-    monitor='val_loss', verbose=0,
-    save_best_only=False, save_weights_only=False,
-    mode='auto', save_freq='epoch', options=None,
-)
-
-tensorboard_callback = tf.keras.callbacks.TensorBoard(
-        log_dir=model_loc+
-            f'tensorboard/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}',
-        histogram_freq=1, write_graph=True, write_images=False,
-        update_freq='epoch', profile_batch=2, embeddings_freq=0,
-        embeddings_metadata=None
-    )
-
-nanTerminate = tf.keras.callbacks.TerminateOnNaN()
-
-gru_model.compile(loss=tf.keras.losses.MeanAbsoluteError(), optimizer=
-                    tf.keras.optimizers.SGD(
-                    learning_rate=0.001, momentum=0.3, #! Put learning rate to 0
-                    nesterov=False, name='SGDwM'),
-              metrics=[tf.metrics.MeanAbsoluteError(),
-                       tf.metrics.RootMeanSquaredError(),
-                       tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
-            )
-prev_model.compile(loss=tf.keras.losses.MeanAbsoluteError(), optimizer=
-                    tf.keras.optimizers.SGD(
-                    learning_rate=0.001, momentum=0.3, #! Put learning rate to 0
-                    nesterov=False, name='SGDwM'),
-              metrics=[tf.metrics.MeanAbsoluteError(),
-                       tf.metrics.RootMeanSquaredError(),
-                       tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)]
-            )
+prev_model = tf.keras.models.clone_model(model) 
 
 # %%
-i_attempts : int = 0
-n_attempts : int = 3
+optimiser = tf.keras.optimizers.SGD(
+                learning_rate=0.001, momentum=0.3,
+            nesterov=False, name='SGDwM')
+loss_fn   = tf.losses.MeanAbsoluteError(
+                    reduction=tf.keras.losses.Reduction.NONE,
+                    #from_logits=True
+                )
+MAE     = tf.metrics.MeanAbsoluteError()
+RMSE    = tf.metrics.RootMeanSquaredError()
+RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
+# CR_ER   = tf.metrics.MeanAbsoluteError()
+
+@tf.function
+def train_single_st(input : tuple[np.ndarray, np.ndarray],
+                    metrics : tf.keras.metrics,
+                    # curr_error : tf.keras.metrics
+                    ) -> tf.Tensor:
+    # Execute model as training
+    with tf.GradientTape() as tape:
+        #? tf.EagerTensor['1,1', tf.float32]
+        logits     : tf.Tensor = model(input[0], training=True)
+        #? tf.EagerTensor['1,', tf.float32]
+        loss_value : tf.Tensor = loss_fn(input[1], logits)
+    
+    # Get gradients and apply optimiser to model
+    grads : list[tf.Tensor] = tape.gradient(
+                    loss_value,
+                    model.trainable_weights
+                )
+    optimiser.apply_gradients(zip(grads, model.trainable_weights))
+    
+    # Update metrics before
+    for metric in metrics:
+        metric.update_state(y_true=input[1], y_pred=logits)
+
+    return loss_value
+
+@tf.function
+def test_step(input : tuple[np.ndarray, np.ndarray]) -> tf.Tensor:
+    return model(input, training=False)
+
+def valid_loop(dist_input  : tuple[np.ndarray, np.ndarray],
+               verbose : int = 0) -> tf.Tensor:
+    x, y = dist_input
+    logits  : np.ndarray = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
+    loss    : np.ndarray = np.zeros(shape=(y.shape[0], ), dtype=np.float32)
+    val_MAE     = tf.metrics.MeanAbsoluteError()
+    val_RMSE    = tf.metrics.RootMeanSquaredError()
+    val_RSquare = tfa.metrics.RSquare(y_shape=(1,), dtype=tf.float32)
+    
+    # Debug verbose param
+    if verbose == 1:
+        rangeFunc : Callable = trange
+    else:
+        rangeFunc : Callable = range
+    
+    #! Prediction on this part can be paralylised across two GPUs. Like OpenMP
+    for i in rangeFunc(y.shape[0]):
+        logits[i] = test_step(x[i,:,:,:])
+        val_MAE.update_state(y_true=y[i],     y_pred=logits[i])
+        val_RMSE.update_state(y_true=y[i],    y_pred=logits[i])
+        val_RSquare.update_state(y_true=y[i], y_pred=logits[i])
+        
+        loss[i] = loss_fn(y[i], logits[i])
+        # mae[i] = val_MAE.result()
+        # rmse[i] = val_RMSE.result()
+        # rsquare[i] = val_RSquare.result()
+    #! Error with RMSE here. No mean should be used.
+    # return [loss, mae, rmse, rsquare, logits]
+    mae      : float = val_MAE.result()
+    rmse     : float = val_RMSE.result()
+    r_Square : float = val_RSquare.result()
+    
+    # Reset training metrics at the end of each epoch
+    val_MAE.reset_states()
+    val_RMSE.reset_states()
+    val_RSquare.reset_states()
+
+    return [loss, mae, rmse, r_Square, logits]
+
+# %%
+if not os.path.exists(f'{model_loc}'):
+    os.makedirs(f'{model_loc}')
+if not os.path.exists(f'{model_loc}traiPlots'):
+    os.mkdir(f'{model_loc}traiPlots')
+if not os.path.exists(f'{model_loc}valdPlots'):
+    os.mkdir(f'{model_loc}valdPlots')
+if not os.path.exists(f'{model_loc}testPlots'):
+    os.mkdir(f'{model_loc}testPlots')
+if not os.path.exists(f'{model_loc}history.csv'):
+    #! ADD EPOCH FOR FUTURE, THEN FIX THE BEST EPOCH
+    print("History not created. Making")
+    with open(f'{model_loc}history.csv', mode='w') as f:
+        f.write('Epoch,loss,mae,rmse,rsquare,time(s),'
+                'train_l,train_mae,train_rms,train_r_s,'
+                'vall_l,val_mae,val_rms,val_r_s,val_t_s,'
+                'test_l,tes_mae,tes_rms,tes_r_s,tes_t_s,learn_r\n')
+if not os.path.exists(f'{model_loc}history-cycles.csv'):
+    print("Cycle-History not created. Making")
+    with open(f'{model_loc}history-cycles.csv', mode='w') as f:
+        f.write('Epoch,Cycle,'
+                'train_l,train_mae,train_rms,train_t_s,'
+                'vall_l,val_mae,val_rms,val_t_s,'
+                'learn_r\n')
+if not os.path.exists(f'{model_loc}cycles-log'):
+    os.mkdir(f'{model_loc}cycles-log')
+
+#* Save the valid logits to separate files. Just annoying
+pd.DataFrame(y_train[:,0,0]).to_csv(f'{model_loc}y_train.csv', sep = ",", na_rep = "", line_terminator = '\n')
+pd.DataFrame(yt_valid[:,0,0]).to_csv(f'{model_loc}yt_valid.csv', sep = ",", na_rep = "", line_terminator = '\n')
+pd.DataFrame(y_valid[:,0,0]).to_csv(f'{model_loc}y_valid.csv', sep = ",", na_rep = "", line_terminator = '\n')
+pd.DataFrame(y_testi[:,0,0]).to_csv(f'{model_loc}y_testi.csv', sep = ",", na_rep = "", line_terminator = '\n')
+
+n_attempts : int = 20
 while iEpoch < mEpoch:
     iEpoch+=1
-    print(f"Epoch {iEpoch}/{mEpoch}")
-    # with open("pp-temp.txt", "w") as file:
-    #     file.write('')
 #! Fit one sample - PRedict next one like model() - read all through file output
 #!and hope this makes a good simulation of how online learning will go.
-    for (x,y) in zip(x_train[:], y_train[:]):
-        history = gru_model.fit(x, y, epochs=1,
-                        #validation_data=(x_valid, y_valid),
-                        callbacks=[nanTerminate],
-                        batch_size=1, shuffle=False
-                        )
+    # pbar = tqdm(total=y_train.shape[0])
+    tic : float = time.perf_counter()
+    sh_i = np.arange(y_train.shape[0])
+    np.random.shuffle(sh_i)
+    print(f'Commincing Epoch: {iEpoch}')
+    loss_value : np.float32 = [0.0]
+    for i in sh_i[::]:
+        loss_value = train_single_st((x_train[i,:,:,:], y_train[i,:]),
+                                    metrics=[MAE,RMSE,RSquare],
+                                    #curr_error=CR_ER
+                                    )
+        # Progress Bar
+        # pbar.update(1)
+        # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
+        #                         # f'loss: {(loss_value[0]):.4f} - '
+        #                         f'mae: {MAE.result():.4f} - '
+        #                         f'rmse: {RMSE.result():.4f} - '
+        #                         # f'rsquare: {RSquare.result():.4f} --- '
+        #                     )
+    toc : float = time.perf_counter() - tic
+    # pbar.close()
+    cLr = optimiser.get_config()['learning_rate']
+    print(f'Epoch {iEpoch}/{mEpoch} :: '
+            f'Elapsed Time: {toc} - '
+            # f'loss: {loss_value[0]:.4f} - '
+            f'mae: {MAE.result():.4f} - '
+            f'rmse: {RMSE.result():.4f} - '
+            f'rsquare: {RSquare.result():.4f} - '
+            f'Lear-Rate: {cLr} - '
+        )
 #! In Mamo methods implement Callback to reset model after 500 steps and then 
 #!step by one sample for next epoch to capture shift in data. Hell method, but
 #!might be more effective that batching 12 together.
-    
-        gru_model.reset_states()
-    PERF = gru_model.evaluate(x=x_valid,
-                               y=y_valid,
-                               batch_size=1,
-                               verbose=0)
-    gru_model.reset_states()
-    
-    # Saving model
-    gru_model.save(filepath=f'{model_loc}{iEpoch}',
-                overwrite=True, include_optimizer=True,
-                save_format='h5', signatures=None, options=None,
-                save_traces=True
-        )
-    prev_model = tf.keras.models.clone_model(gru_model)
+    #* Dealing with NaN state. Give few trials to see if model improves
+    curr_error = MAE.result().numpy()
+    # curr_error = CR_ER.result().numpy()
+    print(f'The post optimiser error: {curr_error}', flush=True)
+    if (tf.math.is_nan(loss_value[0]) or curr_error > prev_error):
+        print('->> NaN or High error model')
+        i_attempts : int = 0
+        firstFaltyLog : bool = True
+        while i_attempts < n_attempts:
+            print(f'->>> Attempt {i_attempts}')
+            try:
+                model.save(filepath=f'{model_loc}{iEpoch}-fail-{i_attempts}',
+                        overwrite=True, include_optimizer=True,
+                        save_format='h5', signatures=None, options=None
+                )
+            except OSError:
+                os.remove(f'{model_loc}{iEpoch}-fail-{i_attempts}')
+                model.save(filepath=f'{model_loc}{iEpoch}-fail-{i_attempts}',
+                        overwrite=True, include_optimizer=True,
+                        save_format='h5', signatures=None, options=None
+                )
+            model = tf.keras.models.clone_model(prev_model)
+            
+            np.random.shuffle(sh_i)
 
-    if os.path.exists(f'{model_loc}{iEpoch-1}.ch'):
-        os.remove(f'{model_loc}{iEpoch-1}.ch')
-    os.mknod(f'{model_loc}{iEpoch}.ch')
-    
-    # Saving history variable
-    # convert the history.history dict to a pandas DataFrame:     
-    hist_df = pd.DataFrame(history.history)
-    hist_df['vall_loss'] = PERF[0]
-    hist_df['val_mean_absolute_error'] = PERF[1]
-    hist_df['val_root_mean_squared_error'] = PERF[2]
-    hist_df['val_r_square'] = PERF[3]
-    # or save to csv:
-    with open(f'{model_loc}history-{profile}.csv', mode='a') as f:
-        if(firstLog):
-            hist_df.to_csv(f, index=False)
-            firstLog = False
+            # pbar = tqdm(total=y_train.shape[0])
+
+            # Reset every metric
+            MAE.reset_states()
+            RMSE.reset_states()
+            RSquare.reset_states()
+
+            tic = time.perf_counter()
+            for i in sh_i[::]:
+                loss_value = train_single_st(
+                                        (x_train[i,:,:,:], y_train[i,:]),
+                                        [MAE,RMSE,RSquare],
+                                        # curr_error=CR_ER
+                                        )
+                # Progress Bar
+                # pbar.update(1)
+                # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
+                #                     f'loss: {(loss_value[0]):.4f} - '
+                #                     )
+            toc = time.perf_counter() - tic
+            # pbar.close()
+            TRAIN = valid_loop((xt_valid, yt_valid), verbose = debug)
+            
+            # Update learning rate
+            iLr /= 2
+            optimiser.learning_rate = iLr
+            print(f">>> Updating iLR with {iLr}")
+
+            # Log the faulty results
+            faulty_hist_df = pd.DataFrame(data={
+                    'Epoch'  : [iEpoch],
+                    'attempt': [i_attempts],
+                    'loss'   : [np.array(loss_value[0])],
+                    'mae'    : [np.array(MAE.result())],
+                    'time(s)': [np.array(toc)],
+                    'learning_rate' : [np.array(iLr)],
+                    'train_l' : np.mean(TRAIN[0]),
+                    'train_mae': np.array(TRAIN[1]),
+                    'train_rms': np.array(TRAIN[2]),
+                    'train_r_s': np.array(TRAIN[3]),
+                })
+            with open(f'{model_loc}{iEpoch}-faulty-history.csv',
+                        mode='a') as f:
+                if(firstFaltyLog):
+                    faulty_hist_df.to_csv(f, index=False)
+                    firstFaltyLog = False
+                else:
+                    faulty_hist_df.to_csv(f, index=False, header=False)
+            curr_error = MAE.result().numpy()
+            print(
+                f'The post optimiser error: {curr_error}'
+                f'with L-rate {optimiser.get_config()["learning_rate"]}'
+                )
+            if (not tf.math.is_nan(loss_value[0]) and
+                not curr_error > prev_error and
+                not TRAIN[1] > 0.20 ):
+                print(f'->>> Attempt {i_attempts} Passed')
+                break
+            else:
+                i_attempts += 1
+        if (i_attempts == n_attempts):
+                # and (tf.math.is_nan(history.history['loss'])):
+            print('->> Model reached the optimum -- Breaking')
+            break
         else:
-            hist_df.to_csv(f, index=False, header=False)
+            print('->> Model restored -- continue training')
+            model.save(filepath=f'{model_loc}{iEpoch}',
+                            overwrite=True, include_optimizer=True,
+                            save_format='h5', signatures=None, options=None
+                )
+            prev_model = tf.keras.models.clone_model(model)
+            prev_error = curr_error
+    else:
+        model.save(filepath=f'{model_loc}{iEpoch}',
+                       overwrite=True, include_optimizer=True,
+                       save_format='h5', signatures=None, options=None
+                )
+        prev_model = tf.keras.models.clone_model(model)
+        prev_error = curr_error
+
+    # Update learning rate
+    iLr = scheduler(iEpoch, iLr, 'linear')
+    optimiser.learning_rate = iLr
     
-    #! Run the Evaluate function
-    #! Replace with tf.metric function.
-    PRED = gru_model.predict(x_valid, batch_size=1)
-    gru_model.reset_states()
+    # Validating trained model 
+    TRAIN = valid_loop((xt_valid, yt_valid), verbose = debug)
     RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-                y_valid[::,]-PRED[:,0])))
-    PERF = gru_model.evaluate(x=x_valid,
-                            y=y_valid,
-                            batch_size=1,
-                            verbose=0)
-    gru_model.reset_states()
-    # otherwise the right y-label is slightly clipped
-    predicting_plot(profile=profile, file_name='Model №4',
-                    model_loc=model_loc,
-                    model_type='GRU Train',
+                yt_valid[:,0,0]-TRAIN[4])))
+    predicting_plot(profile=profile, file_name=model_name,
+                    model_loc=f'{model_loc}/traiPlots/',
+                    model_type='GRU valid',
+                    iEpoch=f'tra-{iEpoch}',
+                    Y=yt_valid[:,0],
+                    PRED=TRAIN[4],
+                    RMS=RMS,
+                    val_perf=[np.mean(TRAIN[0]), TRAIN[1],
+                            TRAIN[2], TRAIN[3]],
+                    TAIL=yt_valid.shape[0],
+                    save_plot=True)
+    print(f'Epoch {iEpoch}/{mEpoch} :: TRAIN :: '
+            f'mae: {TRAIN[1]:.4f} - '
+            f'rmse: {TRAIN[2]:.4f} - '
+            f'rsquare: {TRAIN[3]:.4f} - '
+            f'\n'
+        )
+    # Validating model 
+    val_tic : float = time.perf_counter()
+    PERF = valid_loop((x_valid, y_valid), verbose = debug)
+    # PERF = valid_loop((x_train, y_train), verbose = debug)
+    val_toc : float = time.perf_counter() - val_tic
+    #! Verefy RMS shape
+    #! if RMS.shape[0] == RMS.shape[1]
+    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+                y_valid[:,0,0]-PERF[4])))
+    predicting_plot(profile=profile, file_name=model_name,
+                    model_loc=f'{model_loc}/valdPlots/',
+                    model_type='GRU valid',
                     iEpoch=f'val-{iEpoch}',
-                    Y=y_valid,
-                    PRED=PRED,
-                    RMS=np.expand_dims(RMS, axis=1),
-                    val_perf=PERF,
+                    Y=y_valid[:,0],
+                    PRED=PERF[4],
+                    RMS=RMS,
+                    val_perf=[np.mean(PERF[0]), PERF[1],
+                            PERF[2], PERF[3]],
                     TAIL=y_valid.shape[0],
-                    save_plot=True,
-                    RMS_plot=True) #! Saving memory from high errors.
-    if(PERF[-2] <=0.024): # Check thr RMSE
-        print("RMS droped around 2.4%. Breaking the training")
-        break
+                    save_plot=True)
+    print(f'Epoch {iEpoch}/{mEpoch} :: PERF :: '
+            f'Elapsed Time: {val_toc} - '
+            f'mae: {PERF[1]:.4f} - '
+            f'rmse: {PERF[2]:.4f} - '
+            f'rsquare: {PERF[3]:.4f} - '
+            f'\n'
+        )
+    # Testing model 
+    mid_one = int(x_testi.shape[0]/2)#+350
+    mid_two = int(x_testi.shape[0]/2)+400
+    ts_tic : float = time.perf_counter()
+    TEST1 = valid_loop((x_testi[:mid_one], y_testi[:mid_one]), verbose = debug)
+    TEST2 = valid_loop((x_testi[mid_two:], y_testi[mid_two:]), verbose = debug)
+    ts_toc : float = time.perf_counter() - ts_tic
+    #! Verefy RMS shape
+    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+                y_testi[:mid_one,0,0]-TEST1[4])))
+    #! If statement for string to change
+    if profile == 'DST':
+        save_title_type : str = 'GRU Test on US06'
+        save_file_name  : str = f'US06-{iEpoch}'
+    else:
+        save_title_type : str = 'GRU Test on DST'
+        save_file_name  : str = f'DST-{iEpoch}'
+
+    predicting_plot(profile=profile, file_name=model_name,
+                    model_loc=f'{model_loc}/testPlots/',
+                    model_type=save_title_type,
+                    iEpoch=save_file_name,
+                    Y=y_testi[:mid_one,0],
+                    PRED=TEST1[4],
+                    RMS=RMS,
+                    val_perf=[np.mean(TEST1[0]), TEST1[1],
+                            TEST1[2], TEST1[3]],
+                    TAIL=y_testi.shape[0],
+                    save_plot=True)
+
+    if profile == 'FUDS':
+        save_title_type : str = 'GRU Test on US06'
+        save_file_name  : str = f'US06-{iEpoch}'
+    else:
+        save_title_type : str = 'GRY Test on FUDS'
+        save_file_name  : str = f'FUDS-{iEpoch}'
+    #! Verefy RMS shape
+    RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+                y_testi[mid_two:,0,0]-TEST2[4])))
+
+    predicting_plot(profile=profile, file_name=model_name,
+                    model_loc=f'{model_loc}/testPlots/',
+                    model_type=save_title_type,
+                    iEpoch=save_file_name,
+                    Y=y_testi[mid_two:,0],
+                    PRED=TEST2[4],
+                    RMS=RMS,
+                    val_perf=[np.mean(TEST2[0]), TEST2[1],
+                            TEST2[2], TEST2[3]],
+                    TAIL=y_testi.shape[0],
+                    save_plot=True)
+    print(f'Epoch {iEpoch}/{mEpoch} :: TEST :: '
+            f'Elapsed Time: {ts_toc} - '
+            f'mae: {np.mean(np.append(TEST1[1], TEST2[1])):.4f} - '
+            f'rmse: {np.mean(np.append(TEST1[2], TEST2[2])):.4f} - '
+            f'rsquare: {np.mean(np.append(TEST1[3], TEST2[3])):.4f} - '
+            f'\n'
+        )
+
+    # Saving history variable
+    hist_df : pd.DataFrame = pd.read_csv(f'{model_loc}history.csv',
+                                            index_col='Epoch')
+    hist_df = hist_df.reset_index()
+
+    #! Rewrite as add, not a new, similar to the one I found on web with data analysis
+    hist_ser = pd.Series(data={
+            'Epoch'  : iEpoch,
+            'loss'   : np.array(loss_value[0]),
+            'mae'    : np.array(MAE.result()),
+            'rmse'   : np.array(RMSE.result()),
+            'rsquare': np.array(RSquare.result()),
+            'time(s)': toc,
+            'train_l' : np.mean(TRAIN[0]),
+            'train_mae': np.array(TRAIN[1]),
+            'train_rms': np.array(TRAIN[2]),
+            'train_r_s': np.array(TRAIN[3]),
+            'vall_l' : np.mean(PERF[0]),
+            'val_mae': np.array(PERF[1]),
+            'val_rms': np.array(PERF[2]),
+            'val_r_s': np.array(PERF[3]),
+            'val_t_s': val_toc,
+            'test_l' : np.mean(np.append(TEST1[0], TEST2[0])),
+            'tes_mae': np.mean(np.append(TEST1[1], TEST2[1])),
+            'tes_rms': np.mean(np.append(TEST1[2], TEST2[2])),
+            'tes_r_s': np.mean(np.append(TEST1[3], TEST2[3])),
+            'tes_t_s': ts_toc,
+            'learn_r': np.array(iLr)
+        })
+    if(len(hist_df[hist_df['Epoch']==iEpoch]) == 0):
+        # hist_df = pd.concat([hist_df, hist_ser], ignore_index=True)
+        hist_df = hist_df.append(hist_ser, ignore_index=True)
+        # hist_df.loc[hist_df['Epoch']==iEpoch] = hist_ser
+    else:
+        hist_df.loc[len(hist_df)] = hist_ser
+    hist_df.to_csv(f'{model_loc}history.csv', index=False, sep = ",", na_rep = "", line_terminator = '\n')
+
+    # Plot History for reference and overwrite if have to    
+    history_plot(profile, model_name, model_loc, hist_df, save_plot=True,
+                    plot_file_name=f'history-{profile}-train.svg')
+    history_plot(profile, model_name, model_loc, hist_df, save_plot=True,
+                metrics=['mae', 'val_mae',
+                        'rmse', 'val_rms'],
+                plot_file_name=f'history-{profile}-valid.svg')
+
+    pd.DataFrame(TRAIN[4]).to_csv(f'{model_loc}{iEpoch}-train-logits.csv')
+    pd.DataFrame(PERF[4]).to_csv(f'{model_loc}{iEpoch}-valid-logits.csv')
+    pd.DataFrame(np.append(TEST1[4], TEST2[4])
+                ).to_csv(f'{model_loc}{iEpoch}-test--logits.csv')
+    
+    # Reset every metric and clear memory leak
+    MAE.reset_states()
+    RMSE.reset_states()
+    RSquare.reset_states()
+
+    # Flush and clean
+    print('\n', flush=True)
+
+    # Collect garbage leftovers
+    gc.collect()
 # %%
 # tr_pred = np.zeros(shape=(7094,))
 # i = 0
@@ -564,7 +935,7 @@ while iEpoch < mEpoch:
 # plt.plot(trY[0])
 # # %%
 # epochs : int = 6 #! 37*12 seconds = 444s
-# file_path = 'Models/Stateful/LSTM_test11_SOC'
+# file_path = 'Models/Stateful/GRU_test11_SOC'
 # for i in range(1,epochs+1):
 #     print(f'Epoch {i}/{epochs}')
 #     for i in range(0, len(trX)):
@@ -587,88 +958,18 @@ while iEpoch < mEpoch:
 #     # convert the history.history dict to a pandas DataFrame:     
 #     hist_df = pd.DataFrame(history.history)
 #     # # or save to csv:
-#     with open('Models/Stateful/LSTM_test11_SOC-history.csv', mode='a') as f:
+#     with open('Models/Stateful/GRU_test11_SOC-history.csv', mode='a') as f:
 #         if(firtstEpoch):
 #             hist_df.to_csv(f, index=False)
 #             firtstEpoch = False
 #         else:
 #             hist_df.to_csv(f, index=False, header=False)
-# model.save('Models/Stateful/LSTM_test11_SOC_Last')
-# %%
-PRED = gru_model.predict(x_test_one, batch_size=1, verbose=1)
-gru_model.reset_states()
-RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_one[::,]-PRED[:,0])))
-
-if profile == 'DST':
-    predicting_plot(profile=profile, file_name='Model №4',
-                    model_loc=model_loc,
-                    model_type='GRU Test on US06', iEpoch=f'Test One-{iEpoch}',
-                    Y=y_test_one,
-                    PRED=PRED,
-                    RMS=np.expand_dims(RMS, 1),
-                    val_perf=gru_model.evaluate(
-                                    x=x_test_one,
-                                    y=y_test_one,
-                                    batch_size=1,
-                                    verbose=1),
-                    TAIL=y_test_one.shape[0],
-                    save_plot=True,
-                    RMS_plot=True)
-else:
-    predicting_plot(profile=profile, file_name='Model №4',
-                    model_loc=model_loc,
-                    model_type='GRU Test on DST', iEpoch=f'Test One-{iEpoch}',
-                    Y=y_test_one,
-                    PRED=PRED,
-                    RMS=np.expand_dims(RMS, 1),
-                    val_perf=gru_model.evaluate(
-                                    x=x_test_one,
-                                    y=y_test_one,
-                                    batch_size=1,
-                                    verbose=1),
-                    TAIL=y_test_one.shape[0],
-                    save_plot=True,
-                    RMS_plot=True)
-gru_model.reset_states()
-PRED = gru_model.predict(x_test_two, batch_size=1, verbose=1)
-gru_model.reset_states()
-RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(y_test_two[::,]-PRED[:,0])))
-if profile == 'FUDS':
-    predicting_plot(profile=profile, file_name='Model №4',
-                    model_loc=model_loc,
-                    model_type='GRU Test on US06', iEpoch=f'Test Two-{iEpoch}',
-                    Y=y_test_two,
-                    PRED=PRED,
-                    RMS=np.expand_dims(RMS, 1),
-                    val_perf=gru_model.evaluate(
-                                    x=x_test_two,
-                                    y=y_test_two,
-                                    batch_size=1,
-                                    verbose=1),
-                    TAIL=y_test_two.shape[0],
-                    save_plot=True,
-                    RMS_plot=True)
-else:
-    predicting_plot(profile=profile, file_name='Model №4',
-                    model_loc=model_loc,
-                    model_type='GRU Test on FUDS', iEpoch=f'Test Two-{iEpoch}',
-                    Y=y_test_two,
-                    PRED=PRED,
-                    RMS=np.expand_dims(RMS, 1),
-                    val_perf=gru_model.evaluate(
-                                    x=x_test_two,
-                                    y=y_test_two,
-                                    batch_size=1,
-                                    verbose=1),
-                    TAIL=y_test_two.shape[0],
-                    save_plot=True,
-                    RMS_plot=True)
-gru_model.reset_states()
+# model.save('Models/Stateful/GRU_test11_SOC_Last')
 # %%
 # Convert the model to Tensorflow Lite and save.
-with open(f'{model_loc}Model-№4-{profile}.tflite', 'wb') as f:
-    f.write(
-        tf.lite.TFLiteConverter.from_keras_model(
-                model=gru_model
-            ).convert()
-        )
+# with open(f'{model_loc}Model-№5-{profile}.tflite', 'wb') as f:
+#     f.write(
+#         tf.lite.TFLiteConverter.from_keras_model(
+#                 model=model
+#             ).convert()
+#         )

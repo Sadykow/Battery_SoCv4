@@ -8,6 +8,12 @@ import concurrent.futures
 
 from . utils import diffSoC
 
+import sys
+if (sys.version_info[1] < 9):
+  LIST = list
+  from typing import List as list
+  from typing import Tuple as tuple
+  
 def Read_Excel_File(path : str,
                     indexes : range, columns :list[str]
                     ) -> pd.DataFrame:
@@ -26,15 +32,19 @@ def Read_Excel_File(path : str,
                       sheet_name=1,
                       header=0, names=None, index_col=None,
                       usecols=['Step_Index'] + columns,
-                      squeeze=False,
                       dtype=float32,
                       engine='openpyxl', converters=None, true_values=None,
                       false_values=None, skiprows=None, nrows=None,
                       na_values=None, keep_default_na=True, na_filter=True,
                       verbose=False, parse_dates=False, date_parser=None,
                       thousands=None, comment=None, skipfooter=0,
-                      convert_float=True, mangle_dupe_cols=True
-                  )
+                      convert_float=None, mangle_dupe_cols=True
+                  ) #? FutureWarning: convert_float is deprecated and will be
+                    #? removed in a future version
+                    
+                    #? FutureWarning: The squeeze argument has been deprecated
+                    #? and will be removed in a future version. Append
+                    #? .squeeze("columns") to the call to squeeze.
   if(indexes == None):       #!r_DST_FUDS Nasty fix
     df = df[df['Step_Index'].isin(chain(range(4 , 12), range(18, 25)))]
   else:
@@ -84,8 +94,12 @@ def ParseExcelData(directory : str,
     # with concurrent.futures.ThreadPoolExecutor() as executor:
     #! Running multiprocesses (faster by 34 seconds) 8.61
     with concurrent.futures.ProcessPoolExecutor() as executor:
-      data_df = list(executor.map(Read_Excel_File, files,
-                    repeat(indexes), repeat(columns)))
+      if (sys.version_info[1] < 9):
+        data_df = LIST(executor.map(Read_Excel_File, files,
+              repeat(indexes), repeat(columns)))
+      else:
+        data_df = list(executor.map(Read_Excel_File, files,
+                      repeat(indexes), repeat(columns)))
       data_SoC = [
         pd.DataFrame(
           data={'SoC' : diffSoC(
