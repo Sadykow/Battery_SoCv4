@@ -1,3 +1,4 @@
+# %%
 from clickhouse_driver import Client
 import pandas as pd
 import numpy as np
@@ -306,6 +307,9 @@ def predicting_plot(profile : str, file_name : str, model_loc : str,
     fig.savefig(f'{model_loc}{profile}-{iEpoch}.svg')
 #   fig.clf()
 # %%
+###
+### Results averaging demonstration for performance verification
+### 3 subplots with a single, multiple and average of 10
 ModelID = 4
 
 trained_p : str = 'FUDS'
@@ -346,6 +350,40 @@ for a in range(2,11):
             )
         ], axis = 1)
 
+def history_plot(profile : str, file_name : str, model_loc : str,
+                 df : pd.DataFrame, save_plot : bool = False,
+                 metrics : list = ['mae', 'train_mae',
+                                   'rmse', 'train_rms'],
+                 plot_file_name : str = 'history.svg') -> None:
+  fig, ax1 = plt.subplots(1, figsize=(14,12), dpi=600)
+#   fig, ax1 = plt.subplots(1)
+  fig.suptitle(f'{file_name} - {profile} training benchmark',
+              fontsize=36)
+  
+  # Plot MAE subfigure
+  ax1.plot(df[metrics[0]]*100, '-o',
+      label="Training", color='#0000ff')
+  ax1.plot(df[metrics[1]]*100, '--o',
+      label="Testing", color='#ff0000')
+  ax1.set_xlabel("Epochs", fontsize=32)
+  ax1.set_ylabel("Error (%)", fontsize=32)
+
+  # Plot RMSE subfigure
+  ax1.set_ylabel("Error (%)", fontsize=32)
+  ax1.legend(prop={'size': 32})
+  ax1.tick_params(axis='both', labelsize=28)
+
+  # Tighting the layot
+  ax1.set_title(f"10-attempts average Mean Absoulute Error", fontsize=36)
+  ax1.set_ylim([-0.1,6.1])
+#   ax1.set_ylim([79,101])
+#   ax2.set_ylim([-0.1,11])
+  fig.tight_layout()
+  
+  # Saving figure and cleaning Memory from plots
+  if save_plot:
+    fig.savefig(f'{model_loc}{plot_file_name}')
+#   fig.clf()
 
 #plt.plot(df)
 # plt.plot(df.mean(axis=1))
@@ -394,12 +432,121 @@ history_plot(trained_p, f'10 models', 'Modds/tmp/', hisotory_df,
 # fig.savefig('Modds/tmp/DEMO2-history-FUDS-mae.svg')
 
 # %%
-# l_type = 'train'
-# f_type = 't_valid'
+###
+### Results averaging demonstration for performance verification
+### 3 subplots with a single, multiple and average of 10
+ModelID = 4
 
-l_type = 'test'
-f_type = 'test'
-trained_p : str = 'DST'
+trained_p : str = 'FUDS'
+
+criteria = 'Logits'
+
+a = 1
+df  = pd.DataFrame(data = {
+    'Y' : client.query_dataframe(
+        query=f"SELECT {criteria} FROM {database}.logits_train WHERE ("
+            f"{database}.logits_train.id in ("
+                f"SELECT id FROM {database}.{mapper} WHERE (ModelID = '{ModelID}') "
+                f"AND Profile='{trained_p}' AND Attempt = {a}"
+            f") "
+            f" );"
+        ).iloc[-1, 0] })
+for a in range(2,11):
+    df = pd.concat([
+        df,
+        pd.DataFrame(data = {
+        'Y' : client.query_dataframe(
+            query=f"SELECT {criteria} FROM {database}.logits_train WHERE ( {database}.logits_train.id in ("
+                f"SELECT id FROM {database}.{mapper} WHERE (ModelID = '{ModelID}') AND Profile='{trained_p}' AND Attempt = {a}"
+                f") );"
+            ).iloc[-1, 0] })
+        ], axis = 1)
+
+hisotory_df = pd.DataFrame(data={
+        'mae' : df.mean(axis=1),
+        'true': FUDS_y
+    })
+
+history_plot(trained_p, f'10 models', 'Modds/tmp/', hisotory_df,
+                save_plot=False,
+                metrics=['mae'],
+                #plot_file_name=f'M{ModelID}-history-{trained_p}-mae.svg')
+                plot_file_name=f'M{ModelID}-logits_train-{trained_p}-mae.svg')
+
+
+# %%
+def predicting_plot(profile : str, file_name : str, model_loc : str,
+                    model_type : str,  iEpoch : str,
+                    Y : np.ndarray, PRED : np.ndarray, RMS : np.ndarray,
+                    val_perf : np.ndarray, TAIL : int,
+                    save_plot : bool = False, RMS_plot : bool = True) -> None:
+  def format_SoC(value, _):
+    return int(value*100)
+  # Time range
+  test_time = np.linspace(0, PRED.shape[0]/60, PRED.shape[0])
+  
+  # instantiate the first axes
+  fig, ax1 = plt.subplots(figsize=(14,12), dpi=600)
+#   fig.suptitle(f"{file_name} {model_type}. {profile}-trained",
+#               fontsize=36)
+  ax1.plot(test_time[:TAIL:], Y[::,], '-',
+          label="Actual", color='#0000ff')
+  ax1.plot(test_time[:TAIL:],
+          PRED, '--',
+          label="Prediction", color='#ff0000')
+  # ax1.grid(b=True, axis='both', linestyle='-', linewidth=1)
+  ax1.set_xlabel("Time Slice (min)", fontsize=32)
+  ax1.set_ylabel("SoC (%)", fontsize=32)
+  
+  # instantiate a second axes that shares the same x-axis
+  if RMS_plot:
+    ax2 = ax1.twinx()
+    for i in range(10):
+        RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
+                Ys[trained_p]-arr_logits[:,i])))
+        ax2.plot(test_time[:TAIL:],
+            RMS,
+            label="ABS error", color='#698856')
+        ax2.fill_between(test_time[:TAIL:],
+            RMS,
+            color='#698856')
+    ax2.set_ylabel('Error', fontsize=32, color='#698856')
+    ax2.tick_params(axis='y', labelcolor='#698856', labelsize=28)
+    ax2.set_ylim([-0.1,1.6])
+    # ax2.legend(loc='center right', bbox_to_anchor=(1.0,0.80), prop={'size': 32})
+  ax1.set_title(
+      f"10 model - FUDS SoC(%) benchmark",
+      fontsize=36)
+#   ax1.legend(prop={'size': 32})
+  ax1.tick_params(axis='both', labelsize=28)
+  ax1.yaxis.set_major_formatter(plt.FuncFormatter(format_SoC))
+  ax1.set_ylim([-0.1,1.2])
+  fig.tight_layout()
+
+  # Put the text box with performance results.
+  # textstr = '\n'.join((
+  #     r'$MAE =%.2f$'  % (val_perf[1]*100, ),
+  #     r'$RMSE=%.2f$'  % (val_perf[2]*100, ),
+  #     r'$R^2 =%.2f$'  % (val_perf[3]*100, )))
+  textstr = '\n'.join((
+       '$MAE  = {0:.2f}%$'.format(val_perf[1], ),
+       '$RMSE = {0:.2f}%$'.format(val_perf[2], ),
+       '$R2  = {0:.2f}%$'.format(val_perf[3], ) ))
+#   ax1.text(0.66, 0.74, textstr, transform=ax1.transAxes, fontsize=30,
+#           verticalalignment='top',
+#           bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+  
+  # Saving figure and cleaning Memory from plots
+  if save_plot:
+    fig.savefig(f'{model_loc}{profile}-{iEpoch}.svg')
+#   fig.clf()
+
+l_type = 'train'
+f_type = 't_valid'
+
+# l_type = 'test'
+# f_type = 'test'
+trained_p : str = 'FUDS'
 
 # with open(f'Data/np-data/DST/{f_type}.npy', 'rb') as f:
 #     _ = np.load(f)
@@ -411,7 +558,7 @@ trained_p : str = 'DST'
 #     _ = np.load(f)
 #     FUDS_y = np.load(f)[:,0,0]
 
-Ys = { 'DST' : DST_y, 'US06' : US_y, 'FUDS' : FUDS_y}
+# Ys = { 'DST' : DST_y, 'US06' : US_y, 'FUDS' : FUDS_y}
 
 MAE = MeanAbsoluteError()
 RMSE = RootMeanSquaredError()
@@ -452,8 +599,6 @@ mae = MAE.result().numpy()*100
 rmse = RMSE.result().numpy()*100
 rs = RS.result().numpy()*100
 
-RMS = (tf.keras.backend.sqrt(tf.keras.backend.square(
-            Ys[trained_p]-average)))
 
 if (l_type == 'test'):
     model_type = 'Testing'
@@ -461,17 +606,17 @@ else:
     model_type = 'Validation'
 
 predicting_plot(profile=trained_p, file_name=f'Model № {ModelID}',
-                model_loc='Modds/tmp/',
+                model_loc='Models/tmp/',
                 model_type=model_type,
                 iEpoch=f'{ModelID}-{l_type}',
                 Y=Ys[trained_p],
-                PRED=average,
-                RMS=RMS,
+                PRED=arr_logits,
+                RMS=None,
                 val_perf=[0, mae, rmse, rs],
-                TAIL=average.shape[0],
+                TAIL=len(res),
                 save_plot=True)
 
-MAE.reset_state()
-RMSE.reset_state()
-RS.reset_state()
+MAE.reset_states()
+RMSE.reset_states()
+RS.reset_states()
 # %%
