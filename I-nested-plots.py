@@ -151,3 +151,97 @@ ax.set_xticks(np.arange(x1,x2,310))
 
 # fig.savefig(f'Modds/Current-{profile}.{formats}', transparent=True)
 # plt.show()
+# %%
+#[DEmo plot of data split]
+dataDST = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
+                              valid_dir=f'{Data}A123_Matt_Val',
+                              test_dir=f'{Data}A123_Matt_Test',
+                              columns=[
+                                'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
+                                'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
+                                ],
+                              PROFILE_range = 'DST',
+                              round=5)
+dataUS = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
+                              valid_dir=f'{Data}A123_Matt_Val',
+                              test_dir=f'{Data}A123_Matt_Test',
+                              columns=[
+                                'Current(A)', 'Voltage(V)', 'Temperature (C)_1',
+                                'Charge_Capacity(Ah)', 'Discharge_Capacity(Ah)'
+                                ],
+                              PROFILE_range = 'US06',
+                              round=5)
+
+soc_fuds = dataGenerator.train_label[:,0]
+t_fuds = np.arange(len(soc_fuds))
+soc_dst = dataDST.train_label[:,0]
+t_dst = np.arange(len(soc_dst))
+soc_us= dataUS.train_label[:,0]
+t_us = np.arange(len(soc_us))
+# %%
+fig = plt.figure()
+axs = fig.subplots(3,1)
+axs[0].set_title('Model fitting data split')
+
+axs[0].plot(t_fuds, soc_fuds)
+axs[0].text(4000,  0.1, '20$^\circ$C', fontsize=10)
+axs[0].text(15000, 0.1, '25$^\circ$C', fontsize=10)
+axs[0].text(27000, 0.1, '30$^\circ$C', fontsize=10)
+axs[0].text(39000, 0.1, '40$^\circ$C', fontsize=10)
+axs[0].text(51000, 0.1, '50$^\circ$C', fontsize=10)
+axs[0].set_ylim([-0.05, 1.22])
+axs[0].set_ylabel('Cycle Type \nTrain')
+axs[0].tick_params(left = False, bottom = False, 
+                   labelleft = False, labelbottom = False,)
+#train
+axs[0].text(24000, 1.03, 'Train', fontsize=16)
+axs[0].annotate('', xy=(0,0.9), xytext=(t_fuds[-1],0.9),
+                 arrowprops=dict(arrowstyle='<->'))
+axs[0].plot([0, 0], [0, 1], linestyle="dashed", color='k')
+axs[0].plot([t_fuds[-1], t_fuds[-1]], [0, 1], linestyle="dashed", color='k')
+#valid
+axs[0].text(14000, 0.36, 'Valid', fontsize=16)
+axs[0].annotate('', xy=(11000,0.33), xytext=(24000,0.33),
+                 arrowprops=dict(arrowstyle='<->'))
+axs[0].plot([11000, 11000], [0, 0.41], linestyle="dashed", color='k')
+axs[0].plot([24000, 24000], [0, 0.41], linestyle="dashed", color='k')
+
+axs[1].plot(t_dst, soc_dst)
+axs[1].text(4000,  0.1, '20$^\circ$C', fontsize=10)
+axs[1].text(16000, 0.1, '25$^\circ$C', fontsize=10)
+axs[1].text(28000, 0.1, '30$^\circ$C', fontsize=10)
+axs[1].text(40000, 0.1, '40$^\circ$C', fontsize=10)
+axs[1].text(52000, 0.1, '50$^\circ$C', fontsize=10)
+axs[1].set_ylim([-0.05, 1.22])
+axs[1].set_ylabel('Cycle Type \nTest 1')
+axs[1].tick_params(left = False, bottom = False, 
+                   labelleft = False, labelbottom = False,)
+axs[1].text(21000, 1.03, 'Test', fontsize=16)
+axs[1].annotate('', xy=(12000,0.9), xytext=(36000,0.9),
+                 arrowprops=dict(arrowstyle='<->'))
+axs[1].plot([12000, 12000], [0, 1], linestyle="dashed", color='k')
+axs[1].plot([36000, 36000], [0, 1], linestyle="dashed", color='k')
+
+
+axs[2].plot(t_us, soc_us)
+axs[2].text(4000,  0.1, '20$^\circ$C', fontsize=10)
+axs[2].text(15000, 0.1, '25$^\circ$C', fontsize=10)
+axs[2].text(26000, 0.1, '30$^\circ$C', fontsize=10)
+axs[2].text(37000, 0.1, '40$^\circ$C', fontsize=10)
+axs[2].text(50000, 0.1, '50$^\circ$C', fontsize=10)
+axs[2].set_ylim([-0.05, 1.22])
+axs[2].set_ylabel('Cycle Type \nTest 2')
+axs[2].tick_params(left = False, bottom = False, 
+                   labelleft = False, labelbottom = False,)
+axs[2].text(20000, 1.03, 'Test', fontsize=16)
+axs[2].annotate('', xy=(11500,0.9), xytext=(34000,0.9),
+                 arrowprops=dict(arrowstyle='<->'))
+axs[2].plot([11500, 11500], [0, 1], linestyle="dashed", color='k')
+axs[2].plot([34000, 34000], [0, 1], linestyle="dashed", color='k')
+fig.savefig(f'Modds/tmp/cross-data.svg', transparent=True)
+# plt.title(f'Interpolated input current of a single cycle {profile} profile '
+#             'sampled at 1Hz'
+#             )
+# plt.ylabel('Current(A)')
+# plt.xlabel('time(s)')
+# plt.ylim([-4.5, 2.5])

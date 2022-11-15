@@ -1,4 +1,11 @@
 # %%
+import sys
+if (sys.version_info[1] < 9):
+  LIST = list
+  TUPLE = tuple
+  from typing import List as list
+  from typing import Tuple as tuple
+  
 import uuid
 from clickhouse_driver import Client
 import pandas as pd
@@ -27,9 +34,13 @@ import gc
 physical_devices = tf.config.experimental.list_physical_devices()
 print(f'Available devices:\n{physical_devices}')
 
-for gpu in physical_devices[1:]:
-    tf.config.experimental.set_memory_growth(
-                                gpu, False)
+# for gpu in physical_devices[1:]:
+#     tf.config.experimental.set_memory_growth(
+#                                 gpu, False)
+tf.config.experimental.set_visible_devices(
+                        physical_devices[1], 'XLA_CPU')
+tf.config.experimental.set_visible_devices(
+                        physical_devices[2], 'XLA_GPU')
 # %%
 database = 'ml_base'
 client = Client(host='192.168.1.254', port=9000, 
@@ -291,12 +302,21 @@ def prep_hist_frame(data : pd.DataFrame, uuID : uuid, file_n : int, dropNans : b
     data['id'] = uuID
 
     # Compress the columnss
-    data['train'] = list(zip(data['train_mae'], data['train_rms'], data['train_r_s']))
-    data = data.drop(['train_mae', 'train_rms', 'train_r_s'], axis=1)
-    data['val'] = list(zip(data['val_mae'], data['val_rms'], data['val_r_s'], data['val_t_s']))
-    data = data.drop(['val_mae', 'val_rms', 'val_r_s', 'val_t_s'], axis=1)
-    data['tes'] = list(zip(data['tes_mae'], data['tes_rms'], data['tes_r_s'], data['tes_t_s']))
-    data = data.drop(['tes_mae', 'tes_rms', 'tes_r_s', 'tes_t_s'], axis=1)
+    if (sys.version_info[1] < 9):
+        data['train'] = LIST(zip(data['train_mae'], data['train_rms'], data['train_r_s']))
+        data = data.drop(['train_mae', 'train_rms', 'train_r_s'], axis=1)
+        data['val'] = LIST(zip(data['val_mae'], data['val_rms'], data['val_r_s'], data['val_t_s']))
+        data = data.drop(['val_mae', 'val_rms', 'val_r_s', 'val_t_s'], axis=1)
+        data['tes'] = LIST(zip(data['tes_mae'], data['tes_rms'], data['tes_r_s'], data['tes_t_s']))
+        data = data.drop(['tes_mae', 'tes_rms', 'tes_r_s', 'tes_t_s'], axis=1)
+
+    else:
+        data['train'] = list(zip(data['train_mae'], data['train_rms'], data['train_r_s']))
+        data = data.drop(['train_mae', 'train_rms', 'train_r_s'], axis=1)
+        data['val'] = list(zip(data['val_mae'], data['val_rms'], data['val_r_s'], data['val_t_s']))
+        data = data.drop(['val_mae', 'val_rms', 'val_r_s', 'val_t_s'], axis=1)
+        data['tes'] = list(zip(data['tes_mae'], data['tes_rms'], data['tes_r_s'], data['tes_t_s']))
+        data = data.drop(['tes_mae', 'tes_rms', 'tes_r_s', 'tes_t_s'], axis=1)
 
     if (dropNans):
         return data.dropna()
@@ -309,7 +329,10 @@ def prep_faulty_frame(data : pd.DataFrame, uuID : uuid, file_n : int, dropNans :
     data['File'] = file_n
     data['id'] = uuID
 
-    data['train'] = list(zip(data['train_mae'], data['train_rms'], data['train_r_s']))
+    if (sys.version_info[1] < 9):
+        data['train'] = LIST(zip(data['train_mae'], data['train_rms'], data['train_r_s']))
+    else:
+        data['train'] = list(zip(data['train_mae'], data['train_rms'], data['train_r_s']))
     data = data.drop(['train_mae', 'train_rms', 'train_r_s'], axis=1)
     if(len(data[data['Epoch'] =='Epoch'])>0):
         data = data[data['Epoch'] !='Epoch']
@@ -622,23 +645,30 @@ def multi_cpu(model, device : str, n_threads : int,
     #         [{'File' : file, 'Attempt' : attempt, 'Profile' : profile,
     #         'mae' : averages[0], 'rms' : averages[1], 'r_s' : averages[2]}]
     #     )
-    client.execute(
-            f'INSERT INTO {database}.{accuracies} '
-            '(id, File, Attempt, Profile, Logits) VALUES ',
-            [{'id' : uuID, 'File' : file, 'Attempt' : attempt, 'Profile' : profile,
-            'Logits' : list(chain.from_iterable(metrics))}]
-        )
+    if (sys.version_info[1] < 9):
+        client.execute(
+                f'INSERT INTO {database}.{accuracies} '
+                '(id, File, Attempt, Profile, Logits) VALUES ',
+                [{'id' : uuID, 'File' : file, 'Attempt' : attempt, 'Profile' : profile,
+                'Logits' : LIST(chain.from_iterable(metrics))}]
+            )
+    else:
+        client.execute(
+                f'INSERT INTO {database}.{accuracies} '
+                '(id, File, Attempt, Profile, Logits) VALUES ',
+                [{'id' : uuID, 'File' : file, 'Attempt' : attempt, 'Profile' : profile,
+                'Logits' : list(chain.from_iterable(metrics))}]
+            )
     print(f'>{device} Worker: {file} on {attempt}x{profile} is over in {toc}!',
           flush=True)
 # %%
 #names : list[str] = ['Chemali2017', 'BinXiao2020', 'TadeleMamo2020']
-names : list[str] = ['MengJiao2020']
-assoc : dict = {'Chemali2017' : 1, 'BinXiao2020' : 2, 'TadeleMamo2020' : 3,
+names : list[str] = ['BinXiao2021']
+assoc : dict = {'Chemali2017' : 1, 'BinXiao2021' : 2, 'TadeleMamo2020' : 3,
                 'GelarehJavid2020' : 4, 'MengJiao2020' : 5}
 # model_names : list[str] = [f'ModelsUp-{i}' for i in range(3,4)]
-attempts : range = range(1,11)
+attempts : range = range(1,4)
 profiles : list[str] = ['DST', 'US06', 'FUDS']
-# profiles : list[str] = ['US06', 'FUDS']
 
 devices : list = ['/cpu:0','/gpu:0','/gpu:1']
 cpu_thread : threading.Thread = None
@@ -668,6 +698,7 @@ for file_name in names:
             # profile = 'FUDS'
             # model_loc = '/home/sadykov/Remote_Battery_SoCv4/Battery_SoCv4/Mods/ModelsUp-2/3xBinXiao2020-(131)/1-FUDS/'
             #* 0) Create a unique associated ID
+            #uuID = client.execute(f'SELECT id FROM {database}.{mapper} WHERE ModelID = 2;')[0][0] '679f4a3a-d968-4bf7-9c84-614d97583a63'
             uuID = create_uuid()
             c_files +=1
 
@@ -692,9 +723,13 @@ for file_name in names:
             #* 3) Table 3 - Faulties
             ## Identify faulty histories.            
             # 5-faulty-history.csv
-            
-            for file in list(filter(re_faulty.match,
-                                    os.listdir(f'{model_loc}'))):
+            if (sys.version_info[1] < 9):
+                fault_file_list = LIST(filter(re_faulty.match,
+                                        os.listdir(f'{model_loc}')))
+            else:
+                fault_file_list = list(filter(re_faulty.match,
+                                        os.listdir(f'{model_loc}')))
+            for file in fault_file_list:
                 df_faulties = pd.read_csv(f'{model_loc}{file}')
                 # df_faulties = prep_faulty_frame(df_faulties, uuID,
                 #                                  c_files, dropNans=False)
@@ -721,7 +756,8 @@ for file_name in names:
             #* 5) Table 5 Models
             #** 5.1) Get epochs to drag models from
             epochs = []
-            epochs.append(get_healthy_epoch(c_file=c_files)-1)
+            # epochs.append(get_healthy_epoch(c_file=c_files)-1)
+            epochs.append(b_Epoch)
             for metric in ['train.mae', 'val.mae', 'tes.mae']:
                 epochs.append(get_min_epoch(c_file=c_files, metric=metric))
             
@@ -731,11 +767,18 @@ for file_name in names:
                 path = model_loc + str(best_epoch)
                 with open(path, 'rb') as file:
                     mls.append(file.read())
-            client.execute(
-                f'INSERT INTO {database}.{models} (id, File, Epochs, latest, train, valid, testi) VALUES ',
-                [{'id' : uuID, 'File' : c_files, 'Epochs' : tuple(epochs),
-                'latest' : mls[0], 'train' : mls[1], 'valid' : mls[2], 'testi' : mls[3]}]
-            )
+            if (sys.version_info[1] < 9):
+                client.execute(
+                    f'INSERT INTO {database}.{models} (id, File, Epochs, latest, train, valid, testi) VALUES ',
+                    [{'id' : uuID, 'File' : c_files, 'Epochs' : TUPLE(epochs),
+                    'latest' : mls[0], 'train' : mls[1], 'valid' : mls[2], 'testi' : mls[3]}]
+                )
+            else:
+                client.execute(
+                    f'INSERT INTO {database}.{models} (id, File, Epochs, latest, train, valid, testi) VALUES ',
+                    [{'id' : uuID, 'File' : c_files, 'Epochs' : tuple(epochs),
+                    'latest' : mls[0], 'train' : mls[1], 'valid' : mls[2], 'testi' : mls[3]}]
+                )
 
             #* 6) Compute the logits
             if(file_name == 'TadeleMamo2020'):
@@ -751,15 +794,9 @@ for file_name in names:
                 args=[model, devices[1], X[cycle_type], Y[cycle_type],
                     uuID, c_files, attempt, profiles[cycle_type]]
                 )
-            gpu_threads[0].start()
+            gpu_threads[0].start()  # Score: 6.1 - 10minutes
+            
             # print('GPU0 - kicks off')
-            #! GPU 1 - Weaker
-            cycle_type = 1 # US06
-            gpu_threads[1] = threading.Thread(target=worker_evaluate,
-                args=[model, devices[2], X[cycle_type], Y[cycle_type],
-                    uuID, c_files, attempt, profiles[cycle_type]]
-                )
-            gpu_threads[1].start()
             # print('GPU1 - kicks off')
             #! CPU - Weakest/Middle
             cycle_type = 2 # FUDS
@@ -771,12 +808,21 @@ for file_name in names:
                         X[cycle_type], Y[cycle_type],
                         uuID, c_files, attempt, profiles[cycle_type]]
                 )
-            cpu_thread.start()
-            # print('CPU - kicks off')
+            cpu_thread.start()  # 12 cores at 40-50% - 20 minutes
+            gpu_threads[0].join()
+            #! GPU 1 - Weaker
+            cycle_type = 1 # US06
+            gpu_threads[1] = threading.Thread(target=worker_evaluate,
+                args=[model, devices[1], X[cycle_type], Y[cycle_type],
+                    uuID, c_files, attempt, profiles[cycle_type]]
+                )
+            gpu_threads[1].start()
+            gpu_threads[1].join()
             cpu_thread.join()
-            for thread in gpu_threads:
-                # print('GPU - join')
-                thread.join()
+            # print('CPU - kicks off')
+            # for thread in gpu_threads:
+            #     # print('GPU - join')
+            #     thread.join()
             print(f'> > {c_files} at {attempt} completed')
             
             #* Clean up the stage 5-6
@@ -787,7 +833,7 @@ for file_name in names:
     #         break
     #     break
     # break
-print("Meng finished - restore attempts and names")
+print("Xiao finished - restore attempts and names")
 # %%
 # def get_meta(c_file) -> tuple:
 #     return client.execute(
