@@ -129,7 +129,7 @@ if(platform=='win32'):
     Data = 'DataWin\\'
 else:
     Data = 'Data/'
-dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Single',
+dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
                               valid_dir=f'{Data}A123_Matt_Val',
                               test_dir=f'{Data}A123_Matt_Test',
                               columns=[
