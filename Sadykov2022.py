@@ -8,6 +8,7 @@ from sys import platform  # Get type of OS
 
 import matplotlib as mpl  # Plot functionality
 import matplotlib.pyplot as plt
+# os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 # plt.switch_backend('agg')       #! FIX in the no-X env: RuntimeError: Invalid DISPLAY variable
 import numpy as np
 import pandas as pd  # File read
@@ -31,18 +32,18 @@ if (sys.version_info[1] < 9):
 import gc
 # %%
 # Extract params
-# try:
-#     opts, args = getopt.getopt(sys.argv[1:],"hd:e:l:n:a:g:p:",
-#                     ["help", "debug=", "epochs=", "layers=", "neurons=",
-#                      "attempt=", "gpu=", "profile=", "step="])
-# except getopt.error as err: 
-#     # output error, and return with an error code 
-#     print (str(err)) 
-#     print ('EXEPTION: Arguments requied!')
-#     sys.exit(2)
+try:
+    opts, args = getopt.getopt(sys.argv[1:],"hd:e:l:n:a:g:p:s:",
+                    ["help", "debug=", "epochs=", "layers=", "neurons=",
+                     "attempt=", "gpu=", "profile=", "step="])
+except getopt.error as err: 
+    # output error, and return with an error code 
+    print (str(err)) 
+    print ('EXEPTION: Arguments requied!')
+    sys.exit(2)
 
-opts = [('-d', 'False'), ('-e', '100'), ('-l', '3'), ('-n', '131'),
-        ('-a', '11'), ('-g', '0'), ('-p', 'FUDS'), ('-s', '30')] # *x524
+# opts = [('-d', 'False'), ('-e', '100'), ('-l', '1'), ('-n', '131'),
+#         ('-a', '11'), ('-g', '0'), ('-p', 'FUDS'), ('-s', '30')] # *x524
 debug   : int = 0
 batch   : int = 1
 mEpoch    : int = 10
@@ -51,7 +52,7 @@ nNeurons: int = 262
 attempt : str = '1'
 GPU       : int = 0
 profile   : str = 'DST'
-out_steps : int = 10
+out_steps : int = 30
 rounding: int = 6
 print(opts)
 for opt, arg in opts:
@@ -399,7 +400,7 @@ n_attempts : int = 10
 # %%
 while iEpoch < mEpoch:
     iEpoch+=1
-    pbar = tqdm(total=y_train.shape[0])
+    # pbar = tqdm(total=y_train.shape[0])
     tic : float = time.perf_counter()
     sh_i = np.arange(y_train.shape[0])
     np.random.shuffle(sh_i)
@@ -412,15 +413,15 @@ while iEpoch < mEpoch:
                                     # curr_error=loss_value
                                     )
         # Progress Bar
-        pbar.update(1)
-        pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
-                                # f'loss: {(loss_value):.4f} - '
-                                f'mae: {MAE.result():.4f} - '
-                                f'rmse: {RMSE.result():.4f} - '
-                                f'rsquare: {RSquare.result():.4f} --- '
-                            )
+        # pbar.update(1)
+        # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
+        #                         # f'loss: {(loss_value):.4f} - '
+        #                         f'mae: {MAE.result():.4f} - '
+        #                         f'rmse: {RMSE.result():.4f} - '
+        #                         f'rsquare: {RSquare.result():.4f} --- '
+        #                     )
     toc : float = time.perf_counter() - tic
-    pbar.close()
+    # pbar.close()
     cLr = optimiser.get_config()['learning_rate']
     print(f'Epoch {iEpoch}/{mEpoch} :: '
             f'Elapsed Time: {toc} - '
@@ -443,10 +444,6 @@ while iEpoch < mEpoch:
         while i_attempts < n_attempts:
             print(f'->>> Attempt {i_attempts}')
             try:
-                model.save(filepath=f'{model_loc}{iEpoch}-fail-{i_attempts}',
-                        overwrite=True, include_optimizer=True,
-                        save_format='h5', signatures=None, options=None
-                )
                 model.save_weights(
                     filepath=f'{model_loc}{iEpoch}/{iEpoch}-fail-{i_attempts}',
                     overwrite=True, save_format='tf', options=None

@@ -218,9 +218,9 @@ class AutoFeedBack(tf.keras.Model):
       predictions = predictions.write(0, prediction)
       
       # Run the rest of the prediction steps
-      # for n in range(1, self.out_steps):
-      for n in tf.range(1, self.out_steps, delta=1,
-                        dtype=tf.int32, name='range'):
+      for n in range(1, self.out_steps):
+      # for n in tf.range(1, self.out_steps, delta=1,
+      #                   dtype=tf.int32, name='range'):
         # Use the last prediction as input.
         x = tf.concat(
                     values=[
