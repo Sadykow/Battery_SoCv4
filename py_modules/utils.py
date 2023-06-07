@@ -44,35 +44,38 @@ def Locate_Best_Epoch(file_path : str,
   Returns:
       int: The index or the epoch number which had best result.
   """
+  # df : DataFrame = read_csv(
+  #           filepath_or_buffer=file_path, sep=",", delimiter=None,
+  #           # Column and Index Locations and Names
+  #           header="infer", names=None, index_col=None, usecols=None,
+  #           prefix=None, mangle_dupe_cols=True,
+  #           # General Parsing Configuration
+  #           dtype=None, engine=None, converters=None, true_values=None,
+  #           false_values=None, skipinitialspace=False, skiprows=None,
+  #           skipfooter=0, nrows=None,
+  #           # NA and Missing Data Handling
+  #           na_values=None, keep_default_na=True, na_filter=True,
+  #           verbose=False, skip_blank_lines=True,
+  #           # Datetime Handling
+  #           parse_dates=False, infer_datetime_format=False,
+  #           keep_date_col=False, date_parser=None, dayfirst=False,
+  #           cache_dates=True,
+  #           # Iteration
+  #           iterator=False, chunksize=None,
+  #           # Quoting, Compression, and File Format
+  #           compression="infer", thousands=None, decimal = ".",
+  #           lineterminator=None, quotechar='"', quoting=0, doublequote=True,
+  #           escapechar=None, comment=None, encoding=None, dialect=None,
+  #           # Error Handling
+  #           error_bad_lines=None, warn_bad_lines=None,
+  #           # Internal
+  #           delim_whitespace=False, low_memory=True, memory_map=False,
+  #           float_precision=None
+  #       ) #? FutureWarning: The warn_bad_lines, error_bad_lines argument has been deprecated and will be removed in a future version.
+  #         #? FutureWarning: The squeeze argument has been deprecated and will be removed in a future version. Append .squeeze("columns") to the call to squeeze.
   df : DataFrame = read_csv(
-            filepath_or_buffer=file_path, sep=",", delimiter=None,
-            # Column and Index Locations and Names
-            header="infer", names=None, index_col=None, usecols=None,
-            prefix=None, mangle_dupe_cols=True,
-            # General Parsing Configuration
-            dtype=None, engine=None, converters=None, true_values=None,
-            false_values=None, skipinitialspace=False, skiprows=None,
-            skipfooter=0, nrows=None,
-            # NA and Missing Data Handling
-            na_values=None, keep_default_na=True, na_filter=True,
-            verbose=False, skip_blank_lines=True,
-            # Datetime Handling
-            parse_dates=False, infer_datetime_format=False,
-            keep_date_col=False, date_parser=None, dayfirst=False,
-            cache_dates=True,
-            # Iteration
-            iterator=False, chunksize=None,
-            # Quoting, Compression, and File Format
-            compression="infer", thousands=None, decimal = ".",
-            lineterminator=None, quotechar='"', quoting=0, doublequote=True,
-            escapechar=None, comment=None, encoding=None, dialect=None,
-            # Error Handling
-            error_bad_lines=None, warn_bad_lines=None,
-            # Internal
-            delim_whitespace=False, low_memory=True, memory_map=False,
-            float_precision=None
-        ) #? FutureWarning: The warn_bad_lines, error_bad_lines argument has been deprecated and will be removed in a future version.
-          #? FutureWarning: The squeeze argument has been deprecated and will be removed in a future version. Append .squeeze("columns") to the call to squeeze.
+            filepath_or_buffer=file_path, sep=","
+        )
   #! Try catch to fix all files
   try:
     iEpoch : int = df['Epoch'][df[metric].idxmin()]

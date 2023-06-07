@@ -250,6 +250,143 @@ class AutoFeedBack(tf.keras.Model):
       # print(f'Validation shape: {predictions[0].shape}')
       return self.tf_round(predictions[0], decimals=2)
 
+  @tf.function(experimental_compile=True)
+  def call_while(self, inputs, training=None):
+    """ Primary call method to iterate over the training. Two separate ways
+    implements different procedures for training and testing. Testing procedure
+    no different than any regular predictions.
+    This version relies on the while loop implementation.
+
+    Args:
+        inputs (tf.Array): Input feature samples with hostiry samples
+        training (bool, optional): Separates procedure between training/fit
+        and testing/prediction. Defaults to None.
+
+    Returns:
+        tf.Array: Final array of prediction or predictions of out_steps.
+    """
+    if training:
+      # Use a TensorArray to capture dynamically unrolled outputs.
+      # predictions = tf.TensorArray(self.float_dtype, size=self.out_steps,
+      #           dynamic_size=False, clear_after_read=False,
+      #           tensor_array_name=None, handle=None, flow=None,
+      #           infer_shape=True, element_shape=tf.TensorShape([1, None]),
+      #           colocate_with_first_write_call=True, name=None)
+      predictions = tf.Variable([0.0]*self.out_steps, dtype=self.float_dtype)
+      # Initialize the lstm state # -> (1, 492, 4)
+      # print(f"First Input Shape: {inputs[:,:-self.out_steps,:].shape}") 
+      prediction, state = self.warmup(inputs[:,:-self.out_steps,:])
+      # print(f"Warmup Pred:  {prediction.shape}") #-> (1,)
+      # for i in range(len(prediction)):
+      #   print(f"Warmup Pred[{i}]: {prediction[i].shape}")
+      #   # print(f"Warmup Pred[0]:  {prediction[0].shape}") #-> (1,)
+      
+      # try:
+      #   print(f"Warmup Len State: {len(state)}") #-> 2
+      #   for i in range(len(state)):
+      #     print(f"Warmup State[{i}]: {state[i].shape}")
+      #     # -> 2 -> (1,510)
+      # except Exception as e:
+      #   print("Failed to get len state")
+      
+      # Insert the first prediction
+      n = tf.constant(0)
+      # predictions = predictions.write(n, prediction)
+      predictions = tf.concat(values=[predictions, prediction[0]], axis=0)
+      predictions = predictions[1:]
+      # n = 0
+      # print(f"Counter: {n.get_shape()}")
+      tf.add(x=n,y=1,name='condition')
+      # n += 1
+      # print(f"Counter+1: {n.get_shape()}")
+      # print(f'Out_steps: {self.out_steps}')
+      # print(f'Num_feataures: {self.num_feat}')
+      # cond = lambda i: tf.less(x=n, y=self.out_steps)
+      def cond(n, out_steps, *args):
+        return tf.less(x=n, y=out_steps)
+    
+      def inner_loop(n : tf.Tensor, out_steps : int, num_feat : int,
+                     inputs : tf.TensorArray, prediction, state,
+                     predictions : tf.TensorArray):
+        # Use the last prediction as input.
+        x = tf.concat(
+                    values=[
+                        inputs[:,-out_steps+n,:-num_feat],
+                        prediction
+                        ],
+                    axis=1
+                )
+        # print(f"Concated: {x.shape}")
+        # Execute one lstm step.
+        x, state = self.lstm_cell(
+                x,
+                states=state,
+                training=training)
+        # Convert the lstm output to a prediction.
+        prediction = self.dense(x)
+        # Add the prediction to the output
+        # predictions = predictions.write(n, prediction)
+        predictions = tf.concat(values=[predictions, prediction[0]], axis=0)
+        predictions = predictions[1:]
+        # print(f">Warmup Pred:  {prediction.shape}") #-> (1,)
+        # for i in range(len(predictions)):
+        #   print(f">Warmup Pred[{i}]: {prediction[i].shape}")
+        #   # print(f"Warmup Pred[0]:  {prediction[0].shape}") #-> (1,)
+        
+        # try:
+        #   print(f">>Warmup Len State: {len(state)}") #-> 2
+        #   for i in range(len(state)):
+        #     print(f">>Warmup State[{i}]: {state[i].shape}")
+        # except Exception as e:
+        #   print(">>Failed to get len state")
+
+        # print(f'Input shape: {inputs.shape}')
+        # print(f'Input type: {type(inputs)}')
+        # print(f"Counter: {n.get_shape()}")
+        tf.add(x=n,y=1,name='condition')
+        # n += 1
+        # print(f"Counter+1: {n.get_shape()}")
+        # print(f'Out_steps: {out_steps}')
+        # print(f'Num_feataures: {num_feat}')
+        return n, out_steps, num_feat, inputs, prediction, state, predictions
+
+      # print(f'Input type: {type(inputs)}')
+      # _, _, _, _, _, _, result = tf.nest.map_structure(
+      #   tf.stop_gradient,
+      #   tf.while_loop(
+      #     cond=cond,
+      #     body=inner_loop,
+      #     loop_vars=[n, self.out_steps, self.num_feat,
+      #               inputs, prediction, state,
+      #               predictions],
+      #     shape_invariants=None,
+      #     parallel_iterations=10,
+      #     back_prop=True, swap_memory=False, maximum_iterations=self.out_steps,
+      #     name='AutoFeedBack'
+      #   )
+      # )
+      _, _, _, _, _, _, result = tf.while_loop(
+          cond=cond,
+          body=inner_loop,
+          loop_vars=[n, self.out_steps, self.num_feat,
+                    inputs, prediction, state,
+                    predictions],
+          shape_invariants=[n.get_shape(),n.get_shape(),n.get_shape(),
+                    inputs.shape, prediction.shape,[state[0].shape,state[0].shape], predictions.get_shape()],
+          parallel_iterations=10,
+          back_prop=True, swap_memory=False, maximum_iterations=self.out_steps,
+          name='AutoFeedBack'
+        )
+
+      # return result.stack()[:,0,0]
+      return result
+
+    else:
+      x, *_ = self.lstm_rnn(inputs, training=training)
+      predictions = self.dense(x)
+      # print(f'Validation shape: {predictions[0].shape}')
+      return self.tf_round(predictions[0], decimals=2)
+
   @tf.function
   def tf_round(self, x : tf.Tensor, decimals : int = 2):
     """ Direct rounding, similar to the simple tf.round. Resets gradient.
