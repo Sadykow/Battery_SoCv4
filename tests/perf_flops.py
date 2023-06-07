@@ -229,7 +229,7 @@ def get_flops(model):
             )
         return flops.total_float_ops
 # %%
-N : int = 5
+N : int = 4
 model_h5_file : str = f'../Models/{authors[N]}/{profile}-models/{versions[N]}'
 # lstm_model = tf.keras.models.load_model(model_h5_file, compile=False)
 model : tf.keras.models.Sequential = tf.keras.models.load_model(
@@ -242,4 +242,5 @@ model : tf.keras.models.Sequential = tf.keras.models.load_model(
         )
 model.summary()
 print('The FLOPs is: {}'.format(get_flops(model)), flush=True)
+print(f'For {authors[N]} and {versions[N]}')
 # %%
