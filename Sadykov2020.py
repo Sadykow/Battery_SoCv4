@@ -95,7 +95,7 @@ for opt, arg in opts:
 # Define plot sizes
 mpl.rcParams['figure.figsize'] = (8, 6)
 mpl.rcParams['axes.grid'] = False
-# mpl.rcParams['font.family'] = 'Bender'
+mpl.rcParams['font.family'] = 'Bender'
 
 # Configurage logger and print basics
 logging.basicConfig(level=logging.CRITICAL,        
@@ -136,7 +136,7 @@ if(platform=='win32'):
     Data = 'DataWin\\'
 else:
     Data = 'Data/'
-dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Set',
+dataGenerator = DataGenerator(train_dir=f'{Data}A123_Matt_Val',
                               valid_dir=f'{Data}A123_Matt_Val',
                               test_dir=f'{Data}A123_Matt_Test',
                               columns=[
@@ -259,9 +259,9 @@ except OSError as identifier:
 prev_model = tf.keras.models.clone_model(lstm_model)
 
 # %%
-optimiser = RobustAdam(learning_rate = iLr)
-# optimiser = tf.optimizers.Adam(learning_rate=iLr,
-#             beta_1=0.9, beta_2=0.999, epsilon=1e-07, amsgrad=False)
+# optimiser = RobustAdam(learning_rate = iLr)
+optimiser = tf.optimizers.Adam(learning_rate=iLr,
+            beta_1=0.9, beta_2=0.999, epsilon=1e-07, amsgrad=False)
 loss_fn   = tf.losses.MeanAbsoluteError(
                     reduction=tf.keras.losses.Reduction.NONE,
                     #from_logits=True
@@ -288,7 +288,7 @@ def train_single_st(input : tuple[np.ndarray, np.ndarray],
                     loss_value,
                     lstm_model.trainable_weights
                 )
-    optimiser.update_loss(prev_loss=curr_error, current_loss=loss_value)
+    # optimiser.update_loss(prev_loss=curr_error, current_loss=loss_value)
     optimiser.apply_gradients(zip(grads, lstm_model.trainable_weights))
     
     # Update metrics before
@@ -406,7 +406,7 @@ if not os.path.exists(f'{model_loc}cycles-log'):
 n_attempts : int = 10
 while iEpoch < mEpoch:
     iEpoch+=1
-    # pbar = tqdm(total=y_train.shape[0])
+    pbar = tqdm(total=y_train.shape[0])
     tic : float = time.perf_counter()
     sh_i = np.arange(y_train.shape[0])
     np.random.shuffle(sh_i)
@@ -419,15 +419,15 @@ while iEpoch < mEpoch:
                                     curr_error=loss_value
                                     )
         # Progress Bar
-        # pbar.update(1)
-        # pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
-        #                         f'loss: {(loss_value[0]):.4f} - '
-        #                         f'mae: {MAE.result():.4f} - '
-        #                         f'rmse: {RMSE.result():.4f} - '
-        #                         f'rsquare: {RSquare.result():.4f} --- '
-        #                     )
+        pbar.update(1)
+        pbar.set_description(f'Epoch {iEpoch}/{mEpoch} :: '
+                                f'loss: {(loss_value[0]):.4f} - '
+                                f'mae: {MAE.result():.4f} - '
+                                f'rmse: {RMSE.result():.4f} - '
+                                f'rsquare: {RSquare.result():.4f} --- '
+                            )
     toc : float = time.perf_counter() - tic
-    # pbar.close()
+    pbar.close()
     cLr = optimiser.get_config()['learning_rate']
     print(f'Epoch {iEpoch}/{mEpoch} :: '
             f'Elapsed Time: {toc} - '

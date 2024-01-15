@@ -58,7 +58,11 @@ def get_table(table : str):
     return client.execute(f'SELECT * FROM {database}.{table}')
 def create_uuid():
     return client.execute('SELECT generateUUIDv4();')[0][0]
-
+# create user backupAdmin identified with plaintext_password by 'BackUp';
+# grant CREATE TABLE,CREATE DATABASE on *.* to backupAdmin;
+# grant INSERT ON *.* to backupAdmin;
+# OR
+# GRANT ALL ON *.* TO backupAdmin;
 # %%
 #? 1) Mapper table ['File', 'ModelID', 'Profile', 'Attempt', 'Name' 'Hist_plots(train, valid)',
 #?                                                    'Best_plots(train, valid, test1, test2)']
