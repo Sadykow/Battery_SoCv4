@@ -72,7 +72,7 @@ Later, it was meant to be applied to TPU processors with Artemis controllers.
 
 
 ## Publications
-* M. Sadykov, S. Haines, M. Broadmeadow, G. Walker, and D. W. Holmes, “Practical evaluation of Lithium-Ion battery State of Charge estimation using Time-Series Machine Learning for Electric Vehicles,” Energies, Dec. 2022, Accessed: Dec. 23, 2022. [Online](https://susy.mdpi.com/user/manuscripts/review_info/b800911c303f2ea65f8f8b17aba7dabb).
+* M. Sadykov, S. Haines, M. Broadmeadow, G. Walker, and D. W. Holmes, “Practical evaluation of Lithium-Ion battery State of Charge estimation using Time-Series Machine Learning for Electric Vehicles,” Energies, Dec. 2022, Accessed: Dec. 23, 2022. [https://www.mdpi.com/2119578](https://www.mdpi.com/2119578).
 
 The first publication focuses on the methodology, comparing the five unique models, identifying flaws, and studying the implementations.
 
